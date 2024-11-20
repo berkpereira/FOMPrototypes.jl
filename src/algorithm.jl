@@ -27,8 +27,6 @@ function iterate!(problem::QPProblem, x::Vector{Float64}, s::Vector{Float64}, y:
         start_idx = end_idx + 1
     end
 
-    s_new = max.(b - A * x_new - y / ρ, 0)
-
     ### Step 3: Update y ###
     y_new = y + ρ * (A * x_new + s_new - b)
 
