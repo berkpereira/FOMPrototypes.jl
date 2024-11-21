@@ -29,4 +29,64 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     # Return data as a named tuple for ease of access
     return (P = P, A = A, m = m, n = n, c = c, b = b, K = K)
 end;
+
+function filter_clarabel_problems(
+    problem_set::String;
+    min_m::Union{Int, Nothing} = nothing,
+    max_m::Union{Int, Nothing} = nothing,
+    min_n::Union{Int, Nothing} = nothing,
+    max_n::Union{Int, Nothing} = nothing,
+    min_num_cones::Union{Int, Nothing} = nothing,
+    max_num_cones::Union{Int, Nothing} = nothing,
+    admissible_cones::Union{Vector{DataType}, Nothing} = [Clarabel.NonnegativeConeT, Clarabel.ZeroConeT]
+)
+    # Retrieve all problems in the specified problem set
+    all_problems = ClarabelBenchmarks.PROBLEMS[problem_set]
+
+    # Initialize an empty list for matching problem names
+    matching_problems = []
+
+    # Loop through each problem in the problem set
+    for (problem_name, problem) in all_problems
+        # Load the problem data
+        data = load_clarabel_benchmark_prob_data(problem_set, problem_name)
+        P, A, m, n, c, b, K = data.P, data.A, data.m, data.n, data.c, data.b, data.K
+
+        # Check dimensions (m and n)
+        if !isnothing(min_m) && m < min_m
+            continue
+        end
+        if !isnothing(max_m) && m > max_m
+            continue
+        end
+        if !isnothing(min_n) && n < min_n
+            continue
+        end
+        if !isnothing(max_n) && n > max_n
+            continue
+        end
+
+        # Check the number of cones
+        num_cones = length(K)
+        if !isnothing(min_num_cones) && num_cones < min_num_cones
+            continue
+        end
+        if !isnothing(max_num_cones) && num_cones > max_num_cones
+            continue
+        end
+
+        # Check admissible cone types
+        if !isnothing(admissible_cones)
+            if any(cone -> !(typeof(cone) in admissible_cones), K)
+                continue
+            end
+        end
+
+        # If all conditions pass, add the problem name to the list
+        push!(matching_problems, problem_name)
+    end
+
+    # Return the list of matching problems
+    return matching_problems
+end;
 ;
