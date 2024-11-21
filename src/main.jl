@@ -2,8 +2,10 @@ include("QPProblem.jl")
 include("utils.jl")
 include("problem_data.jl")
 include("algorithm.jl")
+include("printing.jl")
 
 using Printf
+using SCS
 
 
 problem_set = "maros";
@@ -16,7 +18,7 @@ problem_name = "HS21";
 # int in {1, 2, 3, 4}
 variant = 1;
 
-################################################################################
+############################# PROTOTYPE SOLUTION ###############################
 
 data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
@@ -69,22 +71,46 @@ println("\nPrototype FOM results:")
     join(map(zi -> @sprintf("%12.5e", zi), s), ", "),
     join(map(yi -> @sprintf("%12.5e", yi), y), ", "))
 
-"""
-# OSQP, SCS solution, essentially test difficulty of problem
-using OSQP
+############################### SCS SOLUTION ###################################
 
-# Convert problem data to sparse type
-P_osqp = sparse(P)
-A_osqp = sparse(A)
-# Create OSQP object
-prob = OSQP.Model()
-# Set up workspace and change alpha parameter
-OSQP.setup!(prob; P=P_osqp, q=c, A=A_osqp, u=b, alpha=1, verbose=false)
-# Solve problem
-results = OSQP.solve!(prob);
+println("\nRunning SCS...")
 
-# Print OSQP results
-println("OSQP results:")
-println("x = [", join(map(v -> @sprintf("%12.5e", v), results.x), ", "), "]")
-println("y = [", join(map(v -> @sprintf("%12.5e", v), results.y), ", "), "]")
-""";
+# Define the SCS optimizer
+model = Model(SCS.Optimizer)
+set_silent(model)
+# Define primal variables x and s
+@variable(model, x[1:n])    # Primal variables in R^n
+@variable(model, s[1:m])    # Slack variables in R^m
+
+# Add constraints for Ax + s = b
+@constraint(model, con, A * x + s .== b)
+
+# Constrain s to the product of cones K
+start_idx = 1
+for cone in K
+    end_idx = start_idx + cone.dim - 1
+    if cone isa Clarabel.NonnegativeConeT
+        # Nonnegative cone constraint for this block of s
+        @constraint(model, s[start_idx:end_idx] in MOI.Nonnegatives(cone.dim))
+    elseif cone isa Clarabel.ZeroConeT
+        # Zero cone constraint for this block of s
+        @constraint(model, s[start_idx:end_idx] in MOI.Zeros(cone.dim))
+    else
+        error("Unsupported cone type in K: $cone")
+    end
+    start_idx = end_idx + 1
+end
+
+# Add the quadratic objective: (1/2)x'Px + c'x
+@objective(model, Min, 0.5 * dot(x, P * x) + dot(c, x))
+
+# Solve the optimization problem
+optimize!(model)
+
+# Extract solutions
+x_scs = value.(x)
+s_scs = value.(s)
+y_scs = dual.(con)  # Dual variables (Lagrange multipliers)
+
+# Print results for SCS
+print_results("SCS", x_scs, s_scs, y_scs, max_iters)
