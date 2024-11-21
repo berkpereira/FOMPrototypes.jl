@@ -17,9 +17,9 @@ using Plots
 # problem_name = "HUESTIS";
 
 problem_set = "sslsq";
-problem_name = "HB_ash219_lasso"
-# also suitable from sslsq: "HB_ash85_huber"
-# "HB_ash85_lasso"
+problem_name = "HB_ash219_lasso" # pretty good solution from prototype
+# problem_name = "HB_ash85_huber" # very slow convergence w prototype
+# problem_name = "HB_ash85_lasso" # stagnates badly at about 2e-3 objective error from SCS solution
 
 
 ############################## FETCH DATA ######################################
@@ -68,7 +68,7 @@ obj_scs = objective_value(model);
 # int in {1, 2, 3, 4}
 variant = 1
 
-max_iters = 400;  # Maximum number of iterations (adjust as needed)
+max_iters = 200;  # Maximum number of iterations (adjust as needed)
 print_modulo = 50;  # Print every print_modulo iterations
 
 
@@ -93,6 +93,7 @@ obj_vals = Float64[];
 primal_residuals = Float64[];
 dual_residuals = Float64[];
 
+
 # Main iteration loop
 println("Running prototype variant $variant...")
 for k in 0:max_iters
@@ -100,13 +101,17 @@ for k in 0:max_iters
     curr_obj = 0.5 * dot(x, P * x) + dot(c, x)
     curr_primal_res = norm(A * x + s - b)
     curr_dual_res = norm(P * x + A' * y + c)
+    curr_duality_gap = dot(x, P * x) + dot(c, x) + dot(b, y)
     push!(obj_vals, curr_obj)
     push!(primal_residuals, curr_primal_res)
     push!(dual_residuals, curr_dual_res)
     
     # Print each iteration result with formatted output on a single line
+    # NOTE: it seems that SCS uses switched sign in the dual variable compared
+    # to me, which is fair because it is the multiplier of equality
+    # constraints. (hence the sign switch in the error below)
     if k % print_modulo == 0
-        @printf("Iter %4.1d | Obj: %12.5e (err: %12.5e)| x err: %12.5e | s err: %12.5e | y err: %12.5e | Primal res: %12.5e | Dual res: %12.5e\n", k, curr_obj, curr_obj - obj_scs, norm(x - x_scs), norm(s - s_scs), norm(y - y_scs), curr_primal_res, curr_dual_res)
+        @printf("Iter %4.1d | Obj: %12.5e (err: %12.5e)| x err: %12.5e | s err: %12.5e | y err: %12.5e | Primal res: %12.5e | Dual res: %12.5e | Duality gap: %12.5e\n", k, curr_obj, curr_obj - obj_scs, norm(x - x_scs), norm(s - s_scs), norm(y - (-y_scs)), curr_primal_res, curr_dual_res, curr_duality_gap)
     end
 
     # Use method iteration
