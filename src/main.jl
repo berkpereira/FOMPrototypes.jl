@@ -18,11 +18,11 @@ using Plots
 
 problem_set = "sslsq";
 problem_name = "HB_ash219_lasso"
-# also decent from sslsq: "HB_ash85_huber"
+# also suitable from sslsq: "HB_ash85_huber"
 # "HB_ash85_lasso"
 
 
-############################## BASIC SETUP #####################################
+############################## FETCH DATA ######################################
 
 data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
@@ -58,10 +58,6 @@ s_scs = value.(s_scs);
 y_scs = dual.(con);  # Dual variables (Lagrange multipliers)
 obj_scs = objective_value(model);
 ;
-
-
-
-
 
 ############################# PROTOTYPE SOLUTION ###############################
 
@@ -117,16 +113,9 @@ for k in 0:max_iters
     iterate!(problem, x, s, y)
 end
 ;
-# Print final solution on a single line
-# println("\nPrototype FOM results:")
-# @printf("x = [%s]  s = [%s]  y = [%s]\n",
-#     join(map(xi -> @sprintf("%12.5e", xi), x), ", "),
-#     join(map(zi -> @sprintf("%12.5e", zi), s), ", "),
-#     join(map(yi -> @sprintf("%12.5e", yi), y), ", "))
 
 # Plot objective values
 plot(0:max_iters, obj_vals, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective")
 
 # Plot primal residuals
 plot(0:max_iters, primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm")
-
