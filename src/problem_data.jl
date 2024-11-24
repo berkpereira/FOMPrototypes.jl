@@ -10,7 +10,7 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     # We could enable it to get a better conditioned problem, but then any
     # but then any convergence checks would be checking something different 
     # compared to other solvers.
-    optimizer = optimizer_with_attributes(Clarabel.Optimizer,"equilibrate_enable"=>false)
+    optimizer = optimizer_with_attributes(Clarabel.Optimizer, "equilibrate_enable"=>true)
 
     # create and populate a solver, but don't solve
     model = problem(Model(optimizer); solve = false) 
