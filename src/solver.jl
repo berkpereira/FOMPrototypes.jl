@@ -14,10 +14,18 @@ function iter_x!(x::AbstractVector{Float64},
     c::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     y::AbstractVector{Float64},
-    y_prev::AbstractVector{Float64})
-    # NOTE: pre_matrix should already have been inverted!
+    y_prev::AbstractVector{Float64},
+    return_step::Bool = false)
+
+    # NOTE: pre_matrix is stored inverted, hence just multiplication here.
     step = - pre_matrix * (P * x + c + A' * (2 * y - y_prev))
     x .+= step
+    
+    if return_step
+        return step
+    else
+        return nothing
+    end
 end
 
 function iter_s!(s::AbstractVector{Float64},
@@ -26,7 +34,12 @@ function iter_s!(s::AbstractVector{Float64},
     b::AbstractVector{Float64},
     y::AbstractVector{Float64},
     K::Vector{Clarabel.SupportedCone},
-    ρ::Float64)
+    ρ::Float64,
+    return_step::Bool = false)
+
+    if return_step
+        s_old = copy(s)
+    end
 
     s .= b - A * x - y / ρ
 
@@ -45,6 +58,12 @@ function iter_s!(s::AbstractVector{Float64},
         
         start_idx = end_idx + 1
     end
+
+    if return_step
+        return s - s_old
+    else
+        return nothing
+    end
 end
 
 function iter_y!(y::AbstractVector{Float64},
@@ -52,15 +71,23 @@ function iter_y!(y::AbstractVector{Float64},
     x::AbstractVector{Float64},
     s::AbstractVector{Float64},
     b::AbstractVector{Float64},
-    ρ::Float64)
-    y .+= ρ * (A * x + s - b)
+    ρ::Float64,
+    return_step::Bool = false)
+    if return_step
+        step = ρ * (A * x + s - b)
+        y .+= step
+        return step
+    else
+        y .+= ρ * (A * x + s - b)
+        return nothing
+    end
 end
-
 
 function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
     s::Vector{Float64}, y::Vector{Float64}, τ::Float64, ρ::Float64,
     A_gram::AbstractMatrix, max_iter::Integer, print_modulo::Integer,
-    restart_period::Real = Inf)
+    restart_period::Real = Inf, residual_norm::Real = Inf,
+    return_run_data::Bool = false)
 
     # Unpack problem data for easier reference
     P, c, A, b, K = problem.P, problem.c, problem.A, problem.b, problem.K
@@ -83,6 +110,28 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
     dual_res = zeros(Float64, n)
     dual_res_temp = zeros(Float64, n)
     j = 0
+
+    # Data containers for metrics (if return_run_data).
+    if return_run_data
+        x_step_angles = Float64[]
+        s_step_angles = Float64[]
+        y_step_angles = Float64[]
+        primal_obj_vals = Float64[]
+        dual_obj_vals = Float64[]
+        primal_res_norms = Float64[]
+        dual_res_norms = Float64[]
+        x_step = zeros(Float64, n)
+        s_step = zeros(Float64, m)
+        y_step = zeros(Float64, m)
+        x_step_prev = zeros(Float64, n)
+        s_step_prev = zeros(Float64, m)
+        y_step_prev = zeros(Float64, m)
+    else
+        x_step_prev = nothing
+        s_step_prev = nothing
+        y_step_prev = nothing
+    end
+
     for k in 0:max_iter
         # Update average iterates
         if restart_period != Inf
@@ -104,31 +153,61 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
             end
         end
 
-        # Compute residuals and objective values.
+        # Compute residuals, their norms, and objective values.
         primal_residual!(primal_res, A, x, s, b)
         dual_residual!(dual_res, dual_res_temp, P, A, x, y, c)
+        curr_primal_res_norm = norm(primal_res, residual_norm)
+        curr_dual_res_norm = norm(dual_res, residual_norm)
         primal_obj = primal_obj_val(P, c, x)
         dual_obj = dual_obj_val(P, b, x, y)
         gap = duality_gap(primal_obj, dual_obj)
 
+        # Print iteration info.
         if k % print_modulo == 0
             # Note that the l-infinity norm is customary for residuals.
-            print_results(k, primal_obj, norm(primal_res, Inf), norm(dual_res, Inf), abs(gap))
+            print_results(k, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap))
         end
-        
-        # Iterate
-        iter_x!(x, pre_matrix, P, c, A, y, y_prev)
-        iter_s!(s, A, x, b, y, K, ρ)
-        iter_y!(y, A, x, s, b, ρ)
 
-        # Keep "previous" dual variable
+        # Store metrics if requested.
+        if return_run_data
+            push!(primal_obj_vals, primal_obj)
+            push!(dual_obj_vals, dual_obj)
+            push!(primal_res_norms, curr_primal_res_norm)
+            push!(dual_res_norms, curr_dual_res_norm)
+        end
+
+        # Iterate.
+        x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev, return_run_data)
+        s_step = iter_s!(s, A, x, b, y, K, ρ, return_run_data)
+        y_step = iter_y!(y, A, x, s, b, ρ, return_run_data)
+
+        # Note: we skip the first iteration, when there is no "previous" step.
+        if return_run_data && k >= 1
+            # Question: split angles into steps in different variables or not?
+            x_step_angle = acos(dot(x_step, x_step_prev) / (norm(x_step) * norm(x_step_prev)))
+            s_step_angle = acos(dot(s_step, s_step_prev) / (norm(s_step) * norm(s_step_prev)))
+            y_step_angle = acos(dot(y_step, y_step_prev) / (norm(y_step) * norm(y_step_prev)))
+            push!(x_step_angles, x_step_angle)
+            push!(s_step_angles, s_step_angle)
+            push!(y_step_angles, y_step_angle)
+        end
+
+        x_step_prev = isnothing(x_step) ? nothing : copy(x_step)
+        s_step_prev = isnothing(s_step) ? nothing : copy(s_step)
+        y_step_prev = isnothing(y_step) ? nothing : copy(y_step)
+
+
+        # Keep "previous" dual variable, used in the x update.
         y_prev = y
 
         j += 1
     end
 
-    # Return final iterates and objective values
-    return x, s, y, primal_obj_val(P, c, x), dual_obj_val(P, b, x, y)
+    if return_run_data
+        return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, x_step_angles, s_step_angles, y_step_angles
+    else
+        return primal_obj_val(P, c, x), dual_obj_val(P, b, x, y)
+    end
 end
 
 end # module PrototypeMethod
