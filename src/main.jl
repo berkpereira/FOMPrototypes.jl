@@ -10,19 +10,19 @@ using Plots
 
 ############################## FIND PROBLEMS ###################################
 
-search_problem_set = "sslsq"
+# search_problem_set = "sslsq"
 
-suitable_problems = filter_clarabel_problems(search_problem_set, min_m = 1, min_n = 100)
+# suitable_problems = filter_clarabel_problems(search_problem_set, min_m = 1, min_n = 100)
 
-# Write to a file whose name depends on search_problem_set string
-names_file = "./search_results_$search_problem_set.txt"
-open(names_file, "w") do f
-    for problem in suitable_problems
-        println(f, problem)
-    end
-end
+# # Write to a file whose name depends on search_problem_set string
+# names_file = "./search_results_$search_problem_set.txt"
+# open(names_file, "w") do f
+#     for problem in suitable_problems
+#         println(f, problem)
+#     end
+# end
 
-retrieved_problems = readlines(names_file)
+# retrieved_problems = readlines(names_file)
 
 
 ############## CHOOSE PROBLEM SET AND PROBLEM NAME #############################
@@ -82,7 +82,7 @@ obj_scs = objective_value(model);
 
 # Choose algorithm based on M1 construction
 # int in {1, 2, 3, 4}
-variant = 1
+variant = 2
 A_gram = A' * A
 take_away = take_away_matrix(variant, A_gram);
 
