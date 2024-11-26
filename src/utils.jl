@@ -26,7 +26,9 @@ function diag_part(A::AbstractMatrix{Float64})
     # else
     #     return Diagonal(diag(A))     # Create a dense diagonal matrix
     # end
-    return Diagonal(diag(A))
+    # NOTE: we make the vector of the diagonal have a dense type, since none
+    # of the entries are zero (we will usually invert this matrix).
+    return Diagonal(Vector(diag(A)))
 end;
 
 # Returns a matrix with zero diagonal and other entries the same as A
@@ -81,7 +83,7 @@ function pre_x_step_matrix(variant_no::Integer, P::SparseMatrixCSC,
     else
         error("Invalid variant: $variant_no.")
     end
-
+    
     println(typeof(pre_matrix))
     
     # Invert
