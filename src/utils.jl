@@ -4,14 +4,29 @@ using JuMP
 using SCS
 using Statistics
 using Clarabel
+using FFTW
+
+function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
+    return 0.5 * dot(x, P * x) + dot(c, x)
+end
+
+function dual_obj_val(P::AbstractMatrix{Float64}, b::AbstractVector{Float64},
+    x::AbstractVector{Float64}, y::AbstractVector{Float64})
+    return -0.5 * dot(x, P * x) - dot(b, y)
+end
+
+function duality_gap(primal_val::Float64, dual_val::Float64)
+    return primal_val - dual_val
+end
 
 # Extracts the diagonal of a square matrix (works with sparse/dense matrices)
 function diag_part(A::AbstractMatrix{Float64})
-    if A isa SparseMatrixCSC
-        return spdiagm(0 => diag(A))  # Create a sparse diagonal matrix
-    else
-        return Diagonal(diag(A))     # Create a dense diagonal matrix
-    end
+    # if A isa SparseMatrixCSC
+    #     return spdiagm(0 => diag(A))  # Create a sparse diagonal matrix
+    # else
+    #     return Diagonal(diag(A))     # Create a dense diagonal matrix
+    # end
+    return Diagonal(diag(A))
 end;
 
 # Returns a matrix with zero diagonal and other entries the same as A
@@ -21,21 +36,57 @@ function off_diag_part(A::AbstractMatrix{Float64})
     else
         return A - Diagonal(diag(A))      # Subtract the diagonal in dense form
     end
-end;
+end
 
-function take_away_matrix(variant_no::Integer)
+function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100)
+    n = size(A, 1)
+    x = randn(n)
+    x /= norm(x)
+    
+    for k in 1:max_iter
+        x = A * x
+        x /= norm(x)
+    end
+    
+    # Rayleigh estimate
+    return dot(x, A * x)
+end
+
+function take_away_matrix(variant_no::Integer, A_gram::AbstractMatrix{Float64})
+    # NOTE: A_gram = A' * A
     if variant_no == 1 # NOTE: most "economical"
-        return off_diag_part(P + ρ * A' * A)
+        return off_diag_part(P + ρ * A_gram)
     elseif variant_no == 2 # NOTE: least "economical"
-        return P + ρ * A' * A
+        return P + ρ * A_gram
     elseif variant_no == 3 # NOTE: intermediate
-        return P + off_diag_part(ρ * A' * A)
+        return P + off_diag_part(ρ * A_gram)
     elseif variant_no == 4 # NOTE: also intermediate
-        return off_diag_part(P) + ρ * A' * A
+        return off_diag_part(P) + ρ * A_gram
     else
         error("Invalid variant.")
     end
 end;
+
+# This diagonal matrix premultiplies the x step in our method.
+function pre_x_step_matrix(variant_no::Integer, P::SparseMatrixCSC,
+    A_gram::SparseMatrixCSC, τ::Float64, ρ::Float64, n::Integer)
+    if variant_no == 1
+        pre_matrix = I(n) / τ + diag_part(P + ρ * A_gram)
+    elseif variant_no == 2
+        pre_matrix = I(n) / τ
+    elseif variant_no == 3
+        pre_matrix = I(n) / τ + diag_part(ρ * A_gram)
+    elseif variant_no == 4
+        pre_matrix = I(n) / τ + diag_part(P)
+    else
+        error("Invalid variant: $variant_no.")
+    end
+
+    println(typeof(pre_matrix))
+    
+    # Invert
+    return Diagonal(1.0 ./ pre_matrix.diag)
+end
 
 function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
     start_idx = 1
@@ -54,10 +105,14 @@ function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, 
     end
 end;
 
+################################################################################
+########################## SIGNAL PROCESSING FUNCTIONS #########################
+################################################################################
+
 # Simple moving average filter
 function moving_average(data::Vector{Float64}, window_size::Int)
     n = length(data)
-    padding = floor(Int, window_size / 2)  # Half window size for symmetric padding
+    padding = floor(Int, window_size / 2)  # Symmetric padding
     padded_data = vcat(zeros(padding), data, zeros(padding))  # Pad with zeros
     
     filtered_data = zeros(Float64, n)
@@ -86,4 +141,29 @@ function exponential_moving_average(data::Vector{Float64}, alpha::Float64)
     end
     return filtered_data
 end;
+
+
+function extract_dominant_frequencies(data::Vector{Float64}, num_frequencies::Int, sampling_rate::Float64 = 1.0)
+    # Compute the FFT of the signal
+    fft_result = fft(data)
+    
+    # Compute the magnitude of the FFT
+    fft_magnitude = abs.(fft_result)
+    
+    # Compute the corresponding frequencies
+    n = length(data)  # Number of samples
+    frequencies = (0:n-1) .* (sampling_rate / n)  # Frequency bins
+
+    # Ignore the DC component (frequency = 0)
+    fft_magnitude[1] = 0.0  # Set the first element to 0 if DC is not relevant
+
+    # Find the indices of the top frequencies
+    top_indices = partialsortperm(fft_magnitude, rev=true, 1:num_frequencies)
+
+    # Extract the top frequencies and their magnitudes
+    top_frequencies = frequencies[top_indices]
+    top_magnitudes = fft_magnitude[top_indices]
+
+    return top_frequencies, top_magnitudes
+end
 ;
