@@ -54,6 +54,20 @@ function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100
     return dot(x, A * x)
 end
 
+"""
+This function normalises vectors while controlling for their dimension, which
+may be useful when comparing vectors of different dimensions.
+In this case we use the l2 norm, with a presumed scaling with sqrt(dim(v)).
+NOTE: if input is zero vector, output is also zero vector!
+"""
+function dim_adjusted_vec_normalise(v::AbstractVector{Float64})
+    if all(==(0.0), v)
+        return v
+    else
+        return sqrt(size(v)[1]) * v / norm(v, 2)
+    end
+end
+
 function take_away_matrix(variant_no::Integer, A_gram::AbstractMatrix{Float64})
     # NOTE: A_gram = A' * A
     if variant_no == 1 # NOTE: most "economical"
@@ -134,7 +148,7 @@ function cumulative_average(data::Vector{Float64})
     return filtered_data
 end;
 
-function exponential_moving_average(data::Vector{Float64}, alpha::Float64)
+function exp_moving_average(data::Vector{Float64}, alpha::Float64)
     n = length(data)
     filtered_data = zeros(Float64, n)
     filtered_data[1] = data[1]
