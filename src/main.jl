@@ -1,3 +1,5 @@
+begin
+
 include("utils.jl")
 include("problem_data.jl")
 include("solver.jl")
@@ -13,6 +15,8 @@ plotlyjs();
 
 # Set default plot size (in pixels)
 default(size=(800, 700));
+
+end
 
 ############################## FIND PROBLEMS ###################################
 
@@ -36,14 +40,25 @@ default(size=(800, 700));
 # problem_set = "maros";
 # problem_name = "HUESTIS";
 
-problem_set = "sslsq";
-problem_name = "NYPA_Maragal_5_lasso";
-# problem_name = "HB_ash219_lasso" # pretty good solution from prototype
-# problem_name = "HB_ash85_huber" # very slow convergence w prototype
-# problem_name = "HB_ash85_lasso" # stagnates badly at about 2e-3 objective error from SCS solution
+problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
+
+if problem_option === :LASSO
+    problem_set = "sslsq";
+    problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
+elseif problem_option === :HUBER
+    problem_set = "sslsq";
+    problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
+elseif problem_option === :MAROS
+    problem_set = "maros";
+    problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
+else
+    error("Invalid problem option")
+end
 
 
 ############################## FETCH DATA ######################################
+
+begin
 
 data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
@@ -51,8 +66,10 @@ P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 # Create a problem instance.
 problem = PrototypeMethod.QPProblem(data.P, data.c, data.A, data.b, data.K);
 
+end;
 ############################### SCS SOLUTION ###################################
 
+begin
 using SCS
 
 println("\nRunning SCS...")
@@ -82,9 +99,12 @@ s_scs = value.(s_scs);
 y_scs = dual.(con);  # Dual variables (Lagrange multipliers)
 obj_scs = objective_value(model);
 
+end
+
 
 ############################# PROTOTYPE SOLUTION ###############################
 
+begin
 
 # Step size parameters chosen by the user
 ρ = 1.0; # (dual)
@@ -97,7 +117,7 @@ take_away = take_away_matrix(variant, A_gram);
 
 MAX_ITERS = 600;
 PRINT_MOD = 50;
-RESTART_PERIOD = Inf;
+RESTART_PERIOD = 40;
 RETURN_RUN_DATA = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
@@ -105,15 +125,18 @@ max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
 τ = 0.9 * max_τ
 
 println("Running prototype variant $variant...")
+println("Restart period: $RESTART_PERIOD")
 
 x = zeros(n);
 s = zeros(m);
 y = zeros(m);
 
 if RETURN_RUN_DATA
-    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, Inf, RETURN_RUN_DATA);
+    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, Inf, RETURN_RUN_DATA);
 else
     final_primal_obj, final_dual_obj = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, Inf, RETURN_RUN_DATA);
+end
+
 end;
 
 
@@ -121,15 +144,41 @@ end;
 ################################# PLOT STUFF ###################################
 ################################################################################
 
+begin
+
+EXP_SMOOTHING_PARAMETER = 0.9
+
 display(plot(0:MAX_ITERS, primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD"))
 
 display(plot(0:MAX_ITERS, dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD"))
 
-display(plot(0:MAX_ITERS, primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD"))
+plot(0:MAX_ITERS, primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD")
+# overlay plot of same signal but with exp_moving_average applied
+display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD"))
 
 display(plot(0:MAX_ITERS, dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm. Restart period = $RESTART_PERIOD"))
 
-# TODO: Plot angles between consecutive steps
+end
+
+# STEP ANGLE STUFF
+
+begin
+
+plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles. Restart period = $RESTART_PERIOD")
+plot!(s_step_angles, label="s Step Angle")
+plot!(exp_moving_average(y_step_angles, EXP_SMOOTHING_PARAMETER), label="y Step Angle")
+plot!(exp_moving_average(concat_step_angles, EXP_SMOOTHING_PARAMETER), label="Concatenated Step Angle")
+display(plot!(exp_moving_average(normalised_concat_step_angles, EXP_SMOOTHING_PARAMETER), label="NORMALISED Concatenated Step Angle"))
+end
+
+# PLOT RUNNING SUMS OF ANGLES
+begin
+    plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles. Restart period = $RESTART_PERIOD")
+
+    plot!(cumsum(s_step_angles), label="s Step")
+
+    plot!(cumsum(y_step_angles), label="y Step")
+end
 
 ############################# ANALYSE RESIDUAL DATA ############################
 
