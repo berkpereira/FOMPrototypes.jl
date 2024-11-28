@@ -40,7 +40,9 @@ end
 # problem_set = "maros";
 # problem_name = "HUESTIS";
 
-problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
+begin
+
+problem_option = :MAROS; # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
@@ -55,6 +57,7 @@ else
     error("Invalid problem option")
 end
 
+end
 
 ############################## FETCH DATA ######################################
 
@@ -115,8 +118,8 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 600;
-PRINT_MOD = 50;
+MAX_ITERS = 3_000;
+PRINT_MOD = 100;
 RESTART_PERIOD = :adaptive;
 RETURN_RUN_DATA = true;
 
@@ -146,17 +149,17 @@ end;
 
 begin
 
-EXP_SMOOTHING_PARAMETER = 0.9
 
-display(plot(0:MAX_ITERS, primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD"))
 
-display(plot(0:MAX_ITERS, dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD"))
+display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD"))
 
-plot(0:MAX_ITERS, primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD")
+display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD"))
+
+plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD")
 # overlay plot of same signal but with exp_moving_average applied
-display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD"))
+display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD"))
 
-display(plot(0:MAX_ITERS, dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm. Restart period = $RESTART_PERIOD"))
+display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD"))
 
 end
 
@@ -164,24 +167,26 @@ end
 
 begin
 
+EXP_SMOOTHING_PARAMETER = 0.95
+
 plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.<br>Restart period = $RESTART_PERIOD")
 plot!(exp_moving_average(s_step_angles, EXP_SMOOTHING_PARAMETER), label="s Step Angle")
 plot!(exp_moving_average(y_step_angles, EXP_SMOOTHING_PARAMETER), label="y Step Angle")
 plot!(exp_moving_average(concat_step_angles, EXP_SMOOTHING_PARAMETER), label="Concatenated Step Angle")
 display(plot!(exp_moving_average(normalised_concat_step_angles, EXP_SMOOTHING_PARAMETER), label="NORMALISED Concatenated Step Angle"))
-end
 
-# PLOT RUNNING SUMS OF ANGLES
-begin
-    plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles.<br>Restart period = $RESTART_PERIOD")
 
-    plot!(cumsum(s_step_angles), label="s Step")
+# Running sums of angles
 
-    plot!(cumsum(y_step_angles), label="y Step")
+plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles.<br>Restart period = $RESTART_PERIOD")
 
-    plot!(cumsum(concat_step_angles), label="Concatenated Step")
+plot!(cumsum(s_step_angles), label="s Step")
 
-    plot!(cumsum(normalised_concat_step_angles), label="NORMALISED Concatenated Step")
+plot!(cumsum(y_step_angles), label="y Step")
+
+plot!(cumsum(concat_step_angles), label="Concatenated Step")
+
+display(plot!(cumsum(normalised_concat_step_angles), label="NORMALISED Concatenated Step"))
 end
 
 ############################# ANALYSE RESIDUAL DATA ############################
