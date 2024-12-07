@@ -40,6 +40,10 @@ function off_diag_part(A::AbstractMatrix{Float64})
     end
 end
 
+"""
+This function estimates the dominant eigenvalue of a matrix using the power
+method.
+"""
 function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100)
     n = size(A, 1)
     x = randn(n)
@@ -50,7 +54,7 @@ function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100
         x /= norm(x)
     end
     
-    # Rayleigh estimate
+    # Rayleigh quotient estimate (x has unit l2 norm at this point).
     return dot(x, A * x)
 end
 
@@ -84,7 +88,9 @@ function take_away_matrix(variant_no::Integer, A_gram::AbstractMatrix{Float64})
 end;
 
 # This diagonal matrix premultiplies the x step in our method.
-function pre_x_step_matrix(variant_no::Integer, P::SparseMatrixCSC,
+# TODO: consider operating on upper triangular parts only, since all of the
+# matrices involved are symmetric.
+function pre_x_step_matrix(variant_no::Integer, P::AbstractMatrix,
     A_gram::SparseMatrixCSC, τ::Float64, ρ::Float64, n::Integer)
     if variant_no == 1
         pre_matrix = I(n) / τ + diag_part(P + ρ * A_gram)
