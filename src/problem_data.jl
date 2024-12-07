@@ -19,7 +19,7 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     solver = model.moi_backend.optimizer.model.optimizer.solver
 
     # extract the problem data 
-    P = solver.data.P
+    P = Symmetric(solver.data.P)
     A = solver.data.A
     (m, n) = size(A)
     c = solver.data.q
