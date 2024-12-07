@@ -11,10 +11,11 @@ using BenchmarkTools
 using Printf
 using Plots
 using SparseArrays
+using SCS
 plotlyjs();
 
 # Set default plot size (in pixels)
-default(size=(800, 700));
+default(size=(800, 900));
 
 end
 
@@ -52,7 +53,8 @@ elseif problem_option === :HUBER
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
 elseif problem_option === :MAROS
     problem_set = "maros";
-    problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
+    # problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
+    problem_name = "DUAL3"
 else
     error("Invalid problem option")
 end
@@ -67,13 +69,12 @@ data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 
 # Create a problem instance.
-problem = PrototypeMethod.QPProblem(data.P, data.c, data.A, data.b, data.K);
+problem = PrototypeMethod.QPProblem(P, c, A, b, K);
 
 end;
 ############################### SCS SOLUTION ###################################
 
 begin
-using SCS
 
 println("\nRunning SCS...")
 
@@ -118,9 +119,9 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 3_000;
+MAX_ITERS = 5_000;
 PRINT_MOD = 100;
-RESTART_PERIOD = :adaptive;
+RESTART_PERIOD = Inf;
 RETURN_RUN_DATA = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
@@ -149,17 +150,19 @@ end;
 
 begin
 
+EXP_SMOOTHING_PARAMETER = 0.95
 
+display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD", yaxis=:log))
 
-display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD"))
+display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: DUALITY GAP. Restart period = $RESTART_PERIOD", yaxis=:log))
 
-display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD"))
+display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD", yaxis=:log))
 
-plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD")
+plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD", yaxis=:log)
 # overlay plot of same signal but with exp_moving_average applied
-display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD"))
+display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
-display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD"))
+display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
 end
 
@@ -167,7 +170,7 @@ end
 
 begin
 
-EXP_SMOOTHING_PARAMETER = 0.95
+
 
 plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.<br>Restart period = $RESTART_PERIOD")
 plot!(exp_moving_average(s_step_angles, EXP_SMOOTHING_PARAMETER), label="s Step Angle")
@@ -189,22 +192,24 @@ plot!(cumsum(concat_step_angles), label="Concatenated Step")
 display(plot!(cumsum(normalised_concat_step_angles), label="NORMALISED Concatenated Step"))
 end
 
-############################# ANALYSE RESIDUAL DATA ############################
+################################################################################
+############################# ANALYSE RESIDUAL DATA? ###########################
+################################################################################
 
-using FFTW
+# using FFTW
 
-# Compute the FFT of primal_residuals
-fft_result = fft(primal_residuals)
+# # Compute the FFT of primal_residuals
+# fft_result = fft(primal_residuals)
 
-# Compute the magnitudes of the FFT components
-magnitudes = abs.(fft_result)
+# # Compute the magnitudes of the FFT components
+# magnitudes = abs.(fft_result)
 
-# Find the index of the frequency with the largest magnitude
-max_index = argmax(magnitudes)
+# # Find the index of the frequency with the largest magnitude
+# max_index = argmax(magnitudes)
 
-# Determine the corresponding frequency (in normalized units)
-N = length(primal_residuals)  # Number of data points
-frequencies = (0:N-1) / N     # Normalized frequencies
-dominant_frequency = frequencies[max_index]
+# # Determine the corresponding frequency (in normalized units)
+# N = length(primal_residuals)  # Number of data points
+# frequencies = (0:N-1) / N     # Normalized frequencies
+# dominant_frequency = frequencies[max_index]
 
-println("Dominant Frequency (normalized): $dominant_frequency")
+# println("Dominant Frequency (normalized): $dominant_frequency")#
