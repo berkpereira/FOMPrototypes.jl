@@ -3,10 +3,32 @@ module PrototypeMethod
 using LinearAlgebra
 include("utils.jl")
 include("residuals.jl")
+include("acceleration.jl")
 include("printing.jl")
 include("QPProblem.jl")
 
 export QPProblem, optimise!
+
+# Compute v iterate which consolidates the y and s iterates.
+function compute_v(A::AbstractMatrix{Float64}, b::AbstractVector{Float64},
+    x::AbstractVector{Float64}, y_prev::AbstractVector{Float64}, ρ::Float64)
+    v = b - A * x - y_prev / ρ
+    return v
+end
+
+# This function recovers the multiplier variable y from the "consolidated" v
+# iterate.
+function recover_y(v::AbstractVector{Float64}, ρ::Float64,
+    K::Vector{Clarabel.SupportedCone})
+    y = ρ * (project_to_K(v, K) - v)
+    return y
+end
+
+# This function recovers the slack variable s from the "consolidated" v iterate.
+function recover_s(v::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    s = project_to_K(v, K)
+    return s
+end
 
 function iter_x!(x::AbstractVector{Float64},
     pre_matrix::Diagonal{Float64},
@@ -18,6 +40,7 @@ function iter_x!(x::AbstractVector{Float64},
 
     # NOTE: pre_matrix is stored inverted, hence just multiplication here.
     step = - pre_matrix * (P * x + c + A' * (2 * y - y_prev))
+    
     x .+= step
 
     return step
@@ -33,25 +56,22 @@ function iter_s!(s::AbstractVector{Float64},
 
     s_old = copy(s)
 
+    # Take preliminary step.
     s .= b - A * x - y / ρ
 
-    start_idx = 1
-    for cone in K
-        end_idx = start_idx + cone.dim - 1
-
-        # Project portion of s depending on the cone type
-        if cone isa Clarabel.NonnegativeConeT
-            @views s[start_idx:end_idx] .= max.(s[start_idx:end_idx], 0)
-        elseif cone isa Clarabel.ZeroConeT
-            @views s[start_idx:end_idx] .= zeros(Float64, cone.dim)
-        else
-            error("Unsupported cone type: $typeof(cone)")
-        end
-        
-        start_idx = end_idx + 1
-    end
+    # Project to cones in K.
+    project_to_K!(s, K)
     
     return s - s_old
+end
+
+function y_update(A::AbstractMatrix{Float64},
+    x::AbstractVector{Float64},
+    s::AbstractVector{Float64},
+    b::AbstractVector{Float64},
+    ρ::Float64)
+    step = ρ * (A * x + s - b)
+    return step
 end
 
 function iter_y!(y::AbstractVector{Float64},
@@ -60,7 +80,7 @@ function iter_y!(y::AbstractVector{Float64},
     s::AbstractVector{Float64},
     b::AbstractVector{Float64},
     ρ::Float64)
-    step = ρ * (A * x + s - b)
+    step = y_update(A, x, s, b, ρ)
     y .+= step
     return step
 end
@@ -93,7 +113,7 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
     s::Vector{Float64}, y::Vector{Float64}, τ::Float64, ρ::Float64,
     A_gram::AbstractMatrix, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
-    return_run_data::Bool = false)
+    return_run_data::Bool = false, acceleration::Bool = false)
 
     # Unpack problem data for easier reference
     P, c, A, b, K = problem.P, problem.c, problem.A, problem.b, problem.K
@@ -102,8 +122,9 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
     # Compute the (fixed) matrix that premultiplies the x step
     pre_matrix = pre_x_step_matrix(variant, P, A_gram, τ, ρ, n)
 
-    # Keep old dual variable, convenient for x update.
-    y_prev = copy(y)
+    # Initialise "artificial" y_{-1} to make first x update well-defined
+    # and correct.
+    y_prev = y - y_update(A, x, s, b, ρ)
 
     # Initialise running sums of step angles.
     x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
@@ -160,6 +181,7 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
                 x .= x_avg
                 s .= s_avg
                 y .= y_avg
+                y_prev .= y
 
                 # Reset iterate averages.
                 x_avg .= x
@@ -185,7 +207,6 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
 
         # Print iteration info.
         if k % print_modulo == 0
-            # Note that the l-infinity norm is customary for residuals.
             print_results(k, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap))
         end
 
@@ -197,10 +218,31 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
             push!(dual_res_norms, curr_dual_res_norm)
         end
 
-        # Iterate and record step vectors.
-        x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev)
-        s_step = iter_s!(s, A, x, b, y, K, ρ)
-        y_step = iter_y!(y, A, x, s, b, ρ)
+        ### Iterate and record step vectors.
+        if k in [max_iter, max_iter ÷ 2] && acceleration
+            v = compute_v(A, b, x, y_prev, ρ)
+            tilde_A, tilde_b = local_affine_dynamics(P, A, A_gram, b, pre_matrix,
+            s, v, ρ, n, m, K)
+            accelerated_point = acceleration_candidate(tilde_A, tilde_b, x, v, n, m)
+            acc_x, acc_v = accelerated_point[1:n], accelerated_point[n+1:end]
+            acc_y, acc_s = recover_y(acc_v, ρ, K), recover_s(acc_v, K)
+            
+            x_step = acc_x - x
+            s_step = acc_s - s
+            y_step = acc_y - y
+            
+            x .= acc_x
+            s .= acc_s
+            y_prev .= y
+            y .= acc_y
+        else
+            x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev)
+            # x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev, s, ρ, b)
+            s_step = iter_s!(s, A, x, b, y, K, ρ)
+            y_prev .= y
+            y_step = iter_y!(y, A, x, s, b, ρ)
+        end
+
         concat_step[1:n] .= x_step
         normalised_concat_step[1:n] .= dim_adjusted_vec_normalise(x_step)
         concat_step[n+1:n+m] .= s_step
@@ -240,11 +282,11 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
         concat_step_prev = copy(concat_step)
         normalised_concat_step_prev = copy(normalised_concat_step)
 
-        # Notion of a previous iterate step makes sense (now).
+        # Notion of a previous iterate step makes sense (again).
         just_restarted = false
 
         # Keep "previous" dual variable, used in the x update.
-        y_prev = copy(y)
+        # y_prev = copy(y)
         
         j += 1
     end
