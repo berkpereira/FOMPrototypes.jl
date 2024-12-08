@@ -56,13 +56,22 @@ function iter_s!(s::AbstractVector{Float64},
 
     s_old = copy(s)
 
-    # Take preliminary step.
+    # Take "preliminary" step.
     s .= b - A * x - y / ρ
 
     # Project to cones in K.
-    project_to_K!(s, K)
+    projected_s = project_to_K(s, K)
+
+    # NOTE: proj_flags is a vector of flags. Entries where the projection passed
+    # through the projection get zeros in these flags. Others get ones.
+    proj_flags = projected_s .!= s
     
-    return s - s_old
+    s .= projected_s
+    
+    # NOTE: line below is how we will simply want to do this in the end.
+    # project_to_K!(s, K)
+    
+    return s - s_old, proj_flags
 end
 
 function y_update(A::AbstractMatrix{Float64},
@@ -152,6 +161,7 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
         dual_obj_vals = Float64[]
         primal_res_norms = Float64[]
         dual_res_norms = Float64[]
+        v_proj_flags = Vector{Vector{Bool}}()
     end
 
     # Initialise other variables to be used during algorithm.
@@ -237,10 +247,13 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
             y .= acc_y
         else
             x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev)
-            # x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev, s, ρ, b)
-            s_step = iter_s!(s, A, x, b, y, K, ρ)
+            s_step, proj_flags = iter_s!(s, A, x, b, y, K, ρ)
             y_prev .= y
             y_step = iter_y!(y, A, x, s, b, ρ)
+
+            if return_run_data
+                push!(v_proj_flags, proj_flags)
+            end
         end
 
         concat_step[1:n] .= x_step
@@ -292,7 +305,7 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
     end
 
     if return_run_data
-        return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles
+        return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags
     else
         return primal_obj_val(P, c, x), dual_obj_val(P, b, x, y)
     end
