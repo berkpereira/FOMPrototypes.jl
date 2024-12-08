@@ -4,6 +4,7 @@ include("utils.jl")
 include("problem_data.jl")
 include("solver.jl")
 include("printing.jl")
+include("acceleration.jl")
 
 using Revise
 using .PrototypeMethod
@@ -15,7 +16,8 @@ using SCS
 plotlyjs();
 
 # Set default plot size (in pixels)
-default(size=(800, 900));
+# default(size=(800, 900)); # large; for laptop
+default(size=(600, 800))
 
 end
 
@@ -35,11 +37,7 @@ end
 
 # retrieved_problems = readlines(names_file)
 
-
 ############## CHOOSE PROBLEM SET AND PROBLEM NAME #############################
-
-# problem_set = "maros";
-# problem_name = "HUESTIS";
 
 begin
 
@@ -48,23 +46,26 @@ problem_option = :MAROS; # in {:LASSO, :HUBER, :MAROS}
 if problem_option === :LASSO
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
+    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    # problem_name = "HB_ash219_lasso"; # smaller
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
 elseif problem_option === :MAROS
     problem_set = "maros";
-    # problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
-    problem_name = "DUAL3"
+    problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
+    # problem_name = "DUAL3";
 else
     error("Invalid problem option")
 end
 
-end
+end;
 
 ############################## FETCH DATA ######################################
 
 begin
 
+# Load the problem data.
 data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 
@@ -77,6 +78,7 @@ end;
 begin
 
 println("\nRunning SCS...")
+println()
 
 # Define the SCS optimizer
 model = Model(SCS.Optimizer);
@@ -103,7 +105,7 @@ s_scs = value.(s_scs);
 y_scs = dual.(con);  # Dual variables (Lagrange multipliers)
 obj_scs = objective_value(model);
 
-end
+end;
 
 
 ############################# PROTOTYPE SOLUTION ###############################
@@ -119,14 +121,17 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 5_000;
-PRINT_MOD = 100;
-RESTART_PERIOD = Inf;
+MAX_ITERS = 3_000;
+PRINT_MOD = 50;
+RES_NORM = Inf;
+RESTART_PERIOD = 840;
 RETURN_RUN_DATA = true;
+ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
-τ = 0.9 * max_τ
+# max_τ = 1 / maximum(eigvals(Matrix(take_away)));
+τ = 0.9 * max_τ;
 
 println("Running prototype variant $variant...")
 println("Restart period: $RESTART_PERIOD")
@@ -136,9 +141,9 @@ s = zeros(m);
 y = zeros(m);
 
 if RETURN_RUN_DATA
-    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, Inf, RETURN_RUN_DATA);
+    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 else
-    final_primal_obj, final_dual_obj = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, Inf, RETURN_RUN_DATA);
+    final_primal_obj, final_dual_obj = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 end
 
 end;
@@ -152,13 +157,13 @@ begin
 
 EXP_SMOOTHING_PARAMETER = 0.95
 
-display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective. Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective.<br>Restart period = $RESTART_PERIOD"))
 
-display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: DUALITY GAP. Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual objective.<br>Restart period = $RESTART_PERIOD"))
 
-display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual Objective. Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="Variant $variant: Duality Gap.<br>Restart period = $RESTART_PERIOD"))
 
-plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm. Restart period = $RESTART_PERIOD", yaxis=:log)
+plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log)
 # overlay plot of same signal but with exp_moving_average applied
 display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
