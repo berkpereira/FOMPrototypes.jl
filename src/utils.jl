@@ -90,6 +90,8 @@ end;
 # This diagonal matrix premultiplies the x step in our method.
 # TODO: consider operating on upper triangular parts only, since all of the
 # matrices involved are symmetric.
+# This is often in my/Paul's notes referred to
+# as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
 function pre_x_step_matrix(variant_no::Integer, P::AbstractMatrix,
     A_gram::SparseMatrixCSC, τ::Float64, ρ::Float64, n::Integer)
     if variant_no == 1
@@ -103,11 +105,37 @@ function pre_x_step_matrix(variant_no::Integer, P::AbstractMatrix,
     else
         error("Invalid variant: $variant_no.")
     end
-    
-    println(typeof(pre_matrix))
-    
-    # Invert
+        
+    # Invert.
     return Diagonal(1.0 ./ pre_matrix.diag)
+end
+
+# This function implements the projection of s block-wise onto the cones in K.
+# This is the NON-mutating version of the function.
+function project_to_K(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    start_idx = 1
+    for cone in K
+        end_idx = start_idx + cone.dim - 1
+
+        # Project portion of s depending on the cone type
+        if cone isa Clarabel.NonnegativeConeT
+            @views s[start_idx:end_idx] .= max.(s[start_idx:end_idx], 0)
+        elseif cone isa Clarabel.ZeroConeT
+            @views s[start_idx:end_idx] .= zeros(Float64, cone.dim)
+        else
+            error("Unsupported cone type: $typeof(cone)")
+        end
+
+        start_idx = end_idx + 1
+    end
+    
+    return s
+end
+
+# This version of project_to_K! mutates the input vector s in place.
+function project_to_K!(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    s .= project_to_K(s, K)
+    return s
 end
 
 function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
@@ -125,7 +153,8 @@ function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, 
         end
         start_idx = end_idx + 1
     end
-end;
+end
+ 
 
 ################################################################################
 ########################## SIGNAL PROCESSING FUNCTIONS #########################
