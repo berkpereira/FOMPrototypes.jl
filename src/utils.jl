@@ -113,15 +113,16 @@ end
 # This function implements the projection of s block-wise onto the cones in K.
 # This is the NON-mutating version of the function.
 function project_to_K(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    projected_s = copy(s)
     start_idx = 1
     for cone in K
         end_idx = start_idx + cone.dim - 1
 
         # Project portion of s depending on the cone type
         if cone isa Clarabel.NonnegativeConeT
-            @views s[start_idx:end_idx] .= max.(s[start_idx:end_idx], 0)
+            @views projected_s[start_idx:end_idx] = max.(s[start_idx:end_idx], 0)
         elseif cone isa Clarabel.ZeroConeT
-            @views s[start_idx:end_idx] .= zeros(Float64, cone.dim)
+            @views projected_s[start_idx:end_idx] = zeros(Float64, cone.dim)
         else
             error("Unsupported cone type: $typeof(cone)")
         end
@@ -129,7 +130,7 @@ function project_to_K(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCo
         start_idx = end_idx + 1
     end
     
-    return s
+    return projected_s
 end
 
 # This version of project_to_K! mutates the input vector s in place.
@@ -217,4 +218,24 @@ function extract_dominant_frequencies(data::Vector{Float64}, num_frequencies::In
 
     return top_frequencies, top_magnitudes
 end
-;
+
+# Function to plot the equality of consecutive entries in a vector of Booleans.
+function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
+    # Compute whether each entry is equal to the previous one
+    is_equal = [v_proj_flags[i] == v_proj_flags[i - 1] for i in 2:length(v_proj_flags)]
+    
+    # Generate x-axis indices (1 to length of `is_equal`)
+    x_vals = 2:length(v_proj_flags)
+
+    # Create the plot
+    plot(
+        x_vals, is_equal,
+        seriestype = :scatter,
+        markershape = :circle,
+        markercolor = :blue,
+        xlabel = "Index",
+        ylabel = "Equality with Previous",
+        title = "Equality of Consecutive Entries in v_proj_flags",
+        legend = false
+    )
+end;
