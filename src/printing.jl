@@ -14,8 +14,16 @@ function print_results(
     y_sol::Union{Vector{Float64}, Nothing} = nothing,
     x::Union{Vector{Float64}, Nothing} = nothing,
     s::Union{Vector{Float64}, Nothing} = nothing,
-    y::Union{Vector{Float64}, Nothing} = nothing
+    y::Union{Vector{Float64}, Nothing} = nothing,
+    terminated::Bool = false
 )
+    if terminated
+        println()
+        println("--------------------")
+        println("Terminated.")
+        println("--------------------")
+    end
+
     # Start with iteration, objective, and primal/dual residuals
     print_output = @sprintf("Iter %4.1d | Obj: %12.5e", k, curr_obj)
 
