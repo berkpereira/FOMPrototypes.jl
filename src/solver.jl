@@ -1,6 +1,7 @@
 module PrototypeMethod
 
 using LinearAlgebra
+using Plots
 include("utils.jl")
 include("residuals.jl")
 include("acceleration.jl")
@@ -74,15 +75,6 @@ function iter_s!(s::AbstractVector{Float64},
     return s - s_old, proj_flags
 end
 
-function y_update(A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    s::AbstractVector{Float64},
-    b::AbstractVector{Float64},
-    ρ::Float64)
-    step = ρ * (A * x + s - b)
-    return step
-end
-
 function iter_y!(y::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     x::AbstractVector{Float64},
@@ -93,6 +85,43 @@ function iter_y!(y::AbstractVector{Float64},
     y .+= step
     return step
 end
+
+# NOTE: non-mutating iteration functions mostly (exclusively?) for debugging.
+function x_update(x::AbstractVector{Float64},
+    pre_matrix::Diagonal{Float64},
+    P::AbstractMatrix{Float64},
+    c::AbstractVector{Float64},
+    A::AbstractMatrix{Float64},
+    y::AbstractVector{Float64},
+    y_prev::AbstractVector{Float64})
+
+    # NOTE: pre_matrix is stored inverted, hence just multiplication here.
+    step = - pre_matrix * (P * x + c + A' * (2 * y - y_prev))
+
+    return step
+end
+
+function iter_v(A::AbstractMatrix{Float64},
+    b::AbstractVector{Float64},
+    v::AbstractVector{Float64},
+    x::AbstractVector{Float64},
+    K::Vector{Clarabel.SupportedCone})
+    v_new = b - A * x + v - project_to_K(v, K)
+
+    return v_new
+end
+
+function y_update(A::AbstractMatrix{Float64},
+    x::AbstractVector{Float64},
+    s::AbstractVector{Float64},
+    b::AbstractVector{Float64},
+    ρ::Float64)
+    step = ρ * (A * x + s - b)
+    return step
+end
+
+
+
 
 """
 When solver is run with (prototype) adaptive restart mechanism, this function 
@@ -191,7 +220,7 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
                 x .= x_avg
                 s .= s_avg
                 y .= y_avg
-                y_prev .= y
+                y_prev .= y - y_update(A, x, s, b, ρ)
 
                 # Reset iterate averages.
                 x_avg .= x
@@ -229,11 +258,41 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
         end
 
         ### Iterate and record step vectors.
-        if k in [max_iter, max_iter ÷ 2] && acceleration
+        if k >= 100 && k % 20 == 0 && acceleration
             v = compute_v(A, b, x, y_prev, ρ)
-            tilde_A, tilde_b = local_affine_dynamics(P, A, A_gram, b, pre_matrix,
+            tilde_A, tilde_b = local_affine_dynamics(P, A, A_gram, b, c, pre_matrix,
             s, v, ρ, n, m, K)
+
+            # We now plot the spectrum of tilde_A on the complex plane.
+            # This is to check that the matrix is indeed PSD.
+            # plot_spectrum(tilde_A)
+            # Compute the eigenvalues (spectrum) of the matrix
+            spectrum = eigvals(Matrix(tilde_A))
+
+            # Extract real and imaginary parts of the eigenvalues
+            real_parts = real(spectrum)
+            imag_parts = imag(spectrum)
+
+            # Plot the spectrum in the complex plane
+            display(scatter(real_parts, imag_parts,
+                xlabel="Re", ylabel="Im",
+                title="Spectrum of tilde_A",
+                legend=false, aspect_ratio=:equal, marker=:circle))
+
+
+
+            # NOTE: check for whether the local affinisation and the actual
+            # method operator give the same result when evaluated at the
+            # current iterate (they should!).
+            x_actual = x + x_update(x, pre_matrix, P, c, A, y, y_prev)
+            v_actual = iter_v(A, b, v, x, K)
+
+            println(norm((tilde_A * [x; v] + tilde_b) - [x_actual; v_actual]), 2)
+
             accelerated_point = acceleration_candidate(tilde_A, tilde_b, x, v, n, m)
+
+            println()
+
             acc_x, acc_v = accelerated_point[1:n], accelerated_point[n+1:end]
             acc_y, acc_s = recover_y(acc_v, ρ, K), recover_s(acc_v, K)
             
@@ -243,8 +302,10 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
             
             x .= acc_x
             s .= acc_s
-            y_prev .= y
             y .= acc_y
+            # It does not make sense to have y_prev as usual here.
+            # This is more like a restart situation.
+            y_prev .= y - y_update(A, x, s, b, ρ)
         else
             x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev)
             s_step, proj_flags = iter_s!(s, A, x, b, y, K, ρ)
@@ -303,6 +364,29 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
         
         j += 1
     end
+
+
+    # TODO: make this stuff modular as opposed to copied from the main loop.
+    # END: Compute residuals, their norms, and objective values.
+    primal_residual!(primal_res, A, x, s, b)
+    dual_residual!(dual_res, dual_res_temp, P, A, x, y, c)
+    curr_primal_res_norm = norm(primal_res, residual_norm)
+    curr_dual_res_norm = norm(dual_res, residual_norm)
+    primal_obj = primal_obj_val(P, c, x)
+    dual_obj = dual_obj_val(P, b, x, y)
+    gap = duality_gap(primal_obj, dual_obj)
+
+    # TODO: make this stuff modular as opposed to copied from the main loop.
+    # END: Store metrics if requested.
+    if return_run_data
+        push!(primal_obj_vals, primal_obj)
+        push!(dual_obj_vals, dual_obj)
+        push!(primal_res_norms, curr_primal_res_norm)
+        push!(dual_res_norms, curr_dual_res_norm)
+    end
+
+    # END: print iteration info.
+    print_results(max_iter, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap), terminated = true)
 
     if return_run_data
         return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags
