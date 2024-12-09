@@ -41,13 +41,13 @@ end
 
 begin
 
-problem_option = :MAROS; # in {:LASSO, :HUBER, :MAROS}
+problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
-    problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
-    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
-    # problem_name = "HB_ash219_lasso"; # smaller
+    # problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
+    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    # problem_name = "HB_ash219_lasso"; # smallish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
@@ -121,27 +121,30 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 3_000;
+MAX_ITERS = 300;
 PRINT_MOD = 50;
 RES_NORM = Inf;
-RESTART_PERIOD = 840;
+RESTART_PERIOD = Inf;
 RETURN_RUN_DATA = true;
 ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
-# max_τ = 1 / maximum(eigvals(Matrix(take_away)));
-τ = 0.9 * max_τ;
+τ = 0.90 * max_τ;
 
 println("Running prototype variant $variant...")
 println("Restart period: $RESTART_PERIOD")
+
+end
+
+@time begin
 
 x = zeros(n);
 s = zeros(m);
 y = zeros(m);
 
 if RETURN_RUN_DATA
-    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
+    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 else
     final_primal_obj, final_dual_obj = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 end
@@ -163,19 +166,17 @@ display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", yl
 
 display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="Variant $variant: Duality Gap.<br>Restart period = $RESTART_PERIOD"))
 
-plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log)
-# overlay plot of same signal but with exp_moving_average applied
-display(plot!(exp_moving_average(primal_residuals, EXP_SMOOTHING_PARAMETER), label="Prototype Residual (Exp Moving Average)", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
 display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
+
+display(plot_equal_segments(v_proj_flags))
 
 end
 
 # STEP ANGLE STUFF
 
 begin
-
-
 
 plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.<br>Restart period = $RESTART_PERIOD")
 plot!(exp_moving_average(s_step_angles, EXP_SMOOTHING_PARAMETER), label="s Step Angle")
