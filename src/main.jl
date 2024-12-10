@@ -1,13 +1,15 @@
 begin
 
+include("types.jl")
+include("solver.jl")
 include("utils.jl")
 include("problem_data.jl")
 include("solver.jl")
 include("printing.jl")
 include("acceleration.jl")
 
+
 using Revise
-using .PrototypeMethod
 using BenchmarkTools
 using Printf
 using Plots
@@ -46,8 +48,8 @@ problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
 if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
-    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
-    # problem_name = "HB_ash219_lasso"; # smallish
+    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    problem_name = "HB_ash219_lasso"; # smallish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
@@ -70,7 +72,7 @@ data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 
 # Create a problem instance.
-problem = PrototypeMethod.QPProblem(P, c, A, b, K);
+problem = ProblemData(P, c, A, b, K);
 
 end;
 ############################### SCS SOLUTION ###################################
@@ -132,6 +134,10 @@ ACCELERATION = true;
 max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
 τ = 0.90 * max_τ;
 
+# Initialise workspace (initial iterates are set to zero by default).
+ws = Workspace(problem, variant, τ, ρ)
+ws.cache[:A_gram] = A_gram
+
 println("Running prototype variant $variant...")
 println("Restart period: $RESTART_PERIOD")
 
@@ -139,14 +145,14 @@ end
 
 @time begin
 
-x = zeros(n);
-s = zeros(m);
-y = zeros(m);
+# x = zeros(n);
+# s = zeros(m);
+# y = zeros(m);
 
 if RETURN_RUN_DATA
-    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
+    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 else
-    final_primal_obj, final_dual_obj = PrototypeMethod.optimise!(problem, variant, x, s, y, τ, ρ, A_gram, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
+    final_primal_obj, final_dual_obj = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
 end
 
 end;
