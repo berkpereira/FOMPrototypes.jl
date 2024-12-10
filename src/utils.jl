@@ -1,14 +1,10 @@
 using SparseArrays
 using LinearAlgebra
-using Random
 using JuMP
 using SCS
 using Statistics
 using Clarabel
 using FFTW
-
-# We use a random initial vector for power iteration.
-Random.seed!(42)
 
 function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
     return 0.5 * dot(x, P * x) + dot(c, x)
