@@ -143,36 +143,30 @@ Run the optimiser for the initial inputs and solver options given.
         If an integer, the number of iterations between restarts. The Only
         valid symbolic input is :adaptive, with obvious meaning.
 """
-function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
-    s::Vector{Float64}, y::Vector{Float64}, τ::Float64, ρ::Float64,
-    A_gram::AbstractMatrix, max_iter::Integer, print_modulo::Integer,
+function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
     return_run_data::Bool = false, acceleration::Bool = false)
 
-    # Unpack problem data for easier reference
-    P, c, A, b, K = problem.P, problem.c, problem.A, problem.b, problem.K
-    m, n = size(A)
-
     # Compute the (fixed) matrix that premultiplies the x step
-    pre_matrix = pre_x_step_matrix(variant, P, A_gram, τ, ρ, n)
+    pre_matrix = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
 
     # Initialise "artificial" y_{-1} to make first x update well-defined
     # and correct.
-    y_prev = y - y_update(A, x, s, b, ρ)
+    y_prev = ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
     # Initialise running sums of step angles.
     x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
     
     # for restarts, keep average iterates
     if restart_period != Inf
-        x_avg = copy(x)
-        s_avg = copy(s)
-        y_avg = copy(y)
+        x_avg = copy(ws.vars.x)
+        s_avg = copy(ws.vars.s)
+        y_avg = copy(ws.vars.y)
     end
 
-    primal_res = zeros(Float64, m)
-    dual_res = zeros(Float64, n)
-    dual_res_temp = zeros(Float64, n)
+    primal_res = zeros(Float64, ws.p.m)
+    dual_res = zeros(Float64, ws.p.n)
+    dual_res_temp = zeros(Float64, ws.p.n)
     j = 0
 
     # Data containers for metrics (if return_run_data == true).
@@ -190,16 +184,16 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
     end
 
     # Initialise other variables to be used during algorithm.
-    x_step = zeros(Float64, n)
-    s_step = zeros(Float64, m)
-    y_step = zeros(Float64, m)
-    concat_step = zeros(Float64, n + 2 * m)
-    normalised_concat_step = zeros(Float64, n + 2 * m)
-    x_step_prev = zeros(Float64, n)
-    s_step_prev = zeros(Float64, m)
-    y_step_prev = zeros(Float64, m)
-    concat_step_prev = zeros(Float64, n + 2 * m)
-    normalised_concat_step_prev = zeros(Float64, n + 2 * m)
+    x_step = zeros(Float64, ws.p.n)
+    s_step = zeros(Float64, ws.p.m)
+    y_step = zeros(Float64, ws.p.m)
+    concat_step = zeros(Float64, ws.p.n + 2 * ws.p.m)
+    normalised_concat_step = zeros(Float64, ws.p.n + 2 * ws.p.m)
+    x_step_prev = zeros(Float64, ws.p.n)
+    s_step_prev = zeros(Float64, ws.p.m)
+    y_step_prev = zeros(Float64, ws.p.m)
+    concat_step_prev = zeros(Float64, ws.p.n + 2 * ws.p.m)
+    normalised_concat_step_prev = zeros(Float64, ws.p.n + 2 * ws.p.m)
 
     # This flag helps us keep track of whether we should forgo the notion of a
     # "previous" step, including in the very first iteration.
@@ -208,20 +202,20 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
     for k in 0:max_iter
         # Update average iterates
         if restart_period != Inf
-            x_avg .= (j * x_avg + x) / (j + 1)
-            s_avg .= (j * s_avg + s) / (j + 1)
-            y_avg .= (j * y_avg + y) / (j + 1)
+            x_avg .= (j * x_avg + ws.vars.x) / (j + 1)
+            s_avg .= (j * s_avg + ws.vars.s) / (j + 1)
+            y_avg .= (j * y_avg + ws.vars.y) / (j + 1)
             if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
                 # Restart.
-                x .= x_avg
-                s .= s_avg
-                y .= y_avg
-                y_prev .= y - y_update(A, x, s, b, ρ)
+                ws.vars.x .= x_avg
+                ws.vars.s .= s_avg
+                ws.vars.y .= y_avg
+                y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
                 # Reset iterate averages.
-                x_avg .= x
-                s_avg .= s
-                y_avg .= y
+                x_avg .= ws.vars.x
+                s_avg .= ws.vars.s
+                y_avg .= ws.vars.y
 
                 # Reset inner loop counters/sums.
                 j = 0
@@ -232,12 +226,12 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
         end
 
         # Compute residuals, their norms, and objective values.
-        primal_residual!(primal_res, A, x, s, b)
-        dual_residual!(dual_res, dual_res_temp, P, A, x, y, c)
+        primal_residual!(primal_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
+        dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
         curr_primal_res_norm = norm(primal_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
-        primal_obj = primal_obj_val(P, c, x)
-        dual_obj = dual_obj_val(P, b, x, y)
+        primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
+        dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
         gap = duality_gap(primal_obj, dual_obj)
 
         # Print iteration info.
@@ -255,9 +249,9 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
 
         ### Iterate and record step vectors.
         if k >= 100 && k % 20 == 0 && acceleration
-            v = compute_v(A, b, x, y_prev, ρ)
-            tilde_A, tilde_b = local_affine_dynamics(P, A, A_gram, b, c, pre_matrix,
-            s, v, ρ, n, m, K)
+            v = compute_v(ws.p.A, ws.p.b, ws.vars.x, y_prev, ws.ρ)
+            tilde_A, tilde_b = local_affine_dynamics(ws.p.P, ws.p.A, ws.cache[:A_gram], ws.p.b, ws.p.c, pre_matrix,
+            ws.vars.s, v, ws.ρ, ws.p.n, ws.p.m, ws.p.K)
 
             # We now plot the spectrum of tilde_A on the complex plane.
             # This is to check that the matrix is indeed PSD.
@@ -280,45 +274,45 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
             # NOTE: check for whether the local affinisation and the actual
             # method operator give the same result when evaluated at the
             # current iterate (they should!).
-            x_actual = x + x_update(x, pre_matrix, P, c, A, y, y_prev)
-            v_actual = iter_v(A, b, v, x, K)
+            x_actual = ws.vars.x + x_update(ws.vars.x, pre_matrix, ws.p.P, ws.p.c, ws.p.A, ws.vars.y, y_prev)
+            v_actual = iter_v(ws.p.A, ws.p.b, v, ws.vars.x, ws.p.K)
 
-            println(norm((tilde_A * [x; v] + tilde_b) - [x_actual; v_actual]), 2)
+            println(norm((tilde_A * [ws.vars.x; v] + tilde_b) - [x_actual; v_actual]), 2)
 
-            accelerated_point = acceleration_candidate(tilde_A, tilde_b, x, v, n, m)
+            accelerated_point = acceleration_candidate(tilde_A, tilde_b, ws.vars.x, v, ws.p.n, ws.p.m)
 
             println()
 
-            acc_x, acc_v = accelerated_point[1:n], accelerated_point[n+1:end]
-            acc_y, acc_s = recover_y(acc_v, ρ, K), recover_s(acc_v, K)
+            acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
+            acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
             
-            x_step = acc_x - x
-            s_step = acc_s - s
-            y_step = acc_y - y
+            x_step = acc_x - ws.vars.x
+            s_step = acc_s - ws.vars.s
+            y_step = acc_y - ws.vars.y
             
-            x .= acc_x
-            s .= acc_s
-            y .= acc_y
+            ws.vars.x .= acc_x
+            ws.vars.s .= acc_s
+            ws.vars.y .= acc_y
             # It does not make sense to have y_prev as usual here.
             # This is more like a restart situation.
-            y_prev .= y - y_update(A, x, s, b, ρ)
+            y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
         else
-            x_step = iter_x!(x, pre_matrix, P, c, A, y, y_prev)
-            s_step, proj_flags = iter_s!(s, A, x, b, y, K, ρ)
-            y_prev .= y
-            y_step = iter_y!(y, A, x, s, b, ρ)
+            x_step = iter_x!(ws.vars.x, pre_matrix, ws.p.P, ws.p.c, ws.p.A, ws.vars.y, y_prev)
+            s_step, proj_flags = iter_s!(ws.vars.s, ws.p.A, ws.vars.x, ws.p.b, ws.vars.y, ws.p.K, ws.ρ)
+            y_prev .= ws.vars.y
+            y_step = iter_y!(ws.vars.y, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
             if return_run_data
                 push!(v_proj_flags, proj_flags)
             end
         end
 
-        concat_step[1:n] .= x_step
-        normalised_concat_step[1:n] .= dim_adjusted_vec_normalise(x_step)
-        concat_step[n+1:n+m] .= s_step
-        normalised_concat_step[n+1:n+m] .= dim_adjusted_vec_normalise(s_step)
-        concat_step[n+m+1:end] .= y_step
-        normalised_concat_step[n+m+1:end] .= dim_adjusted_vec_normalise(y_step)
+        concat_step[1:ws.p.n] .= x_step
+        normalised_concat_step[1:ws.p.n] .= dim_adjusted_vec_normalise(x_step)
+        concat_step[ws.p.n+1:ws.p.n+ws.p.m] .= s_step
+        normalised_concat_step[ws.p.n+1:ws.p.n+ws.p.m] .= dim_adjusted_vec_normalise(s_step)
+        concat_step[ws.p.n+ws.p.m+1:end] .= y_step
+        normalised_concat_step[ws.p.n+ws.p.m+1:end] .= dim_adjusted_vec_normalise(y_step)
 
         # NOTE: we skip the iterations just after a restart (or the first one).
         if !just_restarted
@@ -356,7 +350,7 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
         just_restarted = false
 
         # Keep "previous" dual variable, used in the x update.
-        # y_prev = copy(y)
+        # y_prev = copy(ws.vars.y)
         
         j += 1
     end
@@ -364,12 +358,12 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
 
     # TODO: make this stuff modular as opposed to copied from the main loop.
     # END: Compute residuals, their norms, and objective values.
-    primal_residual!(primal_res, A, x, s, b)
-    dual_residual!(dual_res, dual_res_temp, P, A, x, y, c)
+    primal_residual!(primal_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
+    dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
     curr_primal_res_norm = norm(primal_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
-    primal_obj = primal_obj_val(P, c, x)
-    dual_obj = dual_obj_val(P, b, x, y)
+    primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
+    dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
     gap = duality_gap(primal_obj, dual_obj)
 
     # TODO: make this stuff modular as opposed to copied from the main loop.
@@ -387,6 +381,6 @@ function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
     if return_run_data
         return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags
     else
-        return primal_obj_val(P, c, x), dual_obj_val(P, b, x, y)
+        return primal_obj_val(ws.p.P, ws.p.c, ws.vars.x), dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
     end
 end
