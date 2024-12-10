@@ -109,7 +109,7 @@ function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
     krylov_iterate = copy([x; v])
     
     # NOTE: may want to set maxiter argument in call to gmres! below.
-    gmres!(krylov_iterate, I(n + m) - tilde_A, tilde_b, maxiter = 20)
+    gmres!(krylov_iterate, I(n + m) - tilde_A, tilde_b, maxiter = 30)
 
     # NOTE: the {k+1}th Anderson acceleration iterate is given by the affine 
     # operator of the kth Krylov iterate (see Theorem 2.2 from Walker and Ni,
