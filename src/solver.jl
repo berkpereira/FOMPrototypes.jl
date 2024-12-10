@@ -148,11 +148,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     return_run_data::Bool = false, acceleration::Bool = false)
 
     # Compute the (fixed) matrix that premultiplies the x step
-    pre_matrix = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
+    ws.cache[:W_inv] = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
 
     # Initialise "artificial" y_{-1} to make first x update well-defined
     # and correct.
-    y_prev = ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
+    ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
     # Initialise running sums of step angles.
     x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
@@ -210,7 +210,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
                 ws.vars.x .= x_avg
                 ws.vars.s .= s_avg
                 ws.vars.y .= y_avg
-                y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
+                ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
                 # Reset iterate averages.
                 x_avg .= ws.vars.x
@@ -249,32 +249,32 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         ### Iterate and record step vectors.
         if k >= 100 && k % 20 == 0 && acceleration
-            v = compute_v(ws.p.A, ws.p.b, ws.vars.x, y_prev, ws.ρ)
-            tilde_A, tilde_b = local_affine_dynamics(ws.p.P, ws.p.A, ws.cache[:A_gram], ws.p.b, ws.p.c, pre_matrix,
+            v = compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
+            tilde_A, tilde_b = local_affine_dynamics(ws.p.P, ws.p.A, ws.cache[:A_gram], ws.p.b, ws.p.c, ws.cache[:W_inv],
             ws.vars.s, v, ws.ρ, ws.p.n, ws.p.m, ws.p.K)
 
             # We now plot the spectrum of tilde_A on the complex plane.
             # This is to check that the matrix is indeed PSD.
             # plot_spectrum(tilde_A)
             # Compute the eigenvalues (spectrum) of the matrix
-            spectrum = eigvals(Matrix(tilde_A))
+            # spectrum = eigvals(Matrix(tilde_A))
 
-            # Extract real and imaginary parts of the eigenvalues
-            real_parts = real(spectrum)
-            imag_parts = imag(spectrum)
+            # # Extract real and imaginary parts of the eigenvalues
+            # real_parts = real(spectrum)
+            # imag_parts = imag(spectrum)
 
-            # Plot the spectrum in the complex plane
-            display(scatter(real_parts, imag_parts,
-                xlabel="Re", ylabel="Im",
-                title="Spectrum of tilde_A",
-                legend=false, aspect_ratio=:equal, marker=:circle))
+            # # Plot the spectrum in the complex plane
+            # display(scatter(real_parts, imag_parts,
+            #     xlabel="Re", ylabel="Im",
+            #     title="Spectrum of tilde_A",
+            #     legend=false, aspect_ratio=:equal, marker=:circle))
 
 
 
             # NOTE: check for whether the local affinisation and the actual
             # method operator give the same result when evaluated at the
             # current iterate (they should!).
-            x_actual = ws.vars.x + x_update(ws.vars.x, pre_matrix, ws.p.P, ws.p.c, ws.p.A, ws.vars.y, y_prev)
+            x_actual = ws.vars.x + x_update(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
             v_actual = iter_v(ws.p.A, ws.p.b, v, ws.vars.x, ws.p.K)
 
             println(norm((tilde_A * [ws.vars.x; v] + tilde_b) - [x_actual; v_actual]), 2)
@@ -293,13 +293,13 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.x .= acc_x
             ws.vars.s .= acc_s
             ws.vars.y .= acc_y
-            # It does not make sense to have y_prev as usual here.
+            # It does not make sense to have ws.vars.y_prev as usual here.
             # This is more like a restart situation.
-            y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
+            ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
         else
-            x_step = iter_x!(ws.vars.x, pre_matrix, ws.p.P, ws.p.c, ws.p.A, ws.vars.y, y_prev)
+            x_step = iter_x!(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
             s_step, proj_flags = iter_s!(ws.vars.s, ws.p.A, ws.vars.x, ws.p.b, ws.vars.y, ws.p.K, ws.ρ)
-            y_prev .= ws.vars.y
+            ws.vars.y_prev .= ws.vars.y
             y_step = iter_y!(ws.vars.y, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
             if return_run_data
@@ -348,9 +348,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
-
-        # Keep "previous" dual variable, used in the x update.
-        # y_prev = copy(ws.vars.y)
         
         j += 1
     end
