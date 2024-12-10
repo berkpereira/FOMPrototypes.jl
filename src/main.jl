@@ -123,7 +123,7 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 300;
+MAX_ITERS = 200;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
@@ -131,12 +131,10 @@ RETURN_RUN_DATA = true;
 ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
+Random.seed!(42) # Seed for reproducible power iteration results.
 max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
 τ = 0.90 * max_τ;
 
-# Initialise workspace (initial iterates are set to zero by default).
-ws = Workspace(problem, variant, τ, ρ)
-ws.cache[:A_gram] = A_gram
 
 println("Running prototype variant $variant...")
 println("Restart period: $RESTART_PERIOD")
@@ -145,9 +143,9 @@ end
 
 @time begin
 
-# x = zeros(n);
-# s = zeros(m);
-# y = zeros(m);
+# Initialise workspace (initial iterates are set to zero by default).
+ws = Workspace(problem, variant, τ, ρ)
+ws.cache[:A_gram] = A_gram
 
 if RETURN_RUN_DATA
     primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
