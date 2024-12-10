@@ -27,13 +27,17 @@ struct Variables{T}
     x::AbstractVector{T} # Primal variable.
     s::AbstractVector{T} # Slack variable.
     y::AbstractVector{T} # Dual variable.
+
+    # Dual variable from "previous" iteration. N.B.: after (e.g.) restarts or
+    # accelerated steps, this is actually an artificial "previous" iterate.
+    y_prev::AbstractVector{T} 
     
     # "Artificial" iterate consolidating s and y. Allows to reduce dimension of
     # the method's operator from (n + 2 * m) to just (n + m).
     v::AbstractVector{T}
 
     function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n), zeros(m), zeros(m), zeros(m))
+        new(zeros(n), zeros(m), zeros(m), zeros(m), zeros(m))
     end
 end
 Variables(args...) = Variables{DefaultFloat}(args...)
