@@ -1,14 +1,10 @@
-module PrototypeMethod
-
 using LinearAlgebra
 using Plots
 include("utils.jl")
 include("residuals.jl")
 include("acceleration.jl")
 include("printing.jl")
-include("QPProblem.jl")
-
-export QPProblem, optimise!
+# include("QPProblem.jl")
 
 # Compute v iterate which consolidates the y and s iterates.
 function compute_v(A::AbstractMatrix{Float64}, b::AbstractVector{Float64},
@@ -147,7 +143,7 @@ Run the optimiser for the initial inputs and solver options given.
         If an integer, the number of iterations between restarts. The Only
         valid symbolic input is :adaptive, with obvious meaning.
 """
-function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
+function optimise!(problem::ProblemData, variant::Integer, x::Vector{Float64},
     s::Vector{Float64}, y::Vector{Float64}, τ::Float64, ρ::Float64,
     A_gram::AbstractMatrix, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
@@ -394,5 +390,3 @@ function optimise!(problem::QPProblem, variant::Integer, x::Vector{Float64},
         return primal_obj_val(P, c, x), dual_obj_val(P, b, x, y)
     end
 end
-
-end # module PrototypeMethod
