@@ -1,0 +1,73 @@
+# Workspace to contain problem and algorithm data before/during/after solver
+# runs.
+# We enable the use of default values as well as keyword arguments.
+
+using Clarabel
+using Parameters
+
+const DefaultFloat = Float64
+
+@with_kw struct ProblemData{T}
+    P::AbstractMatrix{T}
+    c::AbstractVector{T}
+    A::AbstractMatrix{T}
+    m::Int
+    n::Int
+    b::AbstractVector{T}
+    K::Vector{Clarabel.SupportedCone}
+
+    function ProblemData{T}(P::AbstractMatrix{T}, c::AbstractVector{T}, A::AbstractMatrix{T}, b::AbstractVector{T}, K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat}
+        m, n = size(A)
+        new(P, c, A, m, n, b, K)
+    end
+end
+ProblemData(args...) = ProblemData{DefaultFloat}(args...)
+
+struct Variables{T}
+    x::AbstractVector{T} # Primal variable.
+    s::AbstractVector{T} # Slack variable.
+    y::AbstractVector{T} # Dual variable.
+    
+    # "Artificial" iterate consolidating s and y. Allows to reduce dimension of
+    # the method's operator from (n + 2 * m) to just (n + m).
+    v::AbstractVector{T}
+
+    function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(zeros(n), zeros(m), zeros(m), zeros(m))
+    end
+end
+Variables(args...) = Variables{DefaultFloat}(args...)
+
+@with_kw mutable struct Workspace{T <: AbstractFloat}
+    # Problem data.
+    p::ProblemData{T}
+    vars::Variables{T}
+
+    # Select method variant (to do with the proximal penalty norm used).
+    variant::Int # In {1, 2, 3, 4}.
+
+    # Primal and dual step sizes.
+    τ::T
+    ρ::T
+
+    # Cache for variety of useful quantities (e.g. fixed matrix-... products).
+    cache::Dict{Symbol, Any}
+
+    # Constructor where initial iterates are passed in.
+    function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
+        new(p, vars, variant, τ, ρ, Dict{Symbol, Any}())
+    end
+
+    # Constructor where initial iterates are set to zero.
+    function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
+        new(p, Variables(p.m, p.n), variant, τ, ρ, Dict{Symbol, Any}())
+    end
+end
+Workspace(args...) = Workspace{DefaultFloat}(args...)
+
+# mutable struct States
+# 	IS_ASSEMBLED::Bool # The workspace has been assembled with problem data.
+# 	IS_OPTIMISED::Bool # The optimisation function has been CALLED on the model.
+# 	# IS_SCALED::Bool # The problem data has been scaled.
+# 	States() = new(false, false, false, false, false)
+# end
