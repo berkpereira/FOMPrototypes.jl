@@ -10,11 +10,14 @@ include("acceleration.jl")
 
 
 using Revise
+using Profile
+using StatProfilerHTML
 using BenchmarkTools
 using Printf
 using Plots
 using SparseArrays
 using SCS
+using Random
 plotlyjs();
 
 # Set default plot size (in pixels)
@@ -48,8 +51,8 @@ problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
 if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
-    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
-    problem_name = "HB_ash219_lasso"; # smallish
+    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    # problem_name = "HB_ash219_lasso"; # smallish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
@@ -123,12 +126,11 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 200;
+MAX_ITERS = 400;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-RETURN_RUN_DATA = true;
-ACCELERATION = true;
+ACCELERATION = false;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
@@ -147,11 +149,8 @@ end
 ws = Workspace(problem, variant, τ, ρ)
 ws.cache[:A_gram] = A_gram
 
-if RETURN_RUN_DATA
-    primal_objs, dual_objs, primal_residuals, dual_residuals, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, v_proj_flags = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
-else
-    final_primal_obj, final_dual_obj = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, RETURN_RUN_DATA, ACCELERATION);
-end
+# Call the solver.
+primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION);
 
 end;
 
@@ -174,7 +173,7 @@ display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", y
 
 display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
-display(plot_equal_segments(v_proj_flags))
+display(plot_equal_segments(enforced_set_flags))
 
 end
 

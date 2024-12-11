@@ -30,17 +30,43 @@ struct Variables{T}
 
     # Dual variable from "previous" iteration. N.B.: after (e.g.) restarts or
     # accelerated steps, this is actually an artificial "previous" iterate.
-    y_prev::AbstractVector{T} 
+    y_prev::AbstractVector{T}
     
     # "Artificial" iterate consolidating s and y. Allows to reduce dimension of
     # the method's operator from (n + 2 * m) to just (n + m).
     v::AbstractVector{T}
 
+    # Iterate for basis building with an Arnoldi-like process as we iterate.
+    # This is for purposes of affine approximation-based acceleration.
+    q::AbstractVector{T}
+
+    # Consolidated (x, v) vector and q vector (for basis building) (two cols).
+    # (x,v) is exactly as it sounds. q is for building a basis with an
+    # Arnoldi-like process simultaneously as we iterate on the (x, v) sequence.
+    # Convenient for when we use the linearisation technique
+    # for acceleration.
+    x_v_q::AbstractMatrix{T}
+
     function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n), zeros(m), zeros(m), zeros(m), zeros(m))
+        new(zeros(n), zeros(m), zeros(m), zeros(m), zeros(m), zeros(n + m), zeros(n + m, 2))
     end
 end
 Variables(args...) = Variables{DefaultFloat}(args...)
+
+@with_kw mutable struct RunResults{T <: AbstractFloat}
+    # Primal and dual objective values.
+    primal_obj::AbstractVector{T} = T[]
+    dual_obj::AbstractVector{T} = T[]
+
+    # Duality gap.
+    gaps::AbstractVector{T} = T[]
+
+    # Primal and dual residuals.
+    pri_res::AbstractVector{T} = T[]
+    dual_res::AbstractVector{T} = T[]
+end
+RunResults(args...) = RunResults{DefaultFloat}(args...)
+
 
 @with_kw mutable struct Workspace{T <: AbstractFloat}
     # Problem data.
