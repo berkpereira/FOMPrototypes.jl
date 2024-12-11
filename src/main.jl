@@ -51,8 +51,8 @@ problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
 if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
-    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
-    # problem_name = "HB_ash219_lasso"; # smallish
+    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    problem_name = "HB_ash219_lasso"; # smallish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
@@ -130,7 +130,7 @@ MAX_ITERS = 400;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-ACCELERATION = false;
+ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.

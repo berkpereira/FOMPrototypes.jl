@@ -80,17 +80,23 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     τ::T
     ρ::T
 
+    # Affine dynamics descriptors.
+    tilde_A::AbstractMatrix{T}
+    tilde_b::AbstractVector{T}
+
     # Cache for variety of useful quantities (e.g. fixed matrix-... products).
     cache::Dict{Symbol, Any}
 
     # Constructor where initial iterates are passed in.
     function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
-        new(p, vars, variant, τ, ρ, Dict{Symbol, Any}())
+        m, n = p.m, p.n
+        new(p, vars, variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), Dict{Symbol, Any}())
     end
 
     # Constructor where initial iterates are set to zero.
     function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
-        new(p, Variables(p.m, p.n), variant, τ, ρ, Dict{Symbol, Any}())
+        m, n = p.m, p.n
+        new(p, Variables(p.m, p.n), variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), Dict{Symbol, Any}())
     end
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)

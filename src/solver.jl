@@ -256,7 +256,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         # v = compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
         
         # Compute linearised (affine) operator.
-        tilde_A, tilde_b, D_k_π_diag = local_affine_dynamics(ws)
+        D_k_π_diag = local_affine_dynamics!(ws)
         
         # Wherever projections "have had" to act, flags are set to true (1.0).
         # In other blocks, they are false (0.0).
@@ -265,29 +265,29 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
 
         # We now plot the spectrum of tilde_A on the complex plane.
-        # plot_spectrum(tilde_A)
+        # plot_spectrum(ws.tilde_A)
         # Compute the eigenvalues (spectrum) of the matrix
-        if k % 50 == 0
-            spectrum = eigvals(Matrix(tilde_A))
-            println("Condition number of tilde_A: ", cond(Matrix(tilde_A)))
-            println("Norm of tilde_b: ", norm(tilde_b))
-            println()
+        # if k % 50 == 0
+        #     spectrum = eigvals(Matrix(ws.tilde_A))
+        #     println("Condition number of tilde_A: ", cond(Matrix(ws.tilde_A)))
+        #     println("Norm of tilde_b: ", norm(ws.tilde_b))
+        #     println()
 
-            # Extract real and imaginary parts of the eigenvalues
-            real_parts = real(spectrum)
-            imag_parts = imag(spectrum)
+        #     # Extract real and imaginary parts of the eigenvalues
+        #     real_parts = real(spectrum)
+        #     imag_parts = imag(spectrum)
 
-            # Plot the spectrum in the complex plane
-            display(scatter(real_parts, imag_parts,
-                xlabel="Re", ylabel="Im",
-                title="Spectrum of tilde_A",
-                legend=false, aspect_ratio=:equal, marker=:circle))
-        end
+        #     # Plot the spectrum in the complex plane
+        #     display(scatter(real_parts, imag_parts,
+        #         xlabel="Re", ylabel="Im",
+        #         title="Spectrum of tilde_A",
+        #         legend=false, aspect_ratio=:equal, marker=:circle))
+        # end
 
         # Apply operator.
         # ACCELERATED ITERATION UPDATE.
         if acceleration && k >= 100 && k % 20 == 0
-            accelerated_point = acceleration_candidate(tilde_A, tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m)
+            accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m)
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
 
@@ -302,7 +302,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # This is more like a restart situation.
             ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
         else # STANDARD ITERATION.
-            ws.vars.x_v_q .= tilde_A * ws.vars.x_v_q + (tilde_b * ones(2)')
+            ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + (ws.tilde_b * ones(2)')
 
             # TODO: ORTHOGONALISE THE q VECTOR FOR BASIS BUILDING
             # TODO: THIS IMPLIES HAVING A REGISTER OF SOME MAX MEMORY STORED
@@ -325,7 +325,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # x_actual = ws.vars.x + x_update(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
             # v_actual = iter_v(ws.p.A, ws.p.b, v, ws.vars.x, ws.p.K)
 
-            # println(norm((tilde_A * [ws.vars.x; v] + tilde_b) - [x_actual; v_actual]), 2)
+            # println(norm((ws.tilde_A * [ws.vars.x; v] + ws.tilde_b) - [x_actual; v_actual]), 2)
             
             # x_step = acc_x - ws.vars.x
             # s_step = acc_s - ws.vars.s

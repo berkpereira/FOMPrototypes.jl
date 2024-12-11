@@ -56,7 +56,7 @@ end
 # TODO: consider making operations in this whole "affinisation" process more
 # efficient. At the moment it is done in quite a naive fashion for proof of 
 # concept.
-function local_affine_dynamics(ws::Workspace)
+function local_affine_dynamics!(ws::Workspace)
 
     # Compute the diagonal flag matrices required.
     D_k_π = flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K)
@@ -72,7 +72,7 @@ function local_affine_dynamics(ws::Workspace)
     brhs = -A * trhs + D_k_π_neg
     
     # Assemble tilde_A.
-    tilde_A = [ws.cache[:tlhs] trhs; ws.cache[:blhs] brhs]
+    ws.tilde_A .= [ws.cache[:tlhs] trhs; ws.cache[:blhs] brhs]
 
     b_k_π = D_k_π_neg * ws.vars.s
     tilde_b_top = -ws.cache[:trhs_pre] * (2 * b_k_π - ws.p.b) - ws.cache[:W_inv] * ws.p.c
@@ -82,7 +82,7 @@ function local_affine_dynamics(ws::Workspace)
     # println("D_k_π_neg: ", D_k_π_neg)
 
     # Assemble tilde_b.
-    tilde_b = [tilde_b_top; tilde_b_bot]
+    ws.tilde_b .= [tilde_b_top; tilde_b_bot]
 
     # tilde_b = [-pre_x_matrix * (c + ρ * A' * (D_k_x_b * s - b)); A * pre_x_matrix * (ρ * A' * (2 * b_k_π - b) + c) + b - b_k_π]
 
@@ -93,7 +93,7 @@ function local_affine_dynamics(ws::Workspace)
     # println("Rank of tilde_A: ", rank(tilde_A))
     # println("Condition number of tilde_A: ", cond(Matrix(tilde_A)))
     
-    return tilde_A, tilde_b, D_k_π.diag
+    return D_k_π.diag
 end
 
 function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
