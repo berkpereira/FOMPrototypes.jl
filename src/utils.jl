@@ -235,7 +235,7 @@ function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
         markercolor = :blue,
         xlabel = "Index",
         ylabel = "Equality with Previous",
-        title = "Equality of Consecutive Entries in v_proj_flags",
+        title = "Equality of Consecutive Enforced Sets",
         legend = false
     )
 end;
