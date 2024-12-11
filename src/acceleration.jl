@@ -98,8 +98,8 @@ function local_affine_dynamics(P::AbstractMatrix{Float64},
     # the method's actual operator. Evaluated at the current iterate, the
     # result should be the exact same!
 
-    println("Rank of tilde_A: ", rank(tilde_A))
-    println("Condition number of tilde_A: ", cond(Matrix(tilde_A)))
+    # println("Rank of tilde_A: ", rank(tilde_A))
+    # println("Condition number of tilde_A: ", cond(Matrix(tilde_A)))
     return tilde_A, tilde_b, v
 end
 
@@ -115,7 +115,7 @@ function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
     # operator of the kth Krylov iterate (see Theorem 2.2 from Walker and Ni,
     # Anderson Acceleration for Fixed-Point Iterations, 2011).
 
-    println("Rank of (tilde_A - I): ", rank(tilde_A - I(n + m)))
-    println("Condition number of (tilde_A - I): ", cond(Matrix(tilde_A - I(n + m))))
+    # println("Rank of (tilde_A - I): ", rank(tilde_A - I(n + m)))
+    # println("Condition number of (tilde_A - I): ", cond(Matrix(tilde_A - I(n + m))))
     return tilde_A * krylov_iterate + tilde_b
 end

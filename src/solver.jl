@@ -277,7 +277,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             x_actual = ws.vars.x + x_update(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
             v_actual = iter_v(ws.p.A, ws.p.b, v, ws.vars.x, ws.p.K)
 
-            println(norm((tilde_A * [ws.vars.x; v] + tilde_b) - [x_actual; v_actual]), 2)
+            # println(norm((tilde_A * [ws.vars.x; v] + tilde_b) - [x_actual; v_actual]), 2)
 
             accelerated_point = acceleration_candidate(tilde_A, tilde_b, ws.vars.x, v, ws.p.n, ws.p.m)
 
