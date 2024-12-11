@@ -84,19 +84,23 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     tilde_A::AbstractMatrix{T}
     tilde_b::AbstractVector{T}
 
+    # Indicator of enforced constraints (are cone projections making a change
+    # to these blocks?).
+    enforced_constraints::AbstractVector{Bool}
+
     # Cache for variety of useful quantities (e.g. fixed matrix-... products).
     cache::Dict{Symbol, Any}
 
     # Constructor where initial iterates are passed in.
     function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, vars, variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), Dict{Symbol, Any}())
+        new(p, vars, variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}());
     end
 
-    # Constructor where initial iterates are set to zero.
+    # Constructor where initial iterates are not passed (default set to zero).
     function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, Variables(p.m, p.n), variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), Dict{Symbol, Any}())
+        new(p, Variables(p.m, p.n), variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}())
     end
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)

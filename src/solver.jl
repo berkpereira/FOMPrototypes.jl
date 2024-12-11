@@ -255,14 +255,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         # ACCELERATED STEP.
         # v = compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
         
-        # Compute linearised (affine) operator.
-        D_k_π_diag = local_affine_dynamics!(ws)
-        
-        # Wherever projections "have had" to act, flags are set to true (1.0).
-        # In other blocks, they are false (0.0).
-
-        constraint_flags = D_k_π_diag .!= 0.0
-
+        # Update linearised (affine) operator.
+        update_affine_dynamics!(ws)
 
         # We now plot the spectrum of tilde_A on the complex plane.
         # plot_spectrum(ws.tilde_A)
@@ -286,7 +280,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         # Apply operator.
         # ACCELERATED ITERATION UPDATE.
-        if acceleration && k >= 100 && k % 20 == 0
+        if acceleration && k >= 200 && k % 20 == 0
             accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m)
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
@@ -297,6 +291,10 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.y .= acc_y
             ws.vars.x_v_q[:, 1] .= [acc_x; acc_v]
             ws.vars.x_v_q[:, 2] .= ones(n + m) # TODO: ADAPT THIS TO SOMETHING SENSIBLE.
+
+            # TODO: MAKE SURE THIS IS THE MOST SENSIBLE TO RECORD THE ENFORCED
+            # SET DATA.
+            push!(enforced_set_flags, ws.enforced_constraints)
             
             # It does not make sense to have ws.vars.y_prev as usual here.
             # This is more like a restart situation.
@@ -314,7 +312,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.s .= recover_s(ws.vars.v, ws.p.K)
             ws.vars.y .= recover_y(ws.vars.v, ws.ρ, ws.p.K)
             ws.vars.q .= ws.vars.x_v_q[:, 2]
-            push!(enforced_set_flags, constraint_flags)
+            push!(enforced_set_flags, ws.enforced_constraints)
         end
 
 
@@ -335,12 +333,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         # else # STANDARD ITERATION (no acceleration).
         #     x_step = iter_x!(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
-        #     s_step, constraint_flags = iter_s!(ws.vars.s, ws.p.A, ws.vars.x, ws.p.b, ws.vars.y, ws.p.K, ws.ρ)
+        #     s_step, ws.enforced_constraints = iter_s!(ws.vars.s, ws.p.A, ws.vars.x, ws.p.b, ws.vars.y, ws.p.K, ws.ρ)
         #     ws.vars.y_prev .= ws.vars.y
         #     y_step = iter_y!(ws.vars.y, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
         #     if return_run_data
-        #         push!(enforced_set_flags, constraint_flags)
+        #         push!(enforced_set_flags, ws.enforced_constraints)
         #     end
         # end
 

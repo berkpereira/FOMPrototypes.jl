@@ -6,6 +6,7 @@ include("utils.jl")
 include("problem_data.jl")
 include("solver.jl")
 include("printing.jl")
+include("plotting.jl")
 include("acceleration.jl")
 
 
@@ -18,11 +19,11 @@ using Plots
 using SparseArrays
 using SCS
 using Random
-plotlyjs();
+gr(); # Use plotlyjs() instead for interactive plots.
 
 # Set default plot size (in pixels)
 # default(size=(800, 900)); # large; for laptop
-default(size=(600, 800))
+default(size=(600, 700))
 
 end
 
@@ -46,7 +47,7 @@ end
 
 begin
 
-problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
+problem_option = :HUBER; # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
@@ -126,7 +127,7 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 400;
+MAX_ITERS = 300;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
@@ -172,6 +173,8 @@ display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="
 display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
 
 display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
+
+enforced_constraints_plot(enforced_set_flags, 5)
 
 display(plot_equal_segments(enforced_set_flags))
 
