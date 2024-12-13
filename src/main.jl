@@ -19,11 +19,16 @@ using Plots
 using SparseArrays
 using SCS
 using Random
-gr(); # Use plotlyjs() instead for interactive plots.
+
+# Set Plots backend.
+# Use plotlyjs() for interactive plots. Use gr() for faster generation.
+plotlyjs();
+
+newline_char = Plots.backend_name() == :gr ? "\n" : "<br>"
 
 # Set default plot size (in pixels)
 # default(size=(800, 900)); # large; for laptop
-default(size=(600, 700))
+default(size=(1000, 700))
 
 end
 
@@ -56,7 +61,8 @@ if problem_option === :LASSO
     problem_name = "HB_ash219_lasso"; # smallish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
-    problem_name = "NYPA_Maragal_5_huber"; # good size, challenging
+    problem_name = "HB_ash958_huber"; # (m, n) = (3419, 3099)
+    # problem_name = "NYPA_Maragal_5_huber"; # large, challenging
 elseif problem_option === :MAROS
     problem_set = "maros";
     problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
@@ -99,6 +105,9 @@ model = Model(SCS.Optimizer);
 # Add cone constraints to the model
 add_cone_constraints_scs!(model, s_scs, K);
 
+# set_optimizer_attribute(model, "eps_abs", 1e-10)
+# set_optimizer_attribute(model, "eps_rel", 1e-10)
+
 # Add the quadratic objective to the model
 @objective(model, Min, 0.5 * dot(x_scs, P * x_scs) + dot(c, x_scs));
 
@@ -127,11 +136,11 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 300;
+MAX_ITERS = 500;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-ACCELERATION = true;
+ACCELERATION = false;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
@@ -144,6 +153,7 @@ println("Restart period: $RESTART_PERIOD")
 
 end
 
+# @profview begin # Built-in profiler view in VS Code.
 @time begin
 
 # Initialise workspace (initial iterates are set to zero by default).
@@ -151,7 +161,8 @@ ws = Workspace(problem, variant, τ, ρ)
 ws.cache[:A_gram] = A_gram
 
 # Call the solver.
-primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION);
+primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION,
+x_scs, s_scs, y_scs);
 
 end;
 
@@ -162,29 +173,45 @@ end;
 
 begin
 
-EXP_SMOOTHING_PARAMETER = 0.95
+display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective.<br>Restart period = $RESTART_PERIOD"))
+display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual objective.<br>Restart period = $RESTART_PERIOD"))
+display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="Variant $variant: Duality Gap.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="Variant $variant: Duality Gap.<br>Restart period = $RESTART_PERIOD"))
+display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.<br>Restart period = $RESTART_PERIOD", yaxis=:log))
+display(plot(x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' x Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-enforced_constraints_plot(enforced_set_flags, 5)
+display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' s Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+
+display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+
+# We also compute the distance to optimality of the whole concatenated (x, s, y)
+# vector, and plot it:
+concat_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ s_dist_to_sol .^ 2 .+ y_dist_to_sol .^ 2)
+display(plot(concat_dist_to_sol / sqrt(ws.p.n + 2 * ws.p.m), label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' Concatenated Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+
+enforced_constraints_plot(enforced_set_flags, 10)
 
 display(plot_equal_segments(enforced_set_flags))
 
 end
 
+
+
+
+################################################################################
 # STEP ANGLE STUFF
+################################################################################
 
 begin
 
-plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.<br>Restart period = $RESTART_PERIOD")
+EXP_SMOOTHING_PARAMETER = 0.95
+
+plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.$newline_char Restart period = $RESTART_PERIOD")
 plot!(exp_moving_average(s_step_angles, EXP_SMOOTHING_PARAMETER), label="s Step Angle")
 plot!(exp_moving_average(y_step_angles, EXP_SMOOTHING_PARAMETER), label="y Step Angle")
 plot!(exp_moving_average(concat_step_angles, EXP_SMOOTHING_PARAMETER), label="Concatenated Step Angle")
@@ -193,7 +220,7 @@ display(plot!(exp_moving_average(normalised_concat_step_angles, EXP_SMOOTHING_PA
 
 # Running sums of angles
 
-plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles.<br>Restart period = $RESTART_PERIOD")
+plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles.$newline_char Restart period = $RESTART_PERIOD")
 
 plot!(cumsum(s_step_angles), label="s Step")
 
