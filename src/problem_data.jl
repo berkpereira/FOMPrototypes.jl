@@ -13,7 +13,7 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     optimizer = optimizer_with_attributes(Clarabel.Optimizer, "equilibrate_enable" => true)
 
     # create and populate a solver, but don't solve
-    model = problem(Model(optimizer); solve = false) 
+    model = problem(Model(optimizer); solve = false)
 
     # extract the Clarabel solver object from the JuMP `model` wrapper 
     solver = model.moi_backend.optimizer.model.optimizer.solver
