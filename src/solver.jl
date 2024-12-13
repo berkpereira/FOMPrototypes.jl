@@ -9,6 +9,7 @@ include("printing.jl")
 # Compute v iterate which consolidates the y and s iterates.
 function compute_v(A::AbstractMatrix{Float64}, b::AbstractVector{Float64},
     x::AbstractVector{Float64}, y_prev::AbstractVector{Float64}, ρ::Float64)
+    # With the vanilla method, $v_k = b - A x_k - y_{k-1} / ρ$
     v = b - A * x - y_prev / ρ
     return v
 end
@@ -100,6 +101,7 @@ function y_update(A::AbstractMatrix{Float64},
     s::AbstractVector{Float64},
     b::AbstractVector{Float64},
     ρ::Float64)
+    # The step is y_{k+1} = y_k + ρ (A x_{k+1} + s_{k+1} - b)
     step = ρ * (A * x + s - b)
     return step
 end
@@ -133,14 +135,10 @@ Run the optimiser for the initial inputs and solver options given.
 """
 function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
-    acceleration::Bool = false)
-    # I am disabling the restart feature for now, as I experiment with
-    # how best to handle the Krylov acceleration methods.
-    if restart_period != Inf
-        throw(ArgumentError("Restart feature suspended."))
-    end
-    ####################################################################
-
+    acceleration::Bool = false,
+    x_sol::AbstractVector{Float64} = nothing,
+    s_sol::AbstractVector{Float64} = nothing,
+    y_sol::AbstractVector{Float64} = nothing)
     # Compute the (fixed) matrix that premultiplies the x step.
     # NOTE: I assume for now that A_gram is already in the cache.
     # It is suboptimal to be storing all these matrices explicitly.
@@ -186,6 +184,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     primal_res_norms = Float64[]
     dual_res_norms = Float64[]
     enforced_set_flags = Vector{Vector{Bool}}()
+    # If real solution provided.
+    if !isnothing(x_sol)
+        x_dist_to_sol = Float64[]
+        s_dist_to_sol = Float64[]
+        y_dist_to_sol = Float64[]
+    end
 
 
     # Initialise other variables to be used during algorithm.
@@ -210,24 +214,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             x_avg .= (j * x_avg + ws.vars.x) / (j + 1)
             s_avg .= (j * s_avg + ws.vars.s) / (j + 1)
             y_avg .= (j * y_avg + ws.vars.y) / (j + 1)
-            if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
-                # Restart.
-                ws.vars.x .= x_avg
-                ws.vars.s .= s_avg
-                ws.vars.y .= y_avg
-                ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-
-                # Reset iterate averages.
-                x_avg .= ws.vars.x
-                s_avg .= ws.vars.s
-                y_avg .= ws.vars.y
-
-                # Reset inner loop counters/sums.
-                j = 0
-                x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
-
-                just_restarted = true
-            end
         end
 
         # Compute residuals, their norms, and objective values.
@@ -239,24 +225,27 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
         gap = duality_gap(primal_obj, dual_obj)
 
+        if !isnothing(x_sol)
+            curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
+            curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
+            curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+        end
+
         # Print iteration info.
         if k % print_modulo == 0
             print_results(k, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap))
         end
 
-        # Store metrics if requested.
+        # Store metrics.
         push!(primal_obj_vals, primal_obj)
         push!(dual_obj_vals, dual_obj)
         push!(primal_res_norms, curr_primal_res_norm)
         push!(dual_res_norms, curr_dual_res_norm)
-
-
-        ### ITERATE and record step vectors.
-        # ACCELERATED STEP.
-        # v = compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
-        
-        # Update linearised (affine) operator.
-        update_affine_dynamics!(ws)
+        if !isnothing(x_sol)
+            push!(x_dist_to_sol, curr_x_dist)
+            push!(s_dist_to_sol, curr_s_dist)
+            push!(y_dist_to_sol, curr_y_dist)
+        end
 
         # We now plot the spectrum of tilde_A on the complex plane.
         # plot_spectrum(ws.tilde_A)
@@ -278,7 +267,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         #         legend=false, aspect_ratio=:equal, marker=:circle))
         # end
 
-        # Apply operator.
+        ### ITERATE ###
+        
+        # Update linearised (affine) operator.
+        update_affine_dynamics!(ws)
+        
         # ACCELERATED ITERATION UPDATE.
         if acceleration && k >= 200 && k % 20 == 0
             accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m)
@@ -299,6 +292,34 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # It does not make sense to have ws.vars.y_prev as usual here.
             # This is more like a restart situation.
             ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
+
+            # TODO: consider how to handle acceleration steps in the context of
+            # running averages for restarts!?
+            # RESET AVERAGES PERGAPS? ALONG WITH SETTING j = 0 ?
+            just_restarted = true
+            j = 0
+        elseif k > 0 && k % restart_period == 0
+            # NOTE: suspended adaptive trigger in the line above.
+            # if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
+            # Restart. Use averages of (x, s, y) sequence, then recover v.
+            ws.vars.x .= x_avg
+            ws.vars.s .= s_avg
+            ws.vars.y .= y_avg
+            ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
+            ws.vars.v .= compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
+            ws.vars.x_v_q[1:end, 1] .= [ws.vars.x; ws.vars.v]
+            ws.vars.x_v_q[1:end, 2] .= ones(ws.p.n + ws.p.m) # TODO: ADAPT THIS TO SOMETHING SENSIBLE.
+
+            # Reset iterate averages.
+            x_avg .= ws.vars.x
+            s_avg .= ws.vars.s
+            y_avg .= ws.vars.y
+
+            # Reset inner loop counters/sums.
+            just_restarted = true # NOTE: this may not work as expected when reintroducing step angle stuff for adaptive restarts.
+            j = 0
+            
+            # x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
         else # STANDARD ITERATION.
             ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + (ws.tilde_b * ones(2)')
 
@@ -313,34 +334,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.y .= recover_y(ws.vars.v, ws.ρ, ws.p.K)
             ws.vars.q .= ws.vars.x_v_q[:, 2]
             push!(enforced_set_flags, ws.enforced_constraints)
+
+            j += 1
         end
-
-
-
-            # NOTE: check for whether the local affinisation and the actual
-            # method operator give the same result when evaluated at the
-            # current iterate (they should!).
-            # x_actual = ws.vars.x + x_update(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
-            # v_actual = iter_v(ws.p.A, ws.p.b, v, ws.vars.x, ws.p.K)
-
-            # println(norm((ws.tilde_A * [ws.vars.x; v] + ws.tilde_b) - [x_actual; v_actual]), 2)
-            
-            # x_step = acc_x - ws.vars.x
-            # s_step = acc_s - ws.vars.s
-            # y_step = acc_y - ws.vars.y
-            
-
-
-        # else # STANDARD ITERATION (no acceleration).
-        #     x_step = iter_x!(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.y_prev)
-        #     s_step, ws.enforced_constraints = iter_s!(ws.vars.s, ws.p.A, ws.vars.x, ws.p.b, ws.vars.y, ws.p.K, ws.ρ)
-        #     ws.vars.y_prev .= ws.vars.y
-        #     y_step = iter_y!(ws.vars.y, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-
-        #     if return_run_data
-        #         push!(enforced_set_flags, ws.enforced_constraints)
-        #     end
-        # end
 
         # concat_step[1:ws.p.n] .= x_step
         # normalised_concat_step[1:ws.p.n] .= dim_adjusted_vec_normalise(x_step)
@@ -384,7 +380,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
         
-        j += 1
+        
     end
 
 
@@ -397,6 +393,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
     dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
     gap = duality_gap(primal_obj, dual_obj)
+    curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
+    curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
+    curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
 
     # END: Store metrics if requested.
     # TODO: make this stuff modular as opposed to copied from the main loop.
@@ -404,9 +403,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     push!(dual_obj_vals, dual_obj)
     push!(primal_res_norms, curr_primal_res_norm)
     push!(dual_res_norms, curr_dual_res_norm)
+    if !isnothing(x_sol)
+        push!(x_dist_to_sol, curr_x_dist)
+        push!(s_dist_to_sol, curr_s_dist)
+        push!(y_dist_to_sol, curr_y_dist)
+    end
 
     # END: print iteration info.
     print_results(max_iter, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap), terminated = true)
 
-    return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, enforced_set_flags #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
+    return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
 end
