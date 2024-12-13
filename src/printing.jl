@@ -18,14 +18,13 @@ function print_results(
     terminated::Bool = false
 )
     if terminated
-        println()
         println("--------------------")
-        println("Terminated.")
+        println("     TERMINATED     ")
         println("--------------------")
     end
 
     # Start with iteration, objective, and primal/dual residuals
-    print_output = @sprintf("Iter %4.1d | Obj: %12.5e", k, curr_obj)
+    print_output = @sprintf("Iter %4.1d | obj: %12.5e", k, curr_obj)
 
     # Include objective error if obj_sol is provided
     if obj_sol !== nothing
@@ -48,14 +47,18 @@ function print_results(
     end
 
     # Include primal residual
-    print_output *= @sprintf(" | Primal res: %12.5e", primal_res_norm)
+    print_output *= @sprintf(" | pri res: %12.5e", primal_res_norm)
 
     # Include dual residual
-    print_output *= @sprintf(" | Dual res: %12.5e", dual_res_norm)
+    print_output *= @sprintf(" | dua res: %12.5e", dual_res_norm)
 
     # Include duality gap
-    print_output *= @sprintf(" | Duality gap: %12.5e", curr_duality_gap)
+    print_output *= @sprintf(" | gap: %12.5e", curr_duality_gap)
 
     # Print the final output
     println(print_output)
+
+    if terminated
+        println()
+    end
 end
