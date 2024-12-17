@@ -80,6 +80,8 @@ function update_affine_dynamics!(ws::Workspace)
 
         # Assemble tilde_b.
         ws.tilde_b .= [tilde_b_top; tilde_b_bot]
+
+        return ws.tilde_A, ws.tilde_b
     end
 end
 
