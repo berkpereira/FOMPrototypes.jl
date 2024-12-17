@@ -379,8 +379,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
-        
-        
     end
 
 

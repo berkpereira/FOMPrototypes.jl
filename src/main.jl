@@ -28,7 +28,7 @@ newline_char = Plots.backend_name() == :gr ? "\n" : "<br>"
 
 # Set default plot size (in pixels)
 # default(size=(800, 900)); # large; for laptop
-default(size=(1000, 700))
+default(size=(800, 700))
 
 end
 
@@ -153,7 +153,7 @@ println("Restart period: $RESTART_PERIOD")
 
 end
 
-# @profview begin # Built-in profiler view in VS Code.
+# @profview begin # For built-in profiler view in VS Code.
 @time begin
 
 # Initialise workspace (initial iterates are set to zero by default).
@@ -189,12 +189,10 @@ display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel=
 
 display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-# We also compute the distance to optimality of the whole concatenated (x, s, y)
-# vector, and plot it:
 concat_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ s_dist_to_sol .^ 2 .+ y_dist_to_sol .^ 2)
 display(plot(concat_dist_to_sol / sqrt(ws.p.n + 2 * ws.p.m), label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' Concatenated Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-enforced_constraints_plot(enforced_set_flags, 10)
+# enforced_constraints_plot(enforced_set_flags, 10)
 
 display(plot_equal_segments(enforced_set_flags))
 
