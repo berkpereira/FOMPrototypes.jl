@@ -1,3 +1,4 @@
+include("utils.jl")
 using LinearAlgebra
 using SparseArrays
 using IterativeSolvers
@@ -59,6 +60,7 @@ function update_affine_dynamics!(ws::Workspace)
         return
     # Enforced constraints (and therefore "affinised" dynamics) have changed.
     else
+        println("Dynamics have changed.")
         # Update enforced constraints.
         ws.enforced_constraints .= new_enforced_constraints
         
@@ -87,17 +89,58 @@ end
 
 function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
     tilde_b::AbstractVector{Float64}, x::AbstractVector{Float64},
-    v::AbstractVector{Float64}, n::Integer, m::Integer)
-    krylov_iterate = copy([x; v])
+    v::AbstractVector{Float64}, n::Integer, m::Integer,
+    use_package_krylov::Bool = true,
+    krylov_basis::AbstractMatrix{Float64} = zeros(Float64, n + m, 0))
+    if use_package_krylov
+        krylov_iterate = copy([x; v])
+        
+        # NOTE: may want to set maxiter argument in call to gmres! below.
+        gmres!(krylov_iterate, I(n + m) - tilde_A, tilde_b, maxiter = 20)
+
+        # NOTE: the {k+1}th Anderson acceleration iterate is given by the affine 
+        # operator of the kth Krylov iterate (see Theorem 2.2 from Walker and Ni,
+        # Anderson Acceleration for Fixed-Point Iterations, 2011).
+
+        # println("Rank of (tilde_A - I): ", rank(tilde_A - I(n + m)))
+        # println("Condition number of (tilde_A - I): ", cond(Matrix(tilde_A - I(n + m))))
+        return tilde_A * krylov_iterate + tilde_b
+    else
+        # Throw exception because this is not yet implemented.
+        throw(ArgumentError("Non-package acceleration not yet implemented."))
+    end
+end
+
+"""
+This implementation of the accelerated point computation relies on our custom
+implementations of the Arnoldi and Krylov procedures.
+TODO: make sure that this thing works.
+"""
+function custom_acceleration_candidate(ws::Workspace)
+    # The steps at a high-level are the following.
+    # The workspace contains:
+    # ws.cache[:H], the Arnoldi upper Hessenberg matrix.
+    # ws.cache[:krylov_basis], the Arnoldi-Krylov orthonormal basis matrix.
+    # ws.tilde_A, the affine operator matrix.
+    # ws.tilde_b, the affine operator vector.
     
-    # NOTE: may want to set maxiter argument in call to gmres! below.
-    gmres!(krylov_iterate, I(n + m) - tilde_A, tilde_b, maxiter = 30)
+    
+    # rhs_res = ws.tilde_A * ws.vars.x_v_q[:, 1] + ws.tilde_b - ws.vars.x_v_q[:, 1]
 
-    # NOTE: the {k+1}th Anderson acceleration iterate is given by the affine 
-    # operator of the kth Krylov iterate (see Theorem 2.2 from Walker and Ni,
-    # Anderson Acceleration for Fixed-Point Iterations, 2011).
+    # NOTE: need to pre-multiply by the transpose of "Q_{k+1}" here.
+    # This is assumed by the function krylov_least_squares!
+    rhs_res_custom = ws.cache[:krylov_basis]' * (ws.tilde_A * ws.vars.x_v_q[:, 1] + ws.tilde_b - ws.vars.x_v_q[:, 1])
+    
+    y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
 
-    # println("Rank of (tilde_A - I): ", rank(tilde_A - I(n + m)))
-    # println("Condition number of (tilde_A - I): ", cond(Matrix(tilde_A - I(n + m))))
-    return tilde_A * krylov_iterate + tilde_b
+    # coeff_mat = ws.cache[:krylov_basis] * ws.cache[:H]
+    # y_krylov_sol = (coeff_mat' * coeff_mat) \ (coeff_mat' * (-rhs_res))
+
+    gmres_sol = ws.vars.x_v_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
+    
+    # NOTE: only left to convert from GMRES problem solution to Anderson
+    # acceleration problem solution (see Walker and Ni, 2011 for details).
+    acceleration_point = ws.tilde_A * gmres_sol + ws.tilde_b
+    
+    return acceleration_point
 end

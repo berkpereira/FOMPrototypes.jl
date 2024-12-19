@@ -1,6 +1,8 @@
 using SparseArrays
 using LinearAlgebra
+import LinearAlgebra:givensAlgorithm
 using JuMP
+using Plots
 using SCS
 using Statistics
 using Clarabel
@@ -154,6 +156,126 @@ function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, 
         end
         start_idx = end_idx + 1
     end
+end
+
+function plot_spectrum(A::AbstractMatrix{Float64})
+    spectrum = eigvals(Matrix(A))
+    
+    # Extract real and imaginary parts of the eigenvalues
+    real_parts = real(spectrum)
+    imag_parts = imag(spectrum)
+    
+    # Plot the spectrum in the complex plane
+    display(scatter(real_parts, imag_parts,
+        xlabel="Re", ylabel="Im",
+        title="Spectrum of tilde_A",
+        legend=false, aspect_ratio=:equal, marker=:circle))
+end
+
+"""
+Initialises an UpperHessenberg view of a n by (n - 1) matrix filled with zeros.
+"""
+function init_upper_hessenberg(n::Int)
+    # TODO: consider whether to use sparse or dense represenation (see lines
+    # below).
+    # H = spzeros(n + 1, n)
+    H = zeros(n, n - 1)
+    return UpperHessenberg(H)
+end
+
+"""
+Perform one Modified Gram-Schmidt orthogonalisation step for Krylov methods.
+RETURNS the result of the orthogonalisation of the input new vector (usable
+for fields of mutable structs).
+
+Inputs:
+- V::Matrix{T}: Existing tall matrix of orthonormal vectors (pre-allocated, may contain zero columns).
+- v_new::Vector{T}: New vector to orthonormalize.
+- H::Matrix{T}: Upper Hessenberg matrix (to be updated in-place).
+
+Assumptions:
+- V is pre-allocated (with zeros); the leftmost zero column determines where to place the new orthonormal vector.
+- H has been pre-allocated with the correct size (e.g. mem+1 by mem).
+- Orthogonalisation uses modified Gram-Schmidt (numerically stable).
+"""
+function arnoldi_step!(V::AbstractMatrix{T},
+    v_new::AbstractVector{T},
+    H::AbstractMatrix{T}) where T <: AbstractFloat
+    # Determine the current column of interest.
+    k = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
+    if isnothing(k)
+        k = size(V, 2) - 1
+    else
+        k -= 1
+    end
+
+    # Loop through previous basis vectors to orthogonalise v_new.
+    for j in 1:k
+        # Compute the projection coefficient.
+        H[j, k] = dot(V[:, j], v_new)
+
+        # Subtract the projection from v_new.
+        v_new -= H[j, k] .* V[:, j]
+    end
+
+    # Compute the norm of the orthogonalised vector.
+    H[k + 1, k] = norm(v_new)
+
+    # Check for breakdown
+    if H[k + 1, k] == 0.0
+        error("(Happy?) breakdown: orthogonalized vector has zero norm.")
+    end
+
+    # Normalize v_new to make it unit length
+    v_new /= H[k + 1, k]
+
+    # Place the orthonormalized vector into the basis matrix V
+    V[:, k + 1] .= v_new
+
+    return v_new
+end
+
+"""
+    krylov_least_squares!(H, rhs_res)
+
+Solve the least-squares problem `min_y ||H * y + rhs_res||^2`
+arising in Krylov subspace methods, where `rhs_res` is assumed to be pre-transformed by `Q`.
+
+Inputs:
+- `H`: Upper Hessenberg matrix of size (k+1) × k (modified in-place).
+- `rhs_res`: Vector of size (k+1) (modified in-place).
+
+Outputs:
+- `y`: Solution vector of size k.
+"""
+function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T}) where T
+    k = size(H, 2)  # Number of columns in H
+
+    # Check dimensions
+    # @assert size(H, 1) == k + 1 "H must have dimensions (k+1) × k"
+    # @assert length(rhs_res) == k + 1 "rhs_res must have length k+1"
+
+    # Givens rotation application to reduce H to upper triangular form
+    for j in 1:k
+        # Generate Givens rotation for element (j, j) and (j+1, j)
+        c, s, r = givensAlgorithm(H[j, j], H[j+1, j])
+
+        # Apply Givens rotation to the j-th and (j+1)-th rows of H
+        for i in j:k
+            temp = c * H[j, i] + s * H[j+1, i]
+            H[j+1, i] = -s * H[j, i] + c * H[j+1, i]
+            H[j, i] = temp
+        end
+
+        # Apply Givens rotation to the RHS vector
+        temp = c * rhs_res[j] + s * rhs_res[j+1]
+        rhs_res[j+1] = -s * rhs_res[j] + c * rhs_res[j+1]
+        rhs_res[j] = temp
+    end
+
+    # The Givens rotations reduce the problem to a k by k linear system.
+    # Now solve the upper triangular system H[1:k, 1:k] * y = -rhs_res[1:k]
+    return H[1:k, 1:k] \ (- rhs_res[1:k])
 end
  
 

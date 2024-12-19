@@ -52,7 +52,7 @@ end
 
 begin
 
-problem_option = :HUBER; # in {:LASSO, :HUBER, :MAROS}
+problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
@@ -136,15 +136,16 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 500;
+MAX_ITERS = 600;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-ACCELERATION = false;
+ACCEL_MEMORY = 39;
+ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
-max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
+max_τ = 1 / dom_λ_power_method(Matrix(take_away), 10);
 τ = 0.90 * max_τ;
 
 
@@ -162,7 +163,7 @@ ws.cache[:A_gram] = A_gram
 
 # Call the solver.
 primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION,
-x_scs, s_scs, y_scs);
+ACCEL_MEMORY, x_scs, s_scs, y_scs, false);
 
 end;
 
@@ -183,14 +184,14 @@ display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", y
 
 display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-display(plot(x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' x Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+# display(plot(x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' x Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' s Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+# display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' s Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+# display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-concat_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ s_dist_to_sol .^ 2 .+ y_dist_to_sol .^ 2)
-display(plot(concat_dist_to_sol / sqrt(ws.p.n + 2 * ws.p.m), label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' Concatenated Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+# concat_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ s_dist_to_sol .^ 2 .+ y_dist_to_sol .^ 2)
+# display(plot(concat_dist_to_sol / sqrt(ws.p.n + 2 * ws.p.m), label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' Concatenated Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
 # enforced_constraints_plot(enforced_set_flags, 10)
 

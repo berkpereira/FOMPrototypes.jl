@@ -1,10 +1,10 @@
 using LinearAlgebra
 using Plots
+using Random
 include("utils.jl")
 include("residuals.jl")
 include("acceleration.jl")
 include("printing.jl")
-# include("QPProblem.jl")
 
 # Compute v iterate which consolidates the y and s iterates.
 function compute_v(A::AbstractMatrix{Float64}, b::AbstractVector{Float64},
@@ -136,23 +136,35 @@ Run the optimiser for the initial inputs and solver options given.
 function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
     acceleration::Bool = false,
+    acceleration_memory::Integer = 20,
     x_sol::AbstractVector{Float64} = nothing,
     s_sol::AbstractVector{Float64} = nothing,
-    y_sol::AbstractVector{Float64} = nothing)
+    y_sol::AbstractVector{Float64} = nothing,
+    plot_tilde_A_spectrum::Bool = false)
+
+    # TODO: improve how this is handled...
+    DEBUG_ACC_MIN_ITER = 300
+
     # Compute the (fixed) matrix that premultiplies the x step.
     # NOTE: I assume for now that A_gram is already in the cache.
     # It is suboptimal to be storing all these matrices explicitly.
     # It would be much better to specify how the operator computes products
     # against vectors instead. However, for now, we will leave it like this.
     ws.cache[:W_inv] = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
-    # Compute fixed bits of \tilde_{A} for acceleration.
+    # Compute fixed bits of tilde_{A} for acceleration.
+    # TODO: implement operator applications as mat-vec operations instead.
     ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
     ws.cache[:blhs] = -A * ws.cache[:tlhs]
     
     ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
     ws.cache[:brhs_pre] = -A * ws.cache[:trhs_pre]
 
-
+    # If acceleration, initialise memory for storing Krylov basis vectors, as
+    # well as Hessenberg matrix H arising during the Gram-Schmidt process.
+    if acceleration
+        ws.cache[:krylov_basis] = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
+        ws.cache[:H] = init_upper_hessenberg(acceleration_memory)
+    end
 
     # Initialise "artificial" y_{-1} to make first x update well-defined
     # and correct.
@@ -171,7 +183,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     primal_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
     dual_res_temp = zeros(Float64, ws.p.n)
-    j = 0
+    j_restart = 0
 
     # Data containers for metrics (if return_run_data == true).
     # x_step_angles = Float64[]
@@ -207,13 +219,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # This flag helps us keep track of whether we should forgo the notion of a
     # "previous" step, including in the very first iteration.
     just_restarted = true
+    just_accelerated = true
 
     for k in 0:max_iter
         # Update average iterates
         if restart_period != Inf
-            x_avg .= (j * x_avg + ws.vars.x) / (j + 1)
-            s_avg .= (j * s_avg + ws.vars.s) / (j + 1)
-            y_avg .= (j * y_avg + ws.vars.y) / (j + 1)
+            x_avg .= (j_restart * x_avg + ws.vars.x) / (j_restart + 1)
+            s_avg .= (j_restart * s_avg + ws.vars.s) / (j_restart + 1)
+            y_avg .= (j_restart * y_avg + ws.vars.y) / (j_restart + 1)
         end
 
         # Compute residuals, their norms, and objective values.
@@ -250,22 +263,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         # We now plot the spectrum of tilde_A on the complex plane.
         # plot_spectrum(ws.tilde_A)
         # Compute the eigenvalues (spectrum) of the matrix
-        # if k % 50 == 0
-        #     spectrum = eigvals(Matrix(ws.tilde_A))
-        #     println("Condition number of tilde_A: ", cond(Matrix(ws.tilde_A)))
-        #     println("Norm of tilde_b: ", norm(ws.tilde_b))
-        #     println()
-
-        #     # Extract real and imaginary parts of the eigenvalues
-        #     real_parts = real(spectrum)
-        #     imag_parts = imag(spectrum)
-
-        #     # Plot the spectrum in the complex plane
-        #     display(scatter(real_parts, imag_parts,
-        #         xlabel="Re", ylabel="Im",
-        #         title="Spectrum of tilde_A",
-        #         legend=false, aspect_ratio=:equal, marker=:circle))
-        # end
+        if plot_tilde_A_spectrum && k % 50 == 0
+            plot_spectrum(ws.tilde_A)
+        end
 
         ### ITERATE ###
         
@@ -273,33 +273,52 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         update_affine_dynamics!(ws)
         
         # ACCELERATED ITERATION UPDATE.
-        if acceleration && k >= 200 && k % 20 == 0
-            accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m)
+        if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
+            # accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m, true, ws.cache[:krylov_basis])
+            if k >= DEBUG_ACC_MIN_ITER
+                # accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m, true, ws.cache[:krylov_basis])
+                accelerated_point = custom_acceleration_candidate(ws)
+            else
+                accelerated_point = zeros(Float64, ws.p.n + ws.p.m)
+            end
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
 
-            ws.vars.x .= acc_x
-            ws.vars.v .= acc_v
-            ws.vars.s .= acc_s
-            ws.vars.y .= acc_y
-            ws.vars.x_v_q[:, 1] .= [acc_x; acc_v]
-            ws.vars.x_v_q[:, 2] .= ones(n + m) # TODO: ADAPT THIS TO SOMETHING SENSIBLE.
+            # TODO: improve mechanism not to take acceleration candidates as our
+            # iterates when this is daft (e.g. perhaps early on in the algo).
+            if k >= DEBUG_ACC_MIN_ITER
+                ws.vars.x .= acc_x
+                ws.vars.v .= acc_v
+                ws.vars.s .= acc_s
+                ws.vars.y .= acc_y
+                ws.vars.x_v_q[:, 1] .= [ws.vars.x; ws.vars.v]
+            else
+                nothing;
+            end
+            
+            # NOTE: we start constructing the Krylov basis in the ordinary
+            # update step immediately after an acceleration update.
+            # THAT is where we update ws.vars.x_v_q.
 
-            # TODO: MAKE SURE THIS IS THE MOST SENSIBLE TO RECORD THE ENFORCED
-            # SET DATA.
             push!(enforced_set_flags, ws.enforced_constraints)
             
             # It does not make sense to have ws.vars.y_prev as usual here.
             # This is more like a restart situation.
             ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
 
+            # NB: We reset the krylov basis memory each time we
+            # attempt an acceleration step.
+            ws.cache[:krylov_basis] .= 0.0
+            ws.cache[:H] .= 0.0
+
             # TODO: consider how to handle acceleration steps in the context of
             # running averages for restarts!?
-            # RESET AVERAGES PERGAPS? ALONG WITH SETTING j = 0 ?
-            just_restarted = true
-            j = 0
+            # RESET AVERAGES PERHAPS? ALONG WITH SETTING j_restart = 0 ?
+            just_accelerated = true
+            j_restart = 0
+        # RESTARTED ITERATION UPDATE.
         elseif k > 0 && k % restart_period == 0
-            # NOTE: suspended adaptive trigger in the line above.
+            # NOTE: suspended adaptive trigger in the line below.
             # if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
             # Restart. Use averages of (x, s, y) sequence, then recover v.
             ws.vars.x .= x_avg
@@ -317,15 +336,31 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
             # Reset inner loop counters/sums.
             just_restarted = true # NOTE: this may not work as expected when reintroducing step angle stuff for adaptive restarts.
-            j = 0
+            j_restart = 0
             
             # x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
         else # STANDARD ITERATION.
-            ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + (ws.tilde_b * ones(2)')
+            # Standard iterate update through x^+ = tilde_A * x + tilde_b.
+            # Krylov iterate (2nd column) is instead updated through
+            # q^+ = (tilde_A - I) * q + tilde_b.
+            ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
 
-            # TODO: ORTHOGONALISE THE q VECTOR FOR BASIS BUILDING
-            # TODO: THIS IMPLIES HAVING A REGISTER OF SOME MAX MEMORY STORED
-            # IN THE WORKSPACE AS WE ITERATE.
+            # It is sensible to have the first vector in the Krylov basis be
+            # the residual achieved by our initial guess.
+            if acceleration && just_accelerated
+                # When we are beginning to build a basis, the first step is
+                # therefore just to assign the initial residual.
+                ws.vars.x_v_q[:, 2] .= ws.vars.x_v_q[:, 1] - [ws.vars.x; ws.vars.v]
+                
+                ws.vars.x_v_q[:, 2] ./= norm(ws.vars.x_v_q[:, 2]) # Normalise.
+                ws.cache[:krylov_basis][:, 1] .= ws.vars.x_v_q[:, 2]
+            elseif acceleration
+                # In these circumstances, what we have to do is orthogonalise
+                # the new Krylov vector, resultant from applying (A - I) +
+                # + tilde_b, against the previous vectors.
+                # This is the modified Gram-Schmidt process.
+                ws.vars.x_v_q[:, 2] .= arnoldi_step!(ws.cache[:krylov_basis], ws.vars.x_v_q[:, 2], ws.cache[:H])
+            end
             
             # Extract variables.
             ws.vars.x .= ws.vars.x_v_q[1:ws.p.n, 1]
@@ -335,8 +370,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.q .= ws.vars.x_v_q[:, 2]
             push!(enforced_set_flags, ws.enforced_constraints)
 
-            j += 1
+            just_accelerated = false
+            j_restart += 1
         end
+
+
 
         # concat_step[1:ws.p.n] .= x_step
         # normalised_concat_step[1:ws.p.n] .= dim_adjusted_vec_normalise(x_step)
