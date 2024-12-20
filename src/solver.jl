@@ -106,7 +106,21 @@ function y_update(A::AbstractMatrix{Float64},
     return step
 end
 
+# Crude check for acceptance of an acceleration candidate.
+function accept_acc_candidate(ws::Workspace,
+    acc_pri_res::AbstractVector{Float64},
+    acc_dual_res::AbstractVector{Float64},
+    curr_pri_res::AbstractVector{Float64},
+    curr_dual_res::AbstractVector{Float64})
+    # Compute residual norms.
+    acc_pri_res_norm = norm(acc_pri_res, Inf)
+    acc_dual_res_norm = norm(acc_dual_res, Inf)
+    curr_pri_res_norm = norm(curr_pri_res, Inf)
+    curr_dual_res_norm = norm(curr_dual_res, Inf)
 
+    # Accept candidate if reduced residuals.
+    return acc_pri_res_norm < curr_pri_res_norm && acc_dual_res_norm < curr_dual_res_norm
+end
 
 
 """
@@ -141,9 +155,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     s_sol::AbstractVector{Float64} = nothing,
     y_sol::AbstractVector{Float64} = nothing,
     plot_tilde_A_spectrum::Bool = false)
-
-    # TODO: improve how this is handled...
-    DEBUG_ACC_MIN_ITER = 300
 
     # Compute the (fixed) matrix that premultiplies the x step.
     # NOTE: I assume for now that A_gram is already in the cache.
@@ -180,7 +191,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         y_avg = copy(ws.vars.y)
     end
 
-    primal_res = zeros(Float64, ws.p.m)
+    pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
     dual_res_temp = zeros(Float64, ws.p.n)
     j_restart = 0
@@ -193,7 +204,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # normalised_concat_step_angles = Float64[]
     primal_obj_vals = Float64[]
     dual_obj_vals = Float64[]
-    primal_res_norms = Float64[]
+    pri_res_norms = Float64[]
     dual_res_norms = Float64[]
     enforced_set_flags = Vector{Vector{Bool}}()
     # If real solution provided.
@@ -230,9 +241,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         end
 
         # Compute residuals, their norms, and objective values.
-        primal_residual!(primal_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
+        primal_residual!(pri_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
         dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
-        curr_primal_res_norm = norm(primal_res, residual_norm)
+        curr_pri_res_norm = norm(pri_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
         primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
         dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
@@ -246,13 +257,13 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
         # Print iteration info.
         if k % print_modulo == 0
-            print_results(k, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap))
+            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap))
         end
 
         # Store metrics.
         push!(primal_obj_vals, primal_obj)
         push!(dual_obj_vals, dual_obj)
-        push!(primal_res_norms, curr_primal_res_norm)
+        push!(pri_res_norms, curr_pri_res_norm)
         push!(dual_res_norms, curr_dual_res_norm)
         if !isnothing(x_sol)
             push!(x_dist_to_sol, curr_x_dist)
@@ -274,40 +285,34 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         
         # ACCELERATED ITERATION UPDATE.
         if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
-            # accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m, true, ws.cache[:krylov_basis])
-            if k >= DEBUG_ACC_MIN_ITER
-                # accelerated_point = acceleration_candidate(ws.tilde_A, ws.tilde_b, ws.vars.x, ws.vars.v, ws.p.n, ws.p.m, true, ws.cache[:krylov_basis])
-                accelerated_point = custom_acceleration_candidate(ws)
-            else
-                accelerated_point = zeros(Float64, ws.p.n + ws.p.m)
-            end
+            accelerated_point = custom_acceleration_candidate(ws)
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
 
-            # TODO: improve mechanism not to take acceleration candidates as our
-            # iterates when this is daft (e.g. perhaps early on in the algo).
-            if k >= DEBUG_ACC_MIN_ITER
+            acc_pri_res = primal_residual(ws.p.A, acc_x, acc_s, ws.p.b)
+            acc_dual_res = dual_residual(ws.p.P, ws.p.A, acc_x, acc_y, ws.p.c)
+
+            if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res)
+                println("Accepted acceleration candidate at iteration $k.")
                 ws.vars.x .= acc_x
                 ws.vars.v .= acc_v
                 ws.vars.s .= acc_s
                 ws.vars.y .= acc_y
                 ws.vars.x_v_q[:, 1] .= [ws.vars.x; ws.vars.v]
+                push!(enforced_set_flags, ws.enforced_constraints)
+                # It does not make sense to have ws.vars.y_prev as usual here.
+                # This is more like a restart situation.
+                ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
             else
-                nothing;
+                nothing
             end
             
             # NOTE: we start constructing the Krylov basis in the ordinary
             # update step immediately after an acceleration update.
             # THAT is where we update ws.vars.x_v_q.
 
-            push!(enforced_set_flags, ws.enforced_constraints)
-            
-            # It does not make sense to have ws.vars.y_prev as usual here.
-            # This is more like a restart situation.
-            ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-
-            # NB: We reset the krylov basis memory each time we
-            # attempt an acceleration step.
+            # NB: We reset the krylov basis memory each time
+            # we ATTEMPT an acceleration step.
             ws.cache[:krylov_basis] .= 0.0
             ws.cache[:H] .= 0.0
 
@@ -422,9 +427,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
     # END: Compute residuals, their norms, and objective values.
     # TODO: make this stuff modular as opposed to copied from the main loop.
-    primal_residual!(primal_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
+    primal_residual!(pri_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
     dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
-    curr_primal_res_norm = norm(primal_res, residual_norm)
+    curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
     dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
@@ -437,7 +442,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # TODO: make this stuff modular as opposed to copied from the main loop.
     push!(primal_obj_vals, primal_obj)
     push!(dual_obj_vals, dual_obj)
-    push!(primal_res_norms, curr_primal_res_norm)
+    push!(pri_res_norms, curr_pri_res_norm)
     push!(dual_res_norms, curr_dual_res_norm)
     if !isnothing(x_sol)
         push!(x_dist_to_sol, curr_x_dist)
@@ -446,7 +451,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     end
 
     # END: print iteration info.
-    print_results(max_iter, primal_obj, curr_primal_res_norm, curr_dual_res_norm, abs(gap), terminated = true)
+    print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), terminated = true)
 
-    return primal_obj_vals, dual_obj_vals, primal_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
+    return primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
 end
