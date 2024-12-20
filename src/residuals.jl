@@ -8,6 +8,10 @@ function primal_residual!(r::AbstractVector{Float64}, A::AbstractMatrix{Float64}
     return nothing
 end
 
+function primal_residual(A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, s::AbstractVector{Float64}, b::AbstractVector{Float64})
+    return A * x + s - b
+end
+
 # Compute dual residual (in place)
 # r_dual = P * x + A' * y + c
 function dual_residual!(r::AbstractVector{Float64}, r_temp::AbstractVector{Float64}, P::AbstractMatrix{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, y::AbstractVector{Float64}, c::AbstractVector{Float64})
@@ -17,6 +21,10 @@ function dual_residual!(r::AbstractVector{Float64}, r_temp::AbstractVector{Float
     @. r += c
 
     return nothing
+end
+
+function dual_residual(P::AbstractMatrix{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, y::AbstractVector{Float64}, c::AbstractVector{Float64})
+    return P * x + A' * y + c
 end
 
 function is_primal_feasible(r_primal::AbstractVector{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, s::AbstractVector{Float64}, b::AbstractVector{Float64}, ϵ_abs::Float64, ϵ_rel::Float64)
