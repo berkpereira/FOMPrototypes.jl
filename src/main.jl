@@ -52,13 +52,13 @@ end
 
 begin
 
-problem_option = :LASSO; # in {:LASSO, :HUBER, :MAROS}
+problem_option = :LASSO # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
-    # problem_name = "NYPA_Maragal_5_lasso"; # good size, challenging
+    # problem_name = "NYPA_Maragal_5_lasso"; # large-ish, challenging
     # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
-    problem_name = "HB_ash219_lasso"; # smallish
+    problem_name = "HB_ash219_lasso"; # small-ish
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "HB_ash958_huber"; # (m, n) = (3419, 3099)
@@ -105,8 +105,8 @@ model = Model(SCS.Optimizer);
 # Add cone constraints to the model
 add_cone_constraints_scs!(model, s_scs, K);
 
-# set_optimizer_attribute(model, "eps_abs", 1e-10)
-# set_optimizer_attribute(model, "eps_rel", 1e-10)
+set_optimizer_attribute(model, "eps_abs", 1e-13)
+set_optimizer_attribute(model, "eps_rel", 1e-13)
 
 # Add the quadratic objective to the model
 @objective(model, Min, 0.5 * dot(x_scs, P * x_scs) + dot(c, x_scs));
@@ -128,7 +128,7 @@ end;
 begin
 
 # Step size parameters chosen by the user
-ρ = 1.0; # (dual)
+ρ = 1.0;
 
 # Choose algorithm based on M1 construction
 # int in {1, 2, 3, 4}
@@ -136,16 +136,16 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 600;
+MAX_ITERS = 1000;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-ACCEL_MEMORY = 39;
+ACCEL_MEMORY = 49;
 ACCELERATION = true;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
-max_τ = 1 / dom_λ_power_method(Matrix(take_away), 10);
+max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
 τ = 0.90 * max_τ;
 
 
@@ -162,7 +162,7 @@ ws = Workspace(problem, variant, τ, ρ)
 ws.cache[:A_gram] = A_gram
 
 # Call the solver.
-primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION,
+primal_objs, dual_objs, primal_residuals, dual_residuals, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol = optimise!(ws, MAX_ITERS, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION,
 ACCEL_MEMORY, x_scs, s_scs, y_scs, false);
 
 end;
@@ -174,24 +174,26 @@ end;
 
 begin
 
-display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="Variant $variant: Objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
+title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $variant $newline_char"
 
-display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="Variant $variant: Dual objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
+display(plot(primal_objs, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="$title_beginning Objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="Variant $variant: Duality Gap.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
+display(plot(dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="$title_beginning Dual objective.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="Variant $variant: Primal Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(primal_objs - dual_objs, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="$title_beginning Duality Gap.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION"))
 
-display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="Variant $variant: Dual Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(primal_residuals, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="$title_beginning Primal Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-# display(plot(x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' x Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(dual_residuals, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="$title_beginning Dual Residual Norm.$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-# display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' s Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' x Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-# display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' s Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
-# concat_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ s_dist_to_sol .^ 2 .+ y_dist_to_sol .^ 2)
-# display(plot(concat_dist_to_sol / sqrt(ws.p.n + 2 * ws.p.m), label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="Variant $variant.$newline_char 'Normalised' Concatenated Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+display(plot(y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' y Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
+
+xv_dist_to_sol = sqrt.(x_dist_to_sol .^ 2 .+ v_dist_to_sol .^ 2)
+display(plot(xv_dist_to_sol, label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning (x, v) Distance to Solution.$newline_char Restart period = $RESTART_PERIOD$newline_char Acceleration: $ACCELERATION", yaxis=:log))
 
 # enforced_constraints_plot(enforced_set_flags, 10)
 
