@@ -8,6 +8,7 @@ function print_results(
     primal_res_norm::Float64,
     dual_res_norm::Float64,
     curr_duality_gap::Float64;
+    curr_xv_dist::Union{Float64, Nothing} = nothing,
     obj_sol::Union{Float64, Nothing} = nothing,
     x_sol::Union{Vector{Float64}, Nothing} = nothing,
     s_sol::Union{Vector{Float64}, Nothing} = nothing,
@@ -54,6 +55,12 @@ function print_results(
 
     # Include duality gap
     print_output *= @sprintf(" | gap: %12.5e", curr_duality_gap)
+
+    # (x, v) distance to solution
+    if !isnothing(curr_xv_dist)
+        print_output *= @sprintf(" | (x, v) dist: %12.5e", curr_xv_dist)
+    end
+        
 
     # Print the final output
     println(print_output)
