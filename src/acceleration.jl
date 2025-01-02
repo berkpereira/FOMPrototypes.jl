@@ -4,7 +4,6 @@ using SparseArrays
 using IterativeSolvers
 using Clarabel
 
-
 function flag_arrays(v::AbstractVector{Float64}, s::AbstractVector{Float64},
     m::Integer, K::Vector{Clarabel.SupportedCone})
     # NOTE: commented out code below is more along the lines of the generalised
@@ -42,7 +41,30 @@ function flag_arrays(v::AbstractVector{Float64}, s::AbstractVector{Float64},
 
     # For LINEAR CONSTRAINTS DO as in the above but ENTRY BY ENTRY, not cone
     # by cone. Check for entry-wise equality/inequality.
-    return Diagonal(s .== v)
+    return s .== v
+end
+
+"""
+This function is lighter than update_affine_dynamics, but still fully
+    determines the affine dynamics of our prototype at a given iteration.
+    We use this for the mat-mat-free implementation of tilde_A-vec products.
+"""
+function update_enforced_constraints!(ws::Workspace)
+    ws.enforced_constraints .= .!(flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
+end
+
+"""
+To complement update_enforced_constraints!, we also need, still, to update the
+tilde_b vector. As a vector, this is, of course, fine enough to maintain in
+memory.
+"""
+function update_tilde_b!(ws::Workspace)
+    # b_k_π = ws.enforced_constraints .* ws.vars.s # GENERAL CASE
+    b_k_π = zeros(Float64, ws.p.m)        # LINEAR CONSTRAINTS CASE
+    top = - ws.cache[:W_inv] * (ws.ρ * ws.p.A' * (2 * b_k_π - ws.p.b) + ws.p.c)
+    bot = - ws.p.A * top + ws.p.b - b_k_π
+    ws.tilde_b .= [top; bot]
+    return
 end
 
 # Recall that pre_x_matrix is often denoted by $W^{-1}$ in my/Paul's notes.
@@ -50,9 +72,8 @@ end
 # efficient. At the moment it is done in quite a naive fashion for proof of 
 # concept.
 function update_affine_dynamics!(ws::Workspace)
-
     # Compute the diagonal flag matrices required.
-    D_k_π = flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K)
+    D_k_π = Diagonal(flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
     new_enforced_constraints = .!D_k_π.diag # Bitwise negation.
 
     # Dynamics have not changed (and we are past the first iteration).
@@ -87,6 +108,23 @@ function update_affine_dynamics!(ws::Workspace)
     end
 end
 
+
+"""
+This function implements a mat-mat free specification of the application of
+    tilde_A to a vector, at some iteration.
+"""
+function tilde_A_prod(ws::Workspace, q::AbstractArray{Float64})
+    @views top_left = q[1:ws.p.n, :] - (ws.cache[:W_inv] * (ws.p.P * q[1:ws.p.n, :] + ws.ρ * ws.cache[:A_gram] * q[1:ws.p.n, :]))
+    bot_left = - ws.p.A * top_left
+    @views top_right = ws.ρ * ws.cache[:W_inv] * (ws.p.A' * ((ws.enforced_constraints - .!ws.enforced_constraints) .* q[ws.p.n+1:end, :]))
+    @views bot_right = -ws.p.A * top_right + ws.enforced_constraints .* q[ws.p.n+1:end, :]
+
+    # NB: matrix, NOT vector, is returned.
+    # This is to allow for multiplication by a matrix of 2 columns (maintain
+    # two sequences of vector iterates simultaneously).
+    return [top_left + top_right; bot_left + bot_right]
+end
+
 function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
     tilde_b::AbstractVector{Float64}, x::AbstractVector{Float64},
     v::AbstractVector{Float64}, n::Integer, m::Integer,
@@ -118,6 +156,7 @@ TODO: make sure that this thing works.
 """
 function custom_acceleration_candidate(ws::Workspace)
     # The steps at a high-level are the following.
+    
     # The workspace contains:
     # ws.cache[:H], the Arnoldi upper Hessenberg matrix.
     # ws.cache[:krylov_basis], the Arnoldi-Krylov orthonormal basis matrix.
@@ -129,7 +168,7 @@ function custom_acceleration_candidate(ws::Workspace)
 
     # NOTE: need to pre-multiply by the transpose of "Q_{k+1}" here.
     # This is assumed by the function krylov_least_squares!
-    rhs_res_custom = ws.cache[:krylov_basis]' * (ws.tilde_A * ws.vars.x_v_q[:, 1] + ws.tilde_b - ws.vars.x_v_q[:, 1])
+    rhs_res_custom = ws.cache[:krylov_basis]' * (tilde_A_prod(ws, ws.vars.x_v_q[:, 1]) + ws.tilde_b - ws.vars.x_v_q[:, 1])
     
     y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
 
@@ -140,7 +179,7 @@ function custom_acceleration_candidate(ws::Workspace)
     
     # NOTE: only left to convert from GMRES problem solution to Anderson
     # acceleration problem solution (see Walker and Ni, 2011 for details).
-    acceleration_point = ws.tilde_A * gmres_sol + ws.tilde_b
+    acceleration_point = tilde_A_prod(ws, gmres_sol) + ws.tilde_b
     
     return acceleration_point
 end
