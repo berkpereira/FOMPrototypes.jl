@@ -111,17 +111,22 @@ function accept_acc_candidate(ws::Workspace,
     acc_pri_res::AbstractVector{Float64},
     acc_dual_res::AbstractVector{Float64},
     curr_pri_res::AbstractVector{Float64},
-    curr_dual_res::AbstractVector{Float64})
+    curr_dual_res::AbstractVector{Float64},
+    residual_norm::Real)
     # Compute residual norms.
-    acc_pri_res_norm = norm(acc_pri_res, Inf)
-    acc_dual_res_norm = norm(acc_dual_res, Inf)
-    curr_pri_res_norm = norm(curr_pri_res, Inf)
-    curr_dual_res_norm = norm(curr_dual_res, Inf)
+    acc_pri_res_norm = norm(acc_pri_res, residual_norm)
+    acc_dual_res_norm = norm(acc_dual_res, residual_norm)
+    curr_pri_res_norm = norm(curr_pri_res, residual_norm)
+    curr_dual_res_norm = norm(curr_dual_res, residual_norm)
+
+    # println("Pri res: ", curr_pri_res_norm)
+    # println("Candidate pri res: ", acc_pri_res_norm)
+    # println("Dual res: ", curr_dual_res_norm)
+    # println("Candidate dual res: ", acc_dual_res_norm)
 
     # Accept candidate if reduced residuals.
     return acc_pri_res_norm < curr_pri_res_norm && acc_dual_res_norm < curr_dual_res_norm
 end
-
 
 """
 When solver is run with (prototype) adaptive restart mechanism, this function 
@@ -162,13 +167,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # It would be much better to specify how the operator computes products
     # against vectors instead. However, for now, we will leave it like this.
     ws.cache[:W_inv] = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
+    
     # Compute fixed bits of tilde_{A} for acceleration.
     # TODO: implement operator applications as mat-vec operations instead.
-    ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
-    ws.cache[:blhs] = -A * ws.cache[:tlhs]
+    # ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
+    # ws.cache[:blhs] = -A * ws.cache[:tlhs]
     
-    ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
-    ws.cache[:brhs_pre] = -A * ws.cache[:trhs_pre]
+    # ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
+    # ws.cache[:brhs_pre] = -A * ws.cache[:trhs_pre]
 
     # If acceleration, initialise memory for storing Krylov basis vectors, as
     # well as Hessenberg matrix H arising during the Gram-Schmidt process.
@@ -194,6 +200,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
     dual_res_temp = zeros(Float64, ws.p.n)
+    acc_pri_res = zeros(Float64, ws.p.m)
+    acc_dual_res = zeros(Float64, ws.p.n)
+    acc_dual_res_temp = zeros(Float64, ws.p.n)
     j_restart = 0
 
     # Data containers for metrics (if return_run_data == true).
@@ -212,6 +221,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         x_dist_to_sol = Float64[]
         s_dist_to_sol = Float64[]
         y_dist_to_sol = Float64[]
+        v_dist_to_sol = Float64[]
     end
 
 
@@ -253,11 +263,15 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
             curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+            # NB: obtain expression for v distance by expanding norm  and
+            # using v_k = s_k - y_k / ρ.
+            curr_v_dist = !isnothing(x_sol) ? sqrt( norm(ws.vars.s - s_sol)^2 + norm((ws.vars.y - (-y_sol)) / ws.ρ)^2 + 2 * dot(ws.vars.s - s_sol, (-y_sol) - ws.vars.y) / ws.ρ) : nothing
         end
 
         # Print iteration info.
         if k % print_modulo == 0
-            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap))
+            curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
+            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist)
         end
 
         # Store metrics.
@@ -269,6 +283,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             push!(x_dist_to_sol, curr_x_dist)
             push!(s_dist_to_sol, curr_s_dist)
             push!(y_dist_to_sol, curr_y_dist)
+            push!(v_dist_to_sol, curr_v_dist)
         end
 
         # We now plot the spectrum of tilde_A on the complex plane.
@@ -281,18 +296,23 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         ### ITERATE ###
         
         # Update linearised (affine) operator.
-        update_affine_dynamics!(ws)
+        # update_affine_dynamics!(ws)
+        # NB, for mat-mat-free implementation, we replace the above heavy
+        # function update_affine_dynamics! with updates of just the enforced
+        # constraint set and tilde_b (avoiding matrix-matrix products).
+        update_enforced_constraints!(ws)
+        update_tilde_b!(ws)
         
         # ACCELERATED ITERATION UPDATE.
         if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
             accelerated_point = custom_acceleration_candidate(ws)
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
+            
+            primal_residual!(acc_pri_res, ws.p.A, acc_x, acc_s, ws.p.b)
+            dual_residual!(acc_dual_res, acc_dual_res_temp, ws.p.P, ws.p.A, acc_x, acc_y, ws.p.c)
 
-            acc_pri_res = primal_residual(ws.p.A, acc_x, acc_s, ws.p.b)
-            acc_dual_res = dual_residual(ws.p.P, ws.p.A, acc_x, acc_y, ws.p.c)
-
-            if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res)
+            if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res, residual_norm)
                 println("Accepted acceleration candidate at iteration $k.")
                 ws.vars.x .= acc_x
                 ws.vars.v .= acc_v
@@ -348,7 +368,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # Standard iterate update through x^+ = tilde_A * x + tilde_b.
             # Krylov iterate (2nd column) is instead updated through
             # q^+ = (tilde_A - I) * q + tilde_b.
-            ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+            
+            # TODO: replace this with a mat-vec only imlpementation of tilde_A
+            # vector products.
+            # ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+            
+            # NB: attempt at mat-vec-only implementation here:
+            ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+
 
             # It is sensible to have the first vector in the Krylov basis be
             # the residual achieved by our initial guess.
@@ -437,6 +464,10 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
     curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
     curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+    
+    # NB: obtain expression for v distance by expanding norm  and
+    # using v_k = s_k - y_k / ρ.
+    curr_v_dist = !isnothing(x_sol) ? sqrt( norm(ws.vars.s - s_sol)^2 + norm((ws.vars.y - (-y_sol)) / ws.ρ)^2 + 2 * dot(ws.vars.s - s_sol, (-y_sol) - ws.vars.y) / ws.ρ) : nothing
 
     # END: Store metrics if requested.
     # TODO: make this stuff modular as opposed to copied from the main loop.
@@ -448,10 +479,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         push!(x_dist_to_sol, curr_x_dist)
         push!(s_dist_to_sol, curr_s_dist)
         push!(y_dist_to_sol, curr_y_dist)
+        push!(v_dist_to_sol, curr_v_dist)
     end
 
     # END: print iteration info.
-    print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), terminated = true)
+    curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
+    print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
+    return primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
 end
