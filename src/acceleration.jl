@@ -152,7 +152,6 @@ end
 """
 This implementation of the accelerated point computation relies on our custom
 implementations of the Arnoldi and Krylov procedures.
-TODO: make sure that this thing works.
 """
 function custom_acceleration_candidate(ws::Workspace)
     # The steps at a high-level are the following.
