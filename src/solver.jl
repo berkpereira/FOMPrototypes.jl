@@ -1,6 +1,8 @@
 using LinearAlgebra
 using Plots
 using Random
+using Printf
+include("types.jl")
 include("utils.jl")
 include("residuals.jl")
 include("acceleration.jl")
@@ -119,11 +121,6 @@ function accept_acc_candidate(ws::Workspace,
     curr_pri_res_norm = norm(curr_pri_res, residual_norm)
     curr_dual_res_norm = norm(curr_dual_res, residual_norm)
 
-    # println("Pri res: ", curr_pri_res_norm)
-    # println("Candidate pri res: ", acc_pri_res_norm)
-    # println("Dual res: ", curr_dual_res_norm)
-    # println("Candidate dual res: ", acc_dual_res_norm)
-
     # Accept candidate if reduced residuals.
     return acc_pri_res_norm < curr_pri_res_norm && acc_dual_res_norm < curr_dual_res_norm
 end
@@ -161,12 +158,26 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     y_sol::AbstractVector{Float64} = nothing,
     plot_tilde_A_spectrum::Bool = false)
 
+    # We maintain a matrix whose columns are formed by the past
+    # acceleration_memory iterate updates, normalised to unit l2 norm.
+    # Init this matrix.
+    no_stored_updates_cond = 20
+    updates_matrix = zeros(ws.p.n + ws.p.m, no_stored_updates_cond)
+    current_update_mat_col = Ref(1) # This index is updated in circular fashion.
+    updates_cond_period = Int(floor((acceleration_memory + 1) / 4))
+
     # Compute the (fixed) matrix that premultiplies the x step.
     # NOTE: I assume for now that A_gram is already in the cache.
     # It is suboptimal to be storing all these matrices explicitly.
     # It would be much better to specify how the operator computes products
     # against vectors instead. However, for now, we will leave it like this.
     ws.cache[:W_inv] = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
+
+    # Recall that W = M_1 + P + ρ A^T A.
+    # TODO: remove this once no longer needed.
+    # This is just for theoretically minded checks, when we have access to the
+    # true problem solution.
+    ws.cache[:seminorm_mat] = [Diagonal(1.0 ./ ws.cache[:W_inv].diag) - ws.p.P ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
     
     # Compute fixed bits of tilde_{A} for acceleration.
     # TODO: implement operator applications as mat-vec operations instead.
@@ -216,12 +227,16 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     pri_res_norms = Float64[]
     dual_res_norms = Float64[]
     enforced_set_flags = Vector{Vector{Bool}}()
+    update_mat_ranks = Float64[]
+    update_mat_iters = Int[]
+    acc_step_iters = Int[]
     # If real solution provided.
     if !isnothing(x_sol)
         x_dist_to_sol = Float64[]
         s_dist_to_sol = Float64[]
         y_dist_to_sol = Float64[]
         v_dist_to_sol = Float64[]
+        xy_semidist = Float64[]
     end
 
 
@@ -260,6 +275,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         gap = duality_gap(primal_obj, dual_obj)
 
         if !isnothing(x_sol)
+            curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
             curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
             curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
@@ -271,8 +287,17 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         # Print iteration info.
         if k % print_modulo == 0
             curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
-            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist)
+            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist=curr_xv_dist)
         end
+
+        # Note period of computation of the rank of updates.
+        if k % updates_cond_period == 0 && k > 0
+            # NB: effective rank counts number of normalised singular values
+            # larger than a specified small tolerance (eg 1e-8).
+            push!(update_mat_ranks, effective_rank(updates_matrix, 1e-8))
+            push!(update_mat_iters, k)
+        end
+
 
         # Store metrics.
         push!(primal_obj_vals, primal_obj)
@@ -284,6 +309,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             push!(s_dist_to_sol, curr_s_dist)
             push!(y_dist_to_sol, curr_y_dist)
             push!(v_dist_to_sol, curr_v_dist)
+            push!(xy_semidist, curr_xy_semidist)
         end
 
         # We now plot the spectrum of tilde_A on the complex plane.
@@ -314,12 +340,21 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
 
             if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res, residual_norm)
                 println("Accepted acceleration candidate at iteration $k.")
+                push!(acc_step_iters, k)
+                
                 ws.vars.x .= acc_x
                 ws.vars.v .= acc_v
                 ws.vars.s .= acc_s
                 ws.vars.y .= acc_y
+
+                curr_xv_update = [ws.vars.x; ws.vars.v] - ws.vars.x_v_q[:, 1]
+                insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
+                
+                # Update "for real":
                 ws.vars.x_v_q[:, 1] .= [ws.vars.x; ws.vars.v]
+
                 push!(enforced_set_flags, ws.enforced_constraints)
+                
                 # It does not make sense to have ws.vars.y_prev as usual here.
                 # This is more like a restart situation.
                 ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
@@ -369,12 +404,17 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # Krylov iterate (2nd column) is instead updated through
             # q^+ = (tilde_A - I) * q + tilde_b.
             
-            # TODO: replace this with a mat-vec only imlpementation of tilde_A
-            # vector products.
+            # NB: I replaced this with a mat-vec only imlpementation of tilde_A
+            # vector products, just below.
             # ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
             
-            # NB: attempt at mat-vec-only implementation here:
+            # NB: mat-vec-only implementation here.
+            # NB: my first implementation of Arnoldi puts the sequence through
+            # the operator B := A - I.
+            prev_xv = ws.vars.x_v_q[:, 1]
             ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+            curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
+            insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
 
 
             # It is sensible to have the first vector in the Krylov basis be
@@ -461,6 +501,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
     dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
     gap = duality_gap(primal_obj, dual_obj)
+    
+    curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
     curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
     curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
     curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
@@ -480,11 +522,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         push!(s_dist_to_sol, curr_s_dist)
         push!(y_dist_to_sol, curr_y_dist)
         push!(v_dist_to_sol, curr_v_dist)
+        push!(xy_semidist, curr_xy_semidist)
     end
 
     # END: print iteration info.
     curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol #, x_step_angles, s_step_angles, y_step_angles, concat_step_angles, normalised_concat_step_angles, 
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_ranks, update_mat_iters, acc_step_iters)
 end
