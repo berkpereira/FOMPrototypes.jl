@@ -141,7 +141,7 @@ function project_to_K!(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedC
     return s
 end
 
-function add_cone_constraints_scs!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
+function add_cone_constraints!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
     start_idx = 1
     for cone in K
         end_idx = start_idx + cone.dim - 1
@@ -251,6 +251,8 @@ Outputs:
 function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T}) where T
     k = size(H, 2)  # Number of columns in H
 
+    # println("Smallest values of H square part: ", svd(H).S[end-10:end])
+
     # Check dimensions
     # @assert size(H, 1) == k + 1 "H must have dimensions (k+1) × k"
     # @assert length(rhs_res) == k + 1 "rhs_res must have length k+1"
@@ -277,7 +279,31 @@ function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T})
     # Now solve the upper triangular system H[1:k, 1:k] * y = -rhs_res[1:k]
     return H[1:k, 1:k] \ (- rhs_res[1:k])
 end
- 
+
+################################################################################
+############################# MISC HELPER FUNCTIONS ############################
+################################################################################
+function insert_update_into_matrix!(matrix, update, current_col_ref)
+    # Insert the new update into the current column.
+    matrix[:, current_col_ref[]] = update
+
+    # Update the column index in a circular fashion.
+    current_col_ref[] = current_col_ref[] % size(matrix, 2) + 1
+end
+
+"""
+Counts number of input matrix's normalised singular values (ie divided by
+largest one) larger than given small threshold tol.
+"""
+function effective_rank(A::AbstractMatrix{Float64}, tol::Float64 = 1e-8)
+    # Compute NORMALISED singular values of A.
+    sing_vals_normalised = svd(A).S
+    sing_vals_normalised ./= sing_vals_normalised[1]
+    
+    # Effective rank = number of normalised singular values larger than
+    # given small threshold tol.
+    return count(x -> x > tol, sing_vals_normalised)
+end
 
 ################################################################################
 ########################## SIGNAL PROCESSING FUNCTIONS #########################
@@ -341,23 +367,56 @@ function extract_dominant_frequencies(data::Vector{Float64}, num_frequencies::In
     return top_frequencies, top_magnitudes
 end
 
-# Function to plot the equality of consecutive entries in a vector of Booleans.
-function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
-    # Compute whether each entry is equal to the previous one
+# # Function to plot the equality of consecutive entries in a vector of Booleans.
+# function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
+#     # Compute whether each entry is equal to the previous one
+#     is_equal = [v_proj_flags[i] == v_proj_flags[i - 1] for i in 2:length(v_proj_flags)]
+    
+#     # Generate x-axis indices (1 to length of `is_equal`)
+#     x_vals = 2:length(v_proj_flags)
+
+#     # Create the plot
+#     plot(
+#         x_vals, is_equal,
+#         seriestype = :scatter,
+#         markershape = :circle,
+#         markercolor = :blue,
+#         xlabel = "Index",
+#         ylabel = "Equality with Previous",
+#         title = "Equality of Consecutive Enforced Sets",
+#         legend = false
+#     )
+# end;
+
+# Function to add Boolean equality segments to an existing plot.
+function plot_equal_segments!(p, v_proj_flags::Vector{Vector{Bool}})
+    # Compute whether each entry is equal to the previous one, just as before.
     is_equal = [v_proj_flags[i] == v_proj_flags[i - 1] for i in 2:length(v_proj_flags)]
     
-    # Generate x-axis indices (1 to length of `is_equal`)
+    # Generate x-axis indices (1 to length of `is_equal`).
     x_vals = 2:length(v_proj_flags)
 
-    # Create the plot
-    plot(
+    # Add the scatter plot to the existing plot object.
+    # Note the use of plot! instead of plot.
+    plot!(
+        p,  # Pass the existing plot object as first argument.
         x_vals, is_equal,
         seriestype = :scatter,
         markershape = :circle,
-        markercolor = :blue,
-        xlabel = "Index",
-        ylabel = "Equality with Previous",
-        title = "Equality of Consecutive Enforced Sets",
-        legend = false
+        markercolor = :red,
+        legend = false,
+        yticks = nothing,
     )
-end;
+
+    # Convention in Julia is to return the modified plot object.
+    return p
+end
+
+# For convenience, we can keep the original function but have it call the
+# bang version.
+function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
+    # Create a new plot and immediately call the bang version on it.
+    p = plot()  # Create empty plot.
+    plot_equal_segments!(p, v_proj_flags)
+    return p
+end
