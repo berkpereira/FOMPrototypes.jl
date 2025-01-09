@@ -105,6 +105,24 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)
 
+@with_kw mutable struct Results{T <: AbstractFloat}
+    primal_obj_vals::Vector{T}
+    dual_obj_vals::Vector{T}
+    pri_res_norms::Vector{T}
+    dual_res_norms::Vector{T}
+    enforced_set_flags::Vector{Vector{Bool}}
+    x_dist_to_sol::Vector{T}
+    s_dist_to_sol::Vector{T}
+    y_dist_to_sol::Vector{T}
+    v_dist_to_sol::Vector{T}
+    xy_semidist::Vector{T}
+    update_mat_ranks::Vector{T}
+    update_mat_iters::Vector{Int}
+    acc_step_iters::Vector{Int}
+end
+
+
+
 # mutable struct States
 # 	IS_ASSEMBLED::Bool # The workspace has been assembled with problem data.
 # 	IS_OPTIMISED::Bool # The optimisation function has been CALLED on the model.
