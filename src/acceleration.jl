@@ -60,7 +60,7 @@ memory.
 """
 function update_tilde_b!(ws::Workspace)
     # b_k_π = ws.enforced_constraints .* ws.vars.s # GENERAL CASE
-    b_k_π = zeros(Float64, ws.p.m)        # LINEAR CONSTRAINTS CASE
+    b_k_π = zeros(Float64, ws.p.m) # LINEAR CONSTRAINTS CASE
     top = - ws.cache[:W_inv] * (ws.ρ * ws.p.A' * (2 * b_k_π - ws.p.b) + ws.p.c)
     bot = - ws.p.A * top + ws.p.b - b_k_π
     ws.tilde_b .= [top; bot]
