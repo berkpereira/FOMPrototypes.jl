@@ -158,19 +158,48 @@ function add_cone_constraints!(model::JuMP.Model, s::JuMP.Containers.Array, K::V
     end
 end
 
-function plot_spectrum(A::AbstractMatrix{Float64})
-    spectrum = eigvals(Matrix(A))
-    
-    # Extract real and imaginary parts of the eigenvalues
-    real_parts = real(spectrum)
-    imag_parts = imag(spectrum)
+function plot_spectrum(A::AbstractMatrix{Float64}, k::Union{Int, Nothing} = nothing)
+    eig_decomp = eigen(Matrix(A))
     
     # Plot the spectrum in the complex plane
-    display(scatter(real_parts, imag_parts,
+    display(scatter(real(eig_decomp.values), imag(eig_decomp.values),
         xlabel="Re", ylabel="Im",
-        title="Spectrum of tilde_A",
-        legend=false, aspect_ratio=:equal, marker=:circle))
+        title="Spectrum of tilde_A, k = $k",
+        legend=false, aspect_ratio=:equal, marker=:x))
+
+    # NB: the function returns the eigendecomposition.
+    return eig_decomp
 end
+
+"""
+Given the input vector, this function computes the inner product of the 
+normalised vector with the columns of the eigenvectors input. It plots these
+on the y axis versus the magnitude of the phase of the corresponding
+eigenvalues on the x axis.
+"""
+function plot_eigenvec_alignment_vs_phase(vector::AbstractVector{Float64}, eigenvalues::AbstractVector{T}, eigenvectors::AbstractMatrix{T}, k::Union{Int, Nothing} = nothing) where {T <: Number}
+    # Normalise the input vector.
+    normalised_vec = vector / norm(vector)
+    
+    # Compute the inner product of the normalised vector with the eigenvectors.
+    # NB: complex eigenvectors introduce complications here...
+    inner_products = vec(abs.(adjoint(normalised_vec) * eigenvectors))
+    
+    # NB: the modulo pi/2 operation maps all phases to the first quadrant.
+    # Some zero eigvals may sometimes have their phase computed as pi
+    # due to numerical approx erorrs. This fixes that.
+    threshold = 1e-14
+    # We also set approx 0 eigvals to 0 exactly.
+    eigenvalues[abs.(eigenvalues) .< threshold] .= 0.0
+    phases = abs.(angle.(eigenvalues)) .% (π / 2)
+    
+    # Plot the inner products against the phases.
+    display(scatter(phases, inner_products,
+        xlabel="Phase of Eigenvalues", ylabel="Abs Inner Product",
+        title="Alignment of Input Vector with Eigenvectors, k = $k",
+        legend=false, marker=:x, msw = 2))
+end
+    
 
 """
 Initialises an UpperHessenberg view of a n by (n - 1) matrix filled with zeros.
