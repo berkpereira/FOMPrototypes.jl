@@ -145,14 +145,16 @@ end
 """
 Run the optimiser for the initial inputs and solver options given.
 
-    restart_period: Integer or Symbol
-        If an integer, the number of iterations between restarts. The Only
-        valid symbolic input is :adaptive, with obvious meaning.
+Note on krylov_operator_tilde_A: if this is true, we use the Krylov subproblem
+derived from considering tilde_A as the operator generating the Krylov
+subspace in the Arnoldi process. If it is false, we use the operator
+B := tilde_A - I instead (my first implementation used the latter, B approach).
 """
 function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
     acceleration::Bool = false,
     acceleration_memory::Integer = 20,
+    krylov_operator_tilde_A::Bool = false,
     x_sol::AbstractVector{Float64} = nothing,
     s_sol::AbstractVector{Float64} = nothing,
     y_sol::AbstractVector{Float64} = nothing,
@@ -323,7 +325,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         
         # ACCELERATED ITERATION UPDATE.
         if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
-            accelerated_point = custom_acceleration_candidate(ws)
+            accelerated_point = custom_acceleration_candidate(ws, krylov_operator_tilde_A, acceleration_memory)
             acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
             acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
             
@@ -380,6 +382,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             j_restart = 0
         # RESTARTED ITERATION UPDATE.
         elseif k > 0 && k % restart_period == 0
+            error("I have not yet thought through the interactions between restarts and acceleration! This part of the code is suspended til then.")
             # NOTE: suspended adaptive trigger in the line below.
             # if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
             # Restart. Use averages of (x, s, y) sequence, then recover v.
@@ -412,7 +415,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # NB: my first implementation of Arnoldi puts the sequence through
             # the operator B := A - I.
             prev_xv = ws.vars.x_v_q[:, 1]
-            ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+            if krylov_operator_tilde_A
+                ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
+            else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
+                ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+            end
             curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
 
@@ -427,7 +434,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # the residual achieved by our initial guess.
             if acceleration && just_accelerated
                 # When we are beginning to build a basis, the first step is
-                # therefore just to assign the initial residual.
+                # therefore just to assign the initial (fixed-point) residual.
                 ws.vars.x_v_q[:, 2] .= ws.vars.x_v_q[:, 1] - [ws.vars.x; ws.vars.v]
                 
                 ws.vars.x_v_q[:, 2] ./= norm(ws.vars.x_v_q[:, 2]) # Normalise.

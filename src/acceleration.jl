@@ -152,7 +152,9 @@ end
 This implementation of the accelerated point computation relies on our custom
 implementations of the Arnoldi and Krylov procedures.
 """
-function custom_acceleration_candidate(ws::Workspace)
+function custom_acceleration_candidate(ws::Workspace,
+    krylov_operator_tilde_A::Bool,
+    acceleration_memory::Integer)
     # The steps at a high-level are the following.
     
     # The workspace contains:
@@ -168,15 +170,24 @@ function custom_acceleration_candidate(ws::Workspace)
     # This is assumed by the function krylov_least_squares!
     rhs_res_custom = ws.cache[:krylov_basis]' * (tilde_A_prod(ws, ws.vars.x_v_q[:, 1]) + ws.tilde_b - ws.vars.x_v_q[:, 1])
     
-    y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
-
-    # coeff_mat = ws.cache[:krylov_basis] * ws.cache[:H]
-    # y_krylov_sol = (coeff_mat' * coeff_mat) \ (coeff_mat' * (-rhs_res))
+    if krylov_operator_tilde_A
+        shifted_hessenberg = ws.cache[:H] - [I(acceleration_memory - 1); zeros(1, acceleration_memory - 1)]
+        y_krylov_sol = krylov_least_squares!(shifted_hessenberg, rhs_res_custom)
+    else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
+        y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
+        
+        # coeff_mat = ws.cache[:krylov_basis] * ws.cache[:H]
+        # y_krylov_sol = (coeff_mat' * coeff_mat) \ (coeff_mat' * (-rhs_res))
+    end
 
     gmres_sol = ws.vars.x_v_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
     
     # NOTE: only left to convert from GMRES problem solution to Anderson
     # acceleration problem solution (see Walker and Ni, 2011 for details).
+    
+    # TODO: question this? tilde_b and tilde_A may no longer make sense from
+    # the point which we have just computed? Not sure what's most sensible.
+    # Possible alternative would be to just return gmres_sol.
     acceleration_point = tilde_A_prod(ws, gmres_sol) + ws.tilde_b
     
     return acceleration_point
