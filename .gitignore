@@ -1,1 +1,6 @@
 .vscode/*
+
+# For Python-related dependencies:
+.conda/
+conda-meta/
+.CondaPkg/
