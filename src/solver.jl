@@ -164,7 +164,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     no_stored_updates_cond = 20
     updates_matrix = zeros(ws.p.n + ws.p.m, no_stored_updates_cond)
     current_update_mat_col = Ref(1) # This index is updated in circular fashion.
-    updates_cond_period = Int(floor((acceleration_memory + 1) / 4))
+    # This variable determines how often we compute and store this rank.
+    # updates_cond_period = Int(floor((acceleration_memory + 1) / 4))
+    updates_cond_period = 1
 
     # Compute the (fixed) matrix that premultiplies the x step.
     # NOTE: I assume for now that A_gram is already in the cache.
@@ -228,8 +230,10 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     dual_res_norms = Float64[]
     enforced_set_flags = Vector{Vector{Bool}}()
     update_mat_ranks = Float64[]
+    update_mat_singval_ratios = Float64[]
     update_mat_iters = Int[]
     acc_step_iters = Int[]
+    xv_step_norms = Float64[]
     # If real solution provided.
     if !isnothing(x_sol)
         x_dist_to_sol = Float64[]
@@ -294,7 +298,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         if k % updates_cond_period == 0 && k > 0
             # NB: effective rank counts number of normalised singular values
             # larger than a specified small tolerance (eg 1e-8).
-            push!(update_mat_ranks, effective_rank(updates_matrix, 1e-8))
+            curr_effective_rank, curr_singval_ratio = effective_rank(updates_matrix, 1e-8)
+            push!(update_mat_ranks, curr_effective_rank)
+            push!(update_mat_singval_ratios, curr_singval_ratio)
             push!(update_mat_iters, k)
         end
 
@@ -348,25 +354,35 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
                 ws.vars.y .= acc_y
 
                 curr_xv_update = [ws.vars.x; ws.vars.v] - ws.vars.x_v_q[:, 1]
-                insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
                 
+                # If wishing to exclude accelerate steps from the updates matrix,
+                # we have the line just below this commented out.
+                # insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
+                
+                # If wishing to reset the stored matrix of iterate updates when
+                # a successful accelerated step is taken:
+                updates_matrix .= 0.0
+                current_update_mat_col = Ref(1)
+                
+                # push!(xv_step_norms, norm(curr_xv_update))
+                push!(xv_step_norms, NaN) # If wishing to exclude accelerated steps from monitoring matrix.
+
                 # Update "for real":
                 ws.vars.x_v_q[:, 1] .= [ws.vars.x; ws.vars.v]
-
-                push!(enforced_set_flags, ws.enforced_constraints)
                 
                 # It does not make sense to have ws.vars.y_prev as usual here.
                 # This is more like a restart situation.
                 ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
             else
+                # NOTE: if we have an unsuccessful acceleration candidate, iteration does NOT update at all!
+                # Accordingly, I also do not write anything into the matrix
+                # storing past iterate updates (for monitoring purposes only).
+                # However, I must account for the step norm monitoring.
+                push!(xv_step_norms, NaN)
                 nothing
             end
-            
-            # NOTE: we start constructing the Krylov basis in the ordinary
-            # update step immediately after an acceleration update.
-            # THAT is where we update ws.vars.x_v_q.
 
-            # NB: We reset the krylov basis memory each time
+            # NB: We reset the Krylov basis memory each time
             # we ATTEMPT an acceleration step.
             ws.cache[:krylov_basis] .= 0.0
             ws.cache[:H] .= 0.0
@@ -415,6 +431,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
             curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
+            
+            push!(xv_step_norms, norm(curr_xv_update))
 
 
             # It is sensible to have the first vector in the Krylov basis be
@@ -440,11 +458,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.s .= recover_s(ws.vars.v, ws.p.K)
             ws.vars.y .= recover_y(ws.vars.v, ws.ρ, ws.p.K)
             ws.vars.q .= ws.vars.x_v_q[:, 2]
-            push!(enforced_set_flags, ws.enforced_constraints)
 
             just_accelerated = false
             j_restart += 1
         end
+
+        push!(enforced_set_flags, ws.enforced_constraints)
 
 
 
@@ -529,5 +548,5 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_ranks, update_mat_iters, acc_step_iters)
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, xv_step_norms)
 end
