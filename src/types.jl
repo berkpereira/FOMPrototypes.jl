@@ -116,9 +116,12 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
     y_dist_to_sol::Vector{T}
     v_dist_to_sol::Vector{T}
     xy_semidist::Vector{T}
-    update_mat_ranks::Vector{T}
     update_mat_iters::Vector{Int}
+    update_mat_ranks::Vector{T}
+    update_mat_singval_ratios::Vector{T}
     acc_step_iters::Vector{Int}
+
+    xv_step_norms::Vector{T}
 end
 
 
