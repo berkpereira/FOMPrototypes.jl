@@ -302,7 +302,8 @@ function effective_rank(A::AbstractMatrix{Float64}, tol::Float64 = 1e-8)
     
     # Effective rank = number of normalised singular values larger than
     # given small threshold tol.
-    return count(x -> x > tol, sing_vals_normalised)
+    # NOTE extra output argument, ratio of two largest singular values.
+    return count(x -> x > tol, sing_vals_normalised), sing_vals_normalised[1] / sing_vals_normalised[2]
 end
 
 ################################################################################
@@ -388,35 +389,7 @@ end
 #     )
 # end;
 
-# Function to add Boolean equality segments to an existing plot.
-function plot_equal_segments!(p, v_proj_flags::Vector{Vector{Bool}})
-    # Compute whether each entry is equal to the previous one, just as before.
+function constraint_changes(v_proj_flags::Vector{Vector{Bool}})
     is_equal = [v_proj_flags[i] == v_proj_flags[i - 1] for i in 2:length(v_proj_flags)]
-    
-    # Generate x-axis indices (1 to length of `is_equal`).
-    x_vals = 2:length(v_proj_flags)
-
-    # Add the scatter plot to the existing plot object.
-    # Note the use of plot! instead of plot.
-    plot!(
-        p,  # Pass the existing plot object as first argument.
-        x_vals, is_equal,
-        seriestype = :scatter,
-        markershape = :circle,
-        markercolor = :red,
-        legend = false,
-        yticks = nothing,
-    )
-
-    # Convention in Julia is to return the modified plot object.
-    return p
-end
-
-# For convenience, we can keep the original function but have it call the
-# bang version.
-function plot_equal_segments(v_proj_flags::Vector{Vector{Bool}})
-    # Create a new plot and immediately call the bang version on it.
-    p = plot()  # Create empty plot.
-    plot_equal_segments!(p, v_proj_flags)
-    return p
-end
+    return (2:length(v_proj_flags))[.!is_equal]
+ end
