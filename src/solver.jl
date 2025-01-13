@@ -201,9 +201,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # Initialise "artificial" y_{-1} to make first x update well-defined
     # and correct.
     ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-
-    # Initialise running sums of step angles.
-    # x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
     
     # for restarts, keep average iterates
     if restart_period != Inf
@@ -221,11 +218,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     j_restart = 0
 
     # Data containers for metrics (if return_run_data == true).
-    # x_step_angles = Float64[]
-    # s_step_angles = Float64[]
-    # y_step_angles = Float64[]
-    # concat_step_angles = Float64[]
-    # normalised_concat_step_angles = Float64[]
     primal_obj_vals = Float64[]
     dual_obj_vals = Float64[]
     pri_res_norms = Float64[]
@@ -244,19 +236,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         v_dist_to_sol = Float64[]
         xy_semidist = Float64[]
     end
-
-
-    # Initialise other variables to be used during algorithm.
-    # x_step = zeros(Float64, ws.p.n)
-    # s_step = zeros(Float64, ws.p.m)
-    # y_step = zeros(Float64, ws.p.m)
-    # concat_step = zeros(Float64, ws.p.n + 2 * ws.p.m)
-    # normalised_concat_step = zeros(Float64, ws.p.n + 2 * ws.p.m)
-    # x_step_prev = zeros(Float64, ws.p.n)
-    # s_step_prev = zeros(Float64, ws.p.m)
-    # y_step_prev = zeros(Float64, ws.p.m)
-    # concat_step_prev = zeros(Float64, ws.p.n + 2 * ws.p.m)
-    # normalised_concat_step_prev = zeros(Float64, ws.p.n + 2 * ws.p.m)
 
     # This flag helps us keep track of whether we should forgo the notion of a
     # "previous" step, including in the very first iteration.
@@ -420,8 +399,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # Reset inner loop counters/sums.
             just_restarted = true # NOTE: this may not work as expected when reintroducing step angle stuff for adaptive restarts.
             j_restart = 0
-            
-            # x_angle_sum, s_angle_sum, y_angle_sum = 0.0, 0.0, 0.0
         else # STANDARD ITERATION.
             # Standard iterate update through x^+ = tilde_A * x + tilde_b.
             # Krylov iterate (2nd column) is instead updated through
@@ -475,47 +452,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         end
 
         push!(enforced_set_flags, ws.enforced_constraints)
-
-
-
-        # concat_step[1:ws.p.n] .= x_step
-        # normalised_concat_step[1:ws.p.n] .= dim_adjusted_vec_normalise(x_step)
-        # concat_step[ws.p.n+1:ws.p.n+ws.p.m] .= s_step
-        # normalised_concat_step[ws.p.n+1:ws.p.n+ws.p.m] .= dim_adjusted_vec_normalise(s_step)
-        # concat_step[ws.p.n+ws.p.m+1:end] .= y_step
-        # normalised_concat_step[ws.p.n+ws.p.m+1:end] .= dim_adjusted_vec_normalise(y_step)
-
-        # NOTE: we skip the iterations just after a restart (or the first one).
-        # if !just_restarted
-        #     x_step_angle = acos(dot(x_step, x_step_prev) / (norm(x_step) * norm(x_step_prev)))
-        #     x_angle_sum += x_step_angle
-        #     s_step_angle = acos(dot(s_step, s_step_prev) / (norm(s_step) * norm(s_step_prev)))
-        #     # Avoid nans for zero steps: put in zeros instead.
-        #     # NOTE: may want to replicate this for x and y steps too.
-        #     s_step_angle = isnan(s_step_angle) ? 0.0 : s_step_angle
-        #     s_angle_sum += s_step_angle
-        #     y_step_angle = acos(dot(y_step, y_step_prev) / (norm(y_step) * norm(y_step_prev)))
-        #     y_angle_sum += y_step_angle
-            
-        #     # NOTE: this data has indexing "gaps" corresponding to when a
-        #     # restart occurs, since it doesn't make sense to include those as
-        #     # angles between consecutive steps in the usual sense.
-        #     if return_run_data
-        #         concat_step_angle = acos(dot(concat_step, concat_step_prev) / (norm(concat_step) * norm(concat_step_prev)))
-        #         normalised_concat_step_angle = acos(dot(normalised_concat_step, normalised_concat_step_prev) / (norm(normalised_concat_step) * norm(normalised_concat_step_prev)))
-        #         push!(x_step_angles, x_step_angle)
-        #         push!(s_step_angles, s_step_angle)
-        #         push!(y_step_angles, y_step_angle)
-        #         push!(concat_step_angles, concat_step_angle)
-        #         push!(normalised_concat_step_angles, normalised_concat_step_angle)
-        #     end
-        # end
-
-        # x_step_prev = copy(x_step)
-        # s_step_prev = copy(s_step)
-        # y_step_prev = copy(y_step)
-        # concat_step_prev = copy(concat_step)
-        # normalised_concat_step_prev = copy(normalised_concat_step)
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
