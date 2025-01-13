@@ -22,13 +22,13 @@ using Random
 
 # Set Plots backend.
 # Use plotlyjs() for interactive plots. Use gr() for faster generation.
-plotlyjs();
+gr()
 
 newline_char = Plots.backend_name() == :gr ? "\n" : "<br>"
 
 # Set default plot size (in pixels)
-# default(size=(800, 900)); # large; for laptop
-default(size=(1200, 700))
+# default(size=(1200, 700)) # for desktop
+default(size=(1200, 800)) # for laptop
 
 end
 
@@ -52,7 +52,7 @@ end
 
 begin
 
-problem_option = :LASSO # in {:LASSO, :HUBER, :MAROS}
+problem_option = :HUBER # in {:LASSO, :HUBER, :MAROS}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
@@ -147,18 +147,17 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITERS = 3000;
-PRINT_MOD = 25;
-RES_NORM = 2;
+MAX_ITERS = 4000;
+PRINT_MOD = 100;
+RES_NORM = Inf;
 RESTART_PERIOD = Inf;
-ACCEL_MEMORY = 9;
-ACCELERATION = true;
+ACCEL_MEMORY = 99;
+ACCELERATION = false;
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
 max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
 τ = 0.90 * max_τ;
-
 
 println("RUNNING PROTOTYPE VARIANT $variant...")
 println("Problem set/name: $problem_set/$problem_name")
@@ -191,32 +190,125 @@ end;
 
 begin
 
+LINEWIDTH = 2.5
+ALPHA = 0.7
+
+
 title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $variant $newline_char"
 title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY)"
 
-display(plot(results.primal_obj_vals, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="$title_beginning Objective $title_end"))
+primal_obj_plot = plot(results.primal_obj_vals, linewidth = LINEWIDTH, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="$title_beginning Objective $title_end")
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(primal_obj_plot)
 
-display(plot(results.dual_obj_vals, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="$title_beginning Dual objective $title_end"))
+dual_obj_plot = plot(results.dual_obj_vals, linewidth = LINEWIDTH, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="$title_beginning Dual objective $title_end")
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(dual_obj_plot)
 
-display(plot(results.primal_obj_vals - results.dual_obj_vals, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="$title_beginning Duality Gap $title_end"))
+gap_plot = plot(results.primal_obj_vals - results.dual_obj_vals, linewidth = LINEWIDTH, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="$title_beginning Duality Gap $title_end")
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(gap_plot)
 
-display(plot(results.pri_res_norms, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="$title_beginning Primal Residual Norm $title_end", yaxis=:log))
+pres_plot = plot(results.pri_res_norms, linewidth = LINEWIDTH, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="$title_beginning Primal Residual Norm $title_end", yaxis=:log)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(pres_plot)
 
-display(plot(results.dual_res_norms, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="$title_beginning Dual Residual Norm $title_end", yaxis=:log))
+dres_plot = plot(results.dual_res_norms, linewidth = LINEWIDTH, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="$title_beginning Dual Residual Norm $title_end", yaxis=:log)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(dres_plot)
 
-display(plot(results.x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' x Distance to Solution $title_end", yaxis=:log))
+# display(plot(results.x_dist_to_sol / sqrt(ws.p.n), label="Prototype x Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' x Distance to Solution $title_end", yaxis=:log))
 
-display(plot(results.s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' s Distance to Solution $title_end", yaxis=:log))
+# display(plot(results.s_dist_to_sol / sqrt(ws.p.m), label="Prototype s Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' s Distance to Solution $title_end", yaxis=:log))
 
-display(plot(results.y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' y Distance to Solution $title_end", yaxis=:log))
+# display(plot(results.y_dist_to_sol / sqrt(ws.p.m), label="Prototype y Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning 'Normalised' y Distance to Solution $title_end", yaxis=:log))
 
 # Plot characteristic seminorm to optimiser.
-display(plot(results.xy_semidist, label="Prototype Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning Seminorm Distance to Solution (Theory) $title_end", yaxis=:log))
+seminorm_plot = plot(results.xy_semidist, linewidth = LINEWIDTH, label="Prototype Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning Seminorm Distance to Solution (Theory) $title_end", yaxis=:log)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(seminorm_plot)
 
 xv_dist_to_sol = sqrt.(results.x_dist_to_sol .^ 2 .+ results.v_dist_to_sol .^ 2)
-display(plot(xv_dist_to_sol, label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning (x, v) Distance to Solution $title_end", yaxis=:log))
+xv_dist_plot = plot(xv_dist_to_sol, linewidth = LINEWIDTH, label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning (x, v) Distance to Solution $title_end", yaxis=:log)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(xv_dist_plot)
 
 # enforced_constraints_plot(enforced_set_flags, 10)
+
+constraint_lines = constraint_changes(results.enforced_set_flags)
+
+# Plot norms of xv steps from data in results. Display immediately.
+xv_step_norms_plot = plot(results.xv_step_norms, linewidth = LINEWIDTH, label="(x, v) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm", title="$title_beginning (x, v) l2 Step Norm $title_end", yaxis=:log)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(xv_step_norms_plot)
+
+sing_vals_ratio_plot = plot(results.update_mat_iters, results.update_mat_singval_ratios, linewidth = LINEWIDTH, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", title="$title_beginning Update Matrix Singular Value Ratio $title_end", yaxis=:log,
+marker = :circle)
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(sing_vals_ratio_plot)
 
 # Create the base plot with rank data
 update_ranks_plot = plot(
@@ -226,20 +318,20 @@ update_ranks_plot = plot(
     xlabel = "Iteration",
     ylabel = "Rank",
     title = "$title_beginning Update Matrix Rank $title_end",
-    marker = :circle,
+    linewidth = LINEWIDTH,
+    # marker = :circle,
+    xticks = 0:100:MAX_ITERS,
 )
+vline!(constraint_lines, line = (:dash, ALPHA, :green), label = "Active set changes")
+
+# plot!(results.update_mat_iters, results.update_mat_singval_ratios, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", yaxis=:log)
 
 # Add vertical lines for accelerated steps
 # vline! adds vertical lines at specified x-coordinates
 vline!(results.acc_step_iters, 
-    line = (:dash, 0.5, :red),  # Use dashed red lines with 0.5 opacity
+    line = (:dash, ALPHA, :red),  # Use dashed red lines
     label = "Accelerated Steps"
 )
-
-# Add the equality segments plot
-p2 = twinx()
-plot_equal_segments!(p2, results.enforced_set_flags)
-plot!(p2)
 
 # Display the combined plot
 display(update_ranks_plot)
