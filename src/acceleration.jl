@@ -81,7 +81,6 @@ function update_affine_dynamics!(ws::Workspace)
         return
     # Enforced constraints (and therefore "affinised" dynamics) have changed.
     else
-        println("Dynamics have changed.")
         # Update enforced constraints.
         ws.enforced_constraints .= new_enforced_constraints
         
