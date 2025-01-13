@@ -156,7 +156,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     x_sol::AbstractVector{Float64} = nothing,
     s_sol::AbstractVector{Float64} = nothing,
     y_sol::AbstractVector{Float64} = nothing,
-    plot_tilde_A_spectrum::Bool = false)
+    explicit_affine_operator::Bool = false,
+    spectrum_plot_period::Int = 17,)
 
     # We maintain a matrix whose columns are formed by the past
     # acceleration_memory iterate updates, normalised to unit l2 norm.
@@ -181,13 +182,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     # true problem solution.
     ws.cache[:seminorm_mat] = [Diagonal(1.0 ./ ws.cache[:W_inv].diag) - ws.p.P ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
     
-    # Compute fixed bits of tilde_{A} for acceleration.
-    # TODO: implement operator applications as mat-vec operations instead.
-    # ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
-    # ws.cache[:blhs] = -A * ws.cache[:tlhs]
-    
-    # ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
-    # ws.cache[:brhs_pre] = -A * ws.cache[:trhs_pre]
+    # Compute fixed bits of tilde_{A} operator.
+    # The affine operator is only constructed explicitly when the user so
+    # requests, since it is computationally expensive and wasteful.
+    if explicit_affine_operator
+        ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
+        ws.cache[:blhs] = -A * ws.cache[:tlhs]
+        ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
+    end
 
     # If acceleration, initialise memory for storing Krylov basis vectors, as
     # well as Hessenberg matrix H arising during the Gram-Schmidt process.
@@ -318,17 +320,22 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             push!(xy_semidist, curr_xy_semidist)
         end
 
-        # We now plot the spectrum of tilde_A on the complex plane.
-        # plot_spectrum(ws.tilde_A)
-        # Compute the eigenvalues (spectrum) of the matrix
-        if plot_tilde_A_spectrum && k % 50 == 0
-            plot_spectrum(ws.tilde_A)
+        # Update linearised (affine) operator.
+        # Doing this explicitly is (very) expensive, so it is only done when
+        # the user requests it (eg for displaying spectra).
+        if explicit_affine_operator
+            update_affine_dynamics!(ws)
+
+            # Plot spectrum of tilde_A operator.
+            if k % spectrum_plot_period == 0
+                # We keep the eigendecomposition for further analysis once
+                # we have computed the iterate update from this operator. 
+                eig_decomp = plot_spectrum(ws.tilde_A, k)
+            end
         end
 
         ### ITERATE ###
-        
-        # Update linearised (affine) operator.
-        # update_affine_dynamics!(ws)
+
         # NB, for mat-mat-free implementation, we replace the above heavy
         # function update_affine_dynamics! with updates of just the enforced
         # constraint set and tilde_b (avoiding matrix-matrix products).
@@ -431,6 +438,10 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
             curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
+
+            if explicit_affine_operator && k % spectrum_plot_period == 0
+                plot_eigenvec_alignment_vs_phase(curr_xv_update, eig_decomp.values, eig_decomp.vectors, k)
+            end
             
             push!(xv_step_norms, norm(curr_xv_update))
 
