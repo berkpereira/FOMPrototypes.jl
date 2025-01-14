@@ -230,6 +230,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     update_mat_iters = Int[]
     acc_step_iters = Int[]
     xv_step_norms = Float64[]
+    xv_update_cosines = Float64[]
+
+    
     # If real solution provided.
     if !isnothing(x_sol)
         x_dist_to_sol = Float64[]
@@ -238,6 +241,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
         v_dist_to_sol = Float64[]
         xy_semidist = Float64[]
     end
+
+    # I want these vectors to persist across iterations of the main loop,
+    # so I have to inialise them beforehand.
+    curr_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
+    prev_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
 
     # This flag helps us keep track of whether we should forgo the notion of a
     # "previous" step, including in the very first iteration.
@@ -416,9 +424,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # the operator B := A - I.
             prev_xv = ws.vars.x_v_q[:, 1]
             if krylov_operator_tilde_A
-                ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
+                ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
             else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
-                ws.vars.x_v_q .= tilde_A_prod(ws, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+                ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
             end
             curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
@@ -457,6 +465,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             just_accelerated = false
             j_restart += 1
         end
+
+        # Store cosine between last two iterate updates.
+        if k >= 1
+            push!(xv_update_cosines, abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))
+        end
+        prev_xv_update = copy(curr_xv_update)
 
         push!(enforced_set_flags, ws.enforced_constraints)
 
@@ -502,5 +516,5 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, xv_step_norms)
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, xv_step_norms, xv_update_cosines)
 end

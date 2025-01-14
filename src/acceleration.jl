@@ -98,7 +98,8 @@ function update_affine_dynamics!(ws::Workspace)
         # tilde_b IN THE GENERAL CASE
         tilde_b_top = -ws.cache[:trhs_pre] * (2 * b_k_π - ws.p.b) - ws.cache[:W_inv] * ws.p.c
         tilde_b_bot = -ws.p.A * tilde_b_top + ws.p.b - b_k_π
-        # NOTICE THAT tilde_b IS INVARIANT IN THE LINEAR CONSTRAINTS CASE
+        
+        # NOTE: tilde_b IS INVARIANT IN THE LINEAR CONSTRAINTS CASE
 
         # Assemble tilde_b.
         ws.tilde_b .= [tilde_b_top; tilde_b_bot]
@@ -110,13 +111,22 @@ end
 
 """
 This function implements a mat-mat free specification of the application of
-    tilde_A to a vector, at some iteration.
+tilde_A to a vector, at some iteration.
+
+NOTE: one must pass in a bit vector of enforced constraints as well as the
+Workspace struct ws, even though Workspace already has a field storing a
+bit vector of this kind.
+The issue is that the Workspace field corresponds to the actual current
+iterate of the method, whereas we may want to evaluate the method's output
+from some arbitrary, different iterate!
 """
-function tilde_A_prod(ws::Workspace, q::AbstractArray{Float64})
+function tilde_A_prod(ws::Workspace,
+    enforced_constraints::BitVector,
+    q::AbstractArray{Float64})
     @views top_left = q[1:ws.p.n, :] - (ws.cache[:W_inv] * (ws.p.P * q[1:ws.p.n, :] + ws.ρ * ws.cache[:A_gram] * q[1:ws.p.n, :]))
     bot_left = - ws.p.A * top_left
-    @views top_right = ws.ρ * ws.cache[:W_inv] * (ws.p.A' * ((ws.enforced_constraints - .!ws.enforced_constraints) .* q[ws.p.n+1:end, :]))
-    @views bot_right = -ws.p.A * top_right + ws.enforced_constraints .* q[ws.p.n+1:end, :]
+    @views top_right = ws.ρ * ws.cache[:W_inv] * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
+    @views bot_right = -ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
 
     # NB: matrix, NOT vector, is returned.
     # This is to allow for multiplication by a matrix of 2 columns (maintain
@@ -168,7 +178,7 @@ function custom_acceleration_candidate(ws::Workspace,
 
     # NOTE: need to pre-multiply by the transpose of "Q_{k+1}" here.
     # This is assumed by the function krylov_least_squares!
-    rhs_res_custom = ws.cache[:krylov_basis]' * (tilde_A_prod(ws, ws.vars.x_v_q[:, 1]) + ws.tilde_b - ws.vars.x_v_q[:, 1])
+    rhs_res_custom = ws.cache[:krylov_basis]' * (tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q[:, 1]) + ws.tilde_b - ws.vars.x_v_q[:, 1])
     
     if krylov_operator_tilde_A
         shifted_hessenberg = ws.cache[:H] - [I(acceleration_memory - 1); zeros(1, acceleration_memory - 1)]
@@ -188,7 +198,7 @@ function custom_acceleration_candidate(ws::Workspace,
     # TODO: question this? tilde_b and tilde_A may no longer make sense from
     # the point which we have just computed? Not sure what's most sensible.
     # Possible alternative would be to just return gmres_sol.
-    acceleration_point = tilde_A_prod(ws, gmres_sol) + ws.tilde_b
+    acceleration_point = tilde_A_prod(ws, ws.enforced_constraints, gmres_sol) + ws.tilde_b
     
     return acceleration_point
 end
