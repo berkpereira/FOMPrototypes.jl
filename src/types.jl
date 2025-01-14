@@ -122,6 +122,8 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
     acc_step_iters::Vector{Int}
 
     xv_step_norms::Vector{T}
+
+    xv_update_cosines::Vector{T}
 end
 
 
