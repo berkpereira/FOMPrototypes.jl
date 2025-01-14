@@ -62,16 +62,16 @@ if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
     # problem_name = "HB_abb313_lasso" # (m, n) = (665, 665)
-    problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
-    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    # problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
+    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
 elseif problem_option === :HUBER
     problem_set = "sslsq";
-    # problem_name = "HB_ash958_huber"; # (m, n) = (3419, 3099)
-    problem_name = "NYPA_Maragal_5_huber"; # large, challenging
+    problem_name = "HB_ash958_huber"; # (m, n) = (3419, 3099)
+    # problem_name = "NYPA_Maragal_5_huber"; # large, challenging
 elseif problem_option === :MAROS
     problem_set = "maros";
-    problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
-    # problem_name = "DUAL3";
+    # problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
+    problem_name = "DUAL3";
 else
     error("Invalid problem option")
 end
@@ -152,7 +152,7 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITER = 800;
+MAX_ITER = 600;
 PRINT_MOD = 50;
 RES_NORM = Inf;
 RESTART_PERIOD = Inf;
@@ -198,7 +198,8 @@ end;
 begin
 
 LINEWIDTH = 2.5
-ALPHA = 0.7
+VERT_LINEWIDTH = 1.5
+ALPHA = 0.9
 
 title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $variant $newline_char"
 title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY)"
@@ -212,7 +213,7 @@ constraint_lines = constraint_changes(results.enforced_set_flags)
 
 primal_obj_plot = plot(0:MAX_ITER + 1, results.primal_obj_vals, linewidth = LINEWIDTH, label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value", title="$title_beginning Objective $krylov_operator_str $title_end")
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -223,7 +224,7 @@ display(primal_obj_plot)
 
 dual_obj_plot = plot(0:MAX_ITER + 1, results.dual_obj_vals, linewidth = LINEWIDTH, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value", title="$title_beginning Dual objective $krylov_operator_str $title_end")
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -234,7 +235,7 @@ display(dual_obj_plot)
 
 gap_plot = plot(0:MAX_ITER + 1, results.primal_obj_vals - results.dual_obj_vals, linewidth = LINEWIDTH, label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap", title="$title_beginning Duality Gap $krylov_operator_str $title_end")
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -245,7 +246,7 @@ display(gap_plot)
 
 pres_plot = plot(0:MAX_ITER + 1, results.pri_res_norms, linewidth = LINEWIDTH, label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual", title="$title_beginning Primal Residual Norm $krylov_operator_str $title_end", yaxis=:log)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -256,7 +257,7 @@ display(pres_plot)
 
 dres_plot = plot(0:MAX_ITER + 1, results.dual_res_norms, linewidth = LINEWIDTH, label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual", title="$title_beginning Dual Residual Norm $krylov_operator_str $title_end", yaxis=:log)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -274,7 +275,7 @@ display(dres_plot)
 # Plot characteristic seminorm to optimiser.
 seminorm_plot = plot(0:MAX_ITER + 1, results.xy_semidist, linewidth = LINEWIDTH, label="Prototype Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning Seminorm Distance to Solution (Theory) $krylov_operator_str $title_end", yaxis=:log)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -286,7 +287,7 @@ display(seminorm_plot)
 xv_dist_to_sol = sqrt.(results.x_dist_to_sol .^ 2 .+ results.v_dist_to_sol .^ 2)
 xv_dist_plot = plot(0:MAX_ITER + 1, xv_dist_to_sol, linewidth = LINEWIDTH, label="Prototype Concatenated Distance", xlabel="Iteration", ylabel="Distance to Solution", title="$title_beginning (x, v) Distance to Solution $krylov_operator_str $title_end", yaxis=:log)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -300,7 +301,7 @@ display(xv_dist_plot)
 # Plot norms of xv steps from data in results. Display immediately.
 xv_step_norms_plot = plot(0:MAX_ITER, results.xv_step_norms, linewidth = LINEWIDTH, label="(x, v) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm", title="$title_beginning (x, v) l2 Step Norm $krylov_operator_str $title_end", yaxis=:log)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -312,7 +313,7 @@ display(xv_step_norms_plot)
 sing_vals_ratio_plot = plot(results.update_mat_iters, results.update_mat_singval_ratios, linewidth = LINEWIDTH, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", title="$title_beginning Update Matrix Singular Value Ratio $krylov_operator_str $title_end", yaxis=:log,
 marker = :circle)
 vline!(results.acc_step_iters,
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
 vline!(constraint_lines,
@@ -340,12 +341,22 @@ vline!(constraint_lines, line = (:dash, ALPHA, :green), label = "Active set chan
 # Add vertical lines for accelerated steps
 # vline! adds vertical lines at specified x-coordinates
 vline!(results.acc_step_iters, 
-    line = (:dash, ALPHA, :red),  # Use dashed red lines
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
-
-# Display the combined plot
 display(update_ranks_plot)
+
+# Plot consecutive cosines of update vectors.
+xv_update_cosines_plot = plot(1:MAX_ITER, results.xv_update_cosines, linewidth = LINEWIDTH, label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates", title="$title_beginning Consecutive Update Cosines $krylov_operator_str $title_end")
+vline!(results.acc_step_iters,
+    line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
+    label = "Accelerated Steps"
+)
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
+)
+display(xv_update_cosines_plot)
 
 end
 
