@@ -120,6 +120,7 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
     update_mat_ranks::Vector{T}
     update_mat_singval_ratios::Vector{T}
     acc_step_iters::Vector{Int}
+    linesearch_iters::Vector{Int}
 
     xv_step_norms::Vector{T}
 

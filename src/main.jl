@@ -9,7 +9,6 @@ include("printing.jl")
 include("plotting.jl")
 include("acceleration.jl")
 
-
 using Revise
 using Profile
 using StatProfilerHTML
@@ -21,11 +20,8 @@ using SCS
 using Random
 
 # Set Plots backend.
-# For interactive plots:
-# plotlyjs() # OR
-# pythonplot(); backendplot()
-# For faster plotting:
-# gr()
+# For interactive plots: plotlyjs()
+# For faster plotting: gr()
 gr()
 
 newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
@@ -62,8 +58,8 @@ if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
     # problem_name = "HB_abb313_lasso" # (m, n) = (665, 665)
-    # problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
-    problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
+    problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
+    # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
 elseif problem_option === :HUBER
     problem_set = "sslsq";
     problem_name = "HB_ash958_huber"; # (m, n) = (3419, 3099)
@@ -152,12 +148,13 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITER = 600;
-PRINT_MOD = 50;
-RES_NORM = Inf;
-RESTART_PERIOD = Inf;
-ACCEL_MEMORY = 29;
-ACCELERATION = true;
+MAX_ITER = 1100
+PRINT_MOD = 50
+RES_NORM = Inf
+RESTART_PERIOD = Inf
+ACCEL_MEMORY = 29
+ACCELERATION = true
+LINESEARCH_PERIOD = 33
 KRYLOV_OPERATOR_TILDE_A = false
 
 COMPUTE_OPERATOR_EXPLICITLY = false
@@ -179,14 +176,25 @@ end
 end
 
 # @profview begin # For built-in profiler view in VS Code.
-@time begin
+@time begin # for single run and timing
 
 # Initialise workspace (initial iterates are set to zero by default).
 ws = Workspace(problem, variant, τ, ρ)
 ws.cache[:A_gram] = A_gram
 
 # Call the solver.
-results = optimise!(ws, MAX_ITER, PRINT_MOD, RESTART_PERIOD, RES_NORM, ACCELERATION, ACCEL_MEMORY, KRYLOV_OPERATOR_TILDE_A, x_ref, s_ref, y_ref, COMPUTE_OPERATOR_EXPLICITLY, SPEC_PLOT_PERIOD)
+results = optimise!(ws,
+MAX_ITER,
+PRINT_MOD,
+restart_period = RESTART_PERIOD,
+residual_norm = RES_NORM,
+acceleration = ACCELERATION,
+acceleration_memory = ACCEL_MEMORY,
+linesearch_period = LINESEARCH_PERIOD,
+krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
+x_sol = x_ref, s_sol = s_ref, y_sol = y_ref,
+explicit_affine_operator = COMPUTE_OPERATOR_EXPLICITLY,
+spectrum_plot_period = SPEC_PLOT_PERIOD)
 
 end;
 
@@ -216,6 +224,10 @@ vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
     label = "Active set changes"
@@ -226,6 +238,10 @@ dual_obj_plot = plot(0:MAX_ITER + 1, results.dual_obj_vals, linewidth = LINEWIDT
 vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
+)
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
@@ -238,6 +254,10 @@ vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
     label = "Active set changes"
@@ -249,6 +269,10 @@ vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
     label = "Active set changes"
@@ -259,6 +283,10 @@ dres_plot = plot(0:MAX_ITER + 1, results.dual_res_norms, linewidth = LINEWIDTH, 
 vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
+)
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
@@ -278,6 +306,10 @@ vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
     label = "Active set changes"
@@ -289,6 +321,10 @@ xv_dist_plot = plot(0:MAX_ITER + 1, xv_dist_to_sol, linewidth = LINEWIDTH, label
 vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
+)
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
@@ -304,10 +340,18 @@ vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
 )
-vline!(constraint_lines,
-    line = (:dash, ALPHA, :green),
-    label = "Active set changes"
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
+# vline!(constraint_lines,
+#     line = (:dash, ALPHA, :green),
+#     label = "Active set changes"
+# )
 display(xv_step_norms_plot)
 
 sing_vals_ratio_plot = plot(results.update_mat_iters, results.update_mat_singval_ratios, linewidth = LINEWIDTH, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", title="$title_beginning Update Matrix Singular Value Ratio $krylov_operator_str $title_end", yaxis=:log,
@@ -315,6 +359,10 @@ marker = :circle)
 vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
+)
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),
@@ -334,6 +382,10 @@ update_ranks_plot = plot(
     # marker = :circle,
     xticks = 0:100:MAX_ITER,
 )
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
+)
 vline!(constraint_lines, line = (:dash, ALPHA, :green), label = "Active set changes")
 
 # plot!(results.update_mat_iters, results.update_mat_singval_ratios, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", yaxis=:log)
@@ -351,6 +403,10 @@ xv_update_cosines_plot = plot(1:MAX_ITER, results.xv_update_cosines, linewidth =
 vline!(results.acc_step_iters,
     line = (:dash, ALPHA, :red, VERT_LINEWIDTH),  # Use dashed red lines
     label = "Accelerated Steps"
+)
+vline!(results.linesearch_iters,
+    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
+    label = "Line Search Steps"
 )
 vline!(constraint_lines,
     line = (:dash, ALPHA, :green),

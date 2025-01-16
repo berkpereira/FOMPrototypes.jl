@@ -6,6 +6,7 @@ include("types.jl")
 include("utils.jl")
 include("residuals.jl")
 include("acceleration.jl")
+include("linesearch.jl")
 include("printing.jl")
 
 # Compute v iterate which consolidates the y and s iterates.
@@ -46,6 +47,24 @@ function iter_x!(x::AbstractVector{Float64},
     return step
 end
 
+"""
+Version of iter_x! which does NOT change x iterate in place.
+It also does NOT return the step vector.
+"""
+function iter_x(x::AbstractVector{Float64},
+    pre_matrix::Diagonal{Float64},
+    P::AbstractMatrix{Float64},
+    c::AbstractVector{Float64},
+    A::AbstractMatrix{Float64},
+    y::AbstractVector{Float64},
+    y_prev::AbstractVector{Float64})
+    
+    new_x = similar(x)
+    iter_x!(new_x, pre_matrix, P, c, A, y, y_prev)
+
+    return new_x
+end
+
 function iter_s!(s::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     x::AbstractVector{Float64},
@@ -62,6 +81,24 @@ function iter_s!(s::AbstractVector{Float64},
     return s - s_old
 end
 
+"""
+Version of iter_s! which does NOT change s iterate in place.
+It also does NOT return the step vector.
+"""
+function iter_s(s::AbstractVector{Float64},
+    A::AbstractMatrix{Float64},
+    x::AbstractVector{Float64},
+    b::AbstractVector{Float64},
+    y::AbstractVector{Float64},
+    K::Vector{Clarabel.SupportedCone},
+    ρ::Float64)
+
+    new_s = similar(s)
+    iter_s!(new_s, A, x, b, y, K, ρ)
+
+    return new_s
+end
+
 function iter_y!(y::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     x::AbstractVector{Float64},
@@ -71,6 +108,23 @@ function iter_y!(y::AbstractVector{Float64},
     step = y_update(A, x, s, b, ρ)
     y .+= step
     return step
+end
+
+"""
+Version of iter_y! which does NOT change y iterate in place.
+It also does NOT return the step vector.
+"""
+function iter_y(y::AbstractVector{Float64},
+    A::AbstractMatrix{Float64},
+    x::AbstractVector{Float64},
+    s::AbstractVector{Float64},
+    b::AbstractVector{Float64},
+    ρ::Float64)
+
+    new_y = similar(y)
+    iter_y!(new_y, A, x, s, b, ρ)
+    
+    return new_y
 end
 
 # NOTE: non-mutating iteration functions mostly (exclusively?) for debugging.
@@ -150,10 +204,14 @@ derived from considering tilde_A as the operator generating the Krylov
 subspace in the Arnoldi process. If it is false, we use the operator
 B := tilde_A - I instead (my first implementation used the latter, B approach).
 """
-function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
+function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
     acceleration::Bool = false,
     acceleration_memory::Integer = 20,
+    linesearch_period::Union{Real, Symbol} = 20,
+    linesearch_α_max::Float64 = 50.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
+    linesearch_β::Float64 = 0.7,
+    linesearch_ϵ::Float64 = 0.03,
     krylov_operator_tilde_A::Bool = false,
     x_sol::AbstractVector{Float64} = nothing,
     s_sol::AbstractVector{Float64} = nothing,
@@ -229,6 +287,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     update_mat_singval_ratios = Float64[]
     update_mat_iters = Int[]
     acc_step_iters = Int[]
+    linesearch_iters = Int[]
     xv_step_norms = Float64[]
     xv_update_cosines = Float64[]
 
@@ -410,7 +469,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # Reset inner loop counters/sums.
             just_restarted = true # NOTE: this may not work as expected when reintroducing step angle stuff for adaptive restarts.
             j_restart = 0
-        else # STANDARD ITERATION.
+        else # STANDARD OR LINESEARCH ITERATION.
             # Standard iterate update through x^+ = tilde_A * x + tilde_b.
             # Krylov iterate (2nd column) is instead updated through
             # q^+ = (tilde_A - I) * q + tilde_b.
@@ -423,21 +482,28 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
             # NB: my first implementation of Arnoldi puts the sequence through
             # the operator B := A - I.
             prev_xv = ws.vars.x_v_q[:, 1]
-            if krylov_operator_tilde_A
-                ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
-            else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
-                ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+
+            if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
+                linesearch_success = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, krylov_operator_tilde_A)
+                if linesearch_success
+                    push!(linesearch_iters, k)
+                end
+            else # STANDARD ITERATION
+                if krylov_operator_tilde_A
+                    ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
+                else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
+                    ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
+                end
             end
             curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
+            push!(xv_step_norms, norm(curr_xv_update))
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
+
 
             if explicit_affine_operator && k % spectrum_plot_period == 0
                 plot_eigenvec_alignment_vs_phase(curr_xv_update, eig_decomp.values, eig_decomp.vectors, k)
             end
             
-            push!(xv_step_norms, norm(curr_xv_update))
-
-
             # It is sensible to have the first vector in the Krylov basis be
             # the residual achieved by our initial guess.
             if acceleration && just_accelerated
@@ -516,5 +582,5 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer,
     curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, xv_step_norms, xv_update_cosines)
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xv_step_norms, xv_update_cosines)
 end

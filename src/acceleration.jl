@@ -54,6 +54,19 @@ function update_enforced_constraints!(ws::Workspace)
 end
 
 """
+This function serves a similar purpose to update_enforced_constraints!, but
+is used for "hypothetical" iterates, eg for line searches.
+This is why, even though we pass in the Workspace instace ws---which already
+stores the relevant state variables---we also pass in the vectors v and s.
+"""
+function enforced_contraints_bitvec(ws::Workspace,
+    v::AbstractVector{Float64},
+    s::AbstractVector{Float64})
+    return .!(flag_arrays(v, s, ws.p.m, ws.p.K))
+end
+
+
+"""
 To complement update_enforced_constraints!, we also need, still, to update the
 tilde_b vector. As a vector, this is, of course, fine enough to maintain in
 memory.
@@ -123,10 +136,11 @@ from some arbitrary, different iterate!
 function tilde_A_prod(ws::Workspace,
     enforced_constraints::BitVector,
     q::AbstractArray{Float64})
+
     @views top_left = q[1:ws.p.n, :] - (ws.cache[:W_inv] * (ws.p.P * q[1:ws.p.n, :] + ws.ρ * ws.cache[:A_gram] * q[1:ws.p.n, :]))
     bot_left = - ws.p.A * top_left
     @views top_right = ws.ρ * ws.cache[:W_inv] * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
-    @views bot_right = -ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
+    @views bot_right = - ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
 
     # NB: matrix, NOT vector, is returned.
     # This is to allow for multiplication by a matrix of 2 columns (maintain
