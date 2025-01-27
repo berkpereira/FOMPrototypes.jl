@@ -1,4 +1,4 @@
-using LinearAlgebra
+using LinearAlgebra, Printf
 include("utils.jl")
 include("acceleration.jl")
 include("types.jl")
@@ -23,7 +23,11 @@ This function returns true if the line search was successful, and false
 if we end up simply taking the vanilla step instead.
 """
 function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
-    β::Float64, ϵ::Float64, krylov_operator_tilde_A::Bool)
+    β::Float64, ϵ::Float64, krylov_operator_tilde_A::Bool,
+    ref_xv_update::AbstractVector{Float64},
+    iter::Int)
+    # NB ref_xv_update argument is just for testing/debugging purposes.
+
     @assert α_max > 1.0
 
     # I'm still experimenting with proof of concept, so I implement two
@@ -55,7 +59,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
     if LINES == :xv
         curr_fp_residual = vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]
 
-        # To comute fixed-point residual at the vanilla iterate, first
+        # To compute fixed-point residual at the vanilla iterate, first
         # have to determine the local (x, v) dynamics at the vanilla point.
         vanilla_iterate_s = project_to_K(vanilla_iterate_x_v_q[ws.p.n+1:end, 1], ws.p.K)
         vanilla_enforced_constraints = enforced_contraints_bitvec(ws, vanilla_iterate_x_v_q[ws.p.n+1:end, 1], vanilla_iterate_s)
@@ -72,6 +76,10 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         candidate_s = similar(vanilla_iterate_s)
         candidate_lookahead = similar(vanilla_lookahead)
         candidate_enforced_constraints = similar(vanilla_enforced_constraints)
+
+        # Compute cosine between ref_xv_update and curr_fp_residual.
+        updates_cos = dot(ref_xv_update, curr_fp_residual) / (norm(ref_xv_update) * norm(curr_fp_residual))
+        println("Iter $(@sprintf("%4.1d", iter)) - Cosine between previous (x, v) update and current (x, v) FP residual: $updates_cos")
     elseif LINES == :xsy
         curr_iterate_s = project_to_K(ws.vars.x_v_q[ws.p.n+1:end, 1], ws.p.K)
         curr_iterate_y = ws.ρ * (curr_iterate_s - ws.vars.x_v_q[ws.p.n+1:end, 1])
@@ -118,13 +126,20 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
             candidate_fp_merit = norm(candidate_lookahead - candidate)
 
             if candidate_fp_merit <= (1 - ϵ) * vanilla_fp_merit
-                println("Successful line search with α = $α.")
-                println("Successful Candidate merit: $candidate_fp_merit")
-                println("Vanilla merit: $vanilla_fp_merit")
+                println("Iter $(@sprintf("%4.1d", iter)) - Line search SUCCESS α = $α. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
                 
+                # Compute cosine between candidate update and current update.
+                updates_cos = dot(candidate - ws.vars.x_v_q[:, 1], ref_xv_update) / (norm(candidate - ws.vars.x_v_q[:, 1]) * norm(ref_xv_update))
+                println("Iter $(@sprintf("%4.1d", iter)) - Cosine between linesearch update and previous (x, v) FP residual: $updates_cos")
+
+                # NB this should be exactly 1.
+                vanilla_cos = dot(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1], candidate - ws.vars.x_v_q[:, 1]) / (norm(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]) * norm(candidate - ws.vars.x_v_q[:, 1]))
+                println("Iter $(@sprintf("%4.1d", iter)) - Cosine between vanilla and linesearch updates (should be 1.0): $vanilla_cos")
+
                 # Assign to the workspace variable.
+                linesearch_update = candidate - ws.vars.x_v_q[:, 1]
                 ws.vars.x_v_q[:, 1] .= candidate
-                return true
+                return true, linesearch_update
             end
 
             # Backtrack by factor β.
@@ -141,9 +156,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
             candidate_fp_merit = norm(candidate_lookahead - candidate)
 
             if candidate_fp_merit <= (1 - ϵ) * vanilla_fp_merit
-                println("Successful line search with α = $α.")
-                println("Successful Candidate merit: $candidate_fp_merit")
-                println("Vanilla merit: $vanilla_fp_merit")
+                println("Iter $(@sprintf("%4.1d", iter)) - Line search SUCCESS α = $α. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
                 
                 candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.ρ
 
@@ -157,9 +170,10 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         end
     end
     
-    println("Failed linesearch. Last at α = $(α / β), candidate/vanilla residual: $(candidate_fp_merit / vanilla_fp_merit)")
+    # println("Iter $(@sprintf("%4.1d", iter)) - Line search FAILED. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
 
     # If we reach here, we just assign the vanilla iterate.
+    linesearch_update = vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]
     ws.vars.x_v_q[:, 1] .= vanilla_iterate_x_v_q[:, 1]
-    return false
+    return false, linesearch_update
 end
