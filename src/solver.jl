@@ -209,7 +209,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     acceleration::Bool = false,
     acceleration_memory::Integer = 20,
     linesearch_period::Union{Real, Symbol} = 20,
-    linesearch_α_max::Float64 = 50.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
+    linesearch_α_max::Float64 = 100.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
     linesearch_β::Float64 = 0.7,
     linesearch_ϵ::Float64 = 0.03,
     krylov_operator_tilde_A::Bool = false,
@@ -275,6 +275,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     acc_pri_res = zeros(Float64, ws.p.m)
     acc_dual_res = zeros(Float64, ws.p.n)
     acc_dual_res_temp = zeros(Float64, ws.p.n)
+    prev_xv = similar(ws.vars.x_v_q[:, 1])
     j_restart = 0
 
     # Data containers for metrics (if return_run_data == true).
@@ -481,10 +482,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             # NB: mat-vec-only implementation here.
             # NB: my first implementation of Arnoldi puts the sequence through
             # the operator B := A - I.
-            prev_xv = ws.vars.x_v_q[:, 1]
+            prev_xv .= ws.vars.x_v_q[:, 1]
 
+            linesearch_success = false # to access outside conditional clause
             if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
-                linesearch_success = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, krylov_operator_tilde_A)
+                linesearch_success, linesearch_update = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, krylov_operator_tilde_A, prev_xv_update, k)
                 if linesearch_success
                     push!(linesearch_iters, k)
                 end
@@ -495,7 +497,13 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                     ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
                 end
             end
-            curr_xv_update = ws.vars.x_v_q[:, 1] - prev_xv
+            curr_xv_update .= ws.vars.x_v_q[:, 1] - prev_xv
+            
+            # if linesearch_success
+            #     println("Updates from linesearch monitored correctly: $(linesearch_update == curr_xv_update)")
+            #     println("Supposed cosine to record -- check 1: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
+            # end
+
             push!(xv_step_norms, norm(curr_xv_update))
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
 
@@ -532,11 +540,21 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             j_restart += 1
         end
 
+        # for debugging
+        # if linesearch_success
+        #     println("Updates from linesearch monitored correctly: $(linesearch_update == curr_xv_update)")
+        #     println("Supposed cosine to record -- check 2: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
+        # end
+
         # Store cosine between last two iterate updates.
         if k >= 1
-            push!(xv_update_cosines, abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))
+            xv_prev_updates_cos = abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update)))
+            
+            # println("Supposed cosine to record -- check 3: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
+            # println("Cosine to be stored now (iter = $k): $xv_prev_updates_cos")
+            push!(xv_update_cosines, xv_prev_updates_cos)
         end
-        prev_xv_update = copy(curr_xv_update)
+        prev_xv_update .= curr_xv_update
 
         push!(enforced_set_flags, ws.enforced_constraints)
 
