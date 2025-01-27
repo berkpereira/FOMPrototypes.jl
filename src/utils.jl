@@ -95,7 +95,7 @@ end;
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
 function pre_x_step_matrix(variant_no::Integer, P::AbstractMatrix,
-    A_gram::SparseMatrixCSC, τ::Float64, ρ::Float64, n::Integer)
+    A_gram::AbstractMatrix, τ::Float64, ρ::Float64, n::Integer)
     if variant_no == 1
         pre_matrix = I(n) / τ + diag_part(P + ρ * A_gram)
     elseif variant_no == 2
