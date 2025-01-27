@@ -4,3 +4,6 @@
 .conda/
 conda-meta/
 .CondaPkg/
+
+# For external solver results
+external_solvers/
