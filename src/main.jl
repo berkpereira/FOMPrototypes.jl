@@ -18,17 +18,19 @@ using Plots
 using SparseArrays
 using SCS
 using Random
+using JLD2
+using Pkg
 
 # Set Plots backend.
 # For interactive plots: plotlyjs()
 # For faster plotting: gr()
-gr()
+plotlyjs()
 
 newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
 
 # Set default plot size (in pixels)
-# default(size=(1200, 700)) # for desktop
-default(size=(1200, 800)) # for laptop
+default(size=(1100, 700)) # for desktop
+# default(size=(1200, 800)) # for laptop
 
 end
 
@@ -52,7 +54,7 @@ end
 
 begin
 
-problem_option = :LASSO # in {:LASSO, :HUBER, :MAROS}
+problem_option = :MAROS # in {:LASSO, :HUBER, :MAROS, :GISELSSON}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
@@ -67,7 +69,11 @@ elseif problem_option === :HUBER
 elseif problem_option === :MAROS
     problem_set = "maros";
     # problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
-    problem_name = "DUAL3";
+    # problem_name = "DUAL3"; # large
+    problem_name = "HS76" # VERY tiny
+elseif problem_option === :GISELSSON
+    problem_set = "giselsson";
+    problem_name = "giselsson_problem";
 else
     error("Invalid problem option")
 end
@@ -79,7 +85,13 @@ end;
 begin
 
 # Load the problem data.
-data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
+if problem_option !== :GISELSSON
+    data = load_clarabel_benchmark_prob_data(problem_set, problem_name);
+else
+    repo_root = dirname(Pkg.project().path)
+    giselsson_path = joinpath(repo_root, "synthetic_problem_data/giselsson_problem.jld2")
+    data = load(giselsson_path)["data"];
+end
 P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 
 # Create a problem instance.
@@ -148,13 +160,13 @@ variant = 1;
 A_gram = A' * A;
 take_away = take_away_matrix(variant, A_gram);
 
-MAX_ITER = 1100
+MAX_ITER = 1000
 PRINT_MOD = 50
 RES_NORM = Inf
 RESTART_PERIOD = Inf
-ACCEL_MEMORY = 29
-ACCELERATION = true
-LINESEARCH_PERIOD = 33
+ACCEL_MEMORY = 49
+ACCELERATION = false
+LINESEARCH_PERIOD = 20
 KRYLOV_OPERATOR_TILDE_A = false
 
 COMPUTE_OPERATOR_EXPLICITLY = false
@@ -210,7 +222,7 @@ VERT_LINEWIDTH = 1.5
 ALPHA = 0.9
 
 title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $variant $newline_char"
-title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY)"
+title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY).$newline_char Linesearch period = $LINESEARCH_PERIOD."
 if KRYLOV_OPERATOR_TILDE_A
     krylov_operator_str = "$newline_char Krylov operator is A"
 else
@@ -344,14 +356,10 @@ vline!(results.linesearch_iters,
     line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
     label = "Line Search Steps"
 )
-vline!(results.linesearch_iters,
-    line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH),
-    label = "Line Search Steps"
+vline!(constraint_lines,
+    line = (:dash, ALPHA, :green),
+    label = "Active set changes"
 )
-# vline!(constraint_lines,
-#     line = (:dash, ALPHA, :green),
-#     label = "Active set changes"
-# )
 display(xv_step_norms_plot)
 
 sing_vals_ratio_plot = plot(results.update_mat_iters, results.update_mat_singval_ratios, linewidth = LINEWIDTH, label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio", title="$title_beginning Update Matrix Singular Value Ratio $krylov_operator_str $title_end", yaxis=:log,
@@ -409,7 +417,7 @@ vline!(results.linesearch_iters,
     label = "Line Search Steps"
 )
 vline!(constraint_lines,
-    line = (:dash, ALPHA, :green),
+    line = (:dashdot, ALPHA, :green),
     label = "Active set changes"
 )
 display(xv_update_cosines_plot)
