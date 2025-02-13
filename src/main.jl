@@ -24,7 +24,7 @@ using Pkg
 # Set Plots backend.
 # For interactive plots: plotlyjs()
 # For faster plotting: gr()
-plotlyjs()
+gr()
 
 newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
 
@@ -34,33 +34,17 @@ default(size=(1100, 700)) # for desktop
 
 end
 
-############################## FIND PROBLEMS ###################################
-
-# search_problem_set = "sslsq"
-
-# suitable_problems = filter_clarabel_problems(search_problem_set, min_m = 1, min_n = 100)
-
-# # Write to a file whose name depends on search_problem_set string
-# names_file = "./search_results_$search_problem_set.txt"
-# open(names_file, "w") do f
-#     for problem in suitable_problems
-#         println(f, problem)
-#     end
-# end
-
-# retrieved_problems = readlines(names_file)
-
 ############## CHOOSE PROBLEM SET AND PROBLEM NAME #############################
 
 begin
 
-problem_option = :MAROS # in {:LASSO, :HUBER, :MAROS, :GISELSSON}
+problem_option = :GISELSSON # in {:LASSO, :HUBER, :MAROS, :GISELSSON}
 
 if problem_option === :LASSO
     problem_set = "sslsq";
     # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
-    # problem_name = "HB_abb313_lasso" # (m, n) = (665, 665)
-    problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
+    problem_name = "HB_abb313_lasso" # (m, n) = (665, 665)
+    # problem_name = "HB_ash219_lasso"; # (m, n) = (389, 389)
     # problem_name = "NYPA_Maragal_1_lasso"; # smallest in SSLSQ set
 elseif problem_option === :HUBER
     problem_set = "sslsq";
@@ -68,9 +52,9 @@ elseif problem_option === :HUBER
     # problem_name = "NYPA_Maragal_5_huber"; # large, challenging
 elseif problem_option === :MAROS
     problem_set = "maros";
-    # problem_name = "QSCSD8"; # not as large, n = 1500, m = 900
     # problem_name = "DUAL3"; # large
-    problem_name = "HS76" # VERY tiny
+    problem_name = "QSCSD8"; # not as large, (m, n) = (3147, 2750)
+    # problem_name = "HS76" # VERY tiny
 elseif problem_option === :GISELSSON
     problem_set = "giselsson";
     problem_name = "giselsson_problem";
@@ -98,6 +82,7 @@ P, c, A, b, m, n, K = data.P, data.c, data.A, data.b, data.m, data.n, data.K;
 problem = ProblemData(P, c, A, b, K);
 
 end;
+
 ########################### Clarabel/SCS SOLUTION ##############################
 
 begin
@@ -155,26 +140,37 @@ begin
 ρ = 1.0;
 
 # Choose algorithm based on M1 construction
-# int in {1, 2, 3, 4}
-variant = 1;
+variant = 1; # int in {1, 2, 3, 4}
 A_gram = A' * A;
-take_away = take_away_matrix(variant, A_gram);
+if variant == 1 # NOTE: most "economical"
+    take_away_mat = off_diag_part(P + ρ * A_gram)
+elseif variant == 2 # NOTE: least "economical". Equivalent to linearised PDHG.
+    take_away_mat = P + ρ * A_gram
+elseif variant == 3 # NOTE: intermediate
+    take_away_mat = P + off_diag_part(ρ * A_gram)
+elseif variant == 4 # NOTE: also intermediate
+    take_away_mat = off_diag_part(P) + ρ * A_gram
+else
+    error("Invalid variant.")
+end
 
 MAX_ITER = 1000
 PRINT_MOD = 50
 RES_NORM = Inf
 RESTART_PERIOD = Inf
-ACCEL_MEMORY = 49
+ACCEL_MEMORY = 19
 ACCELERATION = false
 LINESEARCH_PERIOD = 20
 KRYLOV_OPERATOR_TILDE_A = false
+
+LINESEARCH_ϵ = 0.03
 
 COMPUTE_OPERATOR_EXPLICITLY = false
 SPEC_PLOT_PERIOD = 26
 
 # Choose primal step size as a proportion of maximum allowable to keep M1 PSD
 Random.seed!(42) # Seed for reproducible power iteration results.
-max_τ = 1 / dom_λ_power_method(Matrix(take_away), 30);
+max_τ = 1 / dom_λ_power_method(Matrix(take_away_mat), 30);
 τ = 0.90 * max_τ;
 
 println("RUNNING PROTOTYPE VARIANT $variant...")
@@ -203,6 +199,7 @@ residual_norm = RES_NORM,
 acceleration = ACCELERATION,
 acceleration_memory = ACCEL_MEMORY,
 linesearch_period = LINESEARCH_PERIOD,
+linesearch_ϵ = LINESEARCH_ϵ,
 krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
 x_sol = x_ref, s_sol = s_ref, y_sol = y_ref,
 explicit_affine_operator = COMPUTE_OPERATOR_EXPLICITLY,
