@@ -38,7 +38,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
     # good to check practical performance, since I can.
     
     # CHOOSE:
-    LINES = :xv # in {:xv, :xsy}
+    LINES = :xsy # in {:xv, :xsy}
 
     # Compute (would-be) vanilla iterate from the current (x, v)_k and
     # Arnoldi "q vector", which we access from ws.vars.x_v_q.
@@ -79,7 +79,8 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
 
         # Compute cosine between ref_xv_update and curr_fp_residual.
         updates_cos = dot(ref_xv_update, curr_fp_residual) / (norm(ref_xv_update) * norm(curr_fp_residual))
-        println("Iter $(@sprintf("%4.1d", iter)) - Cosine between previous (x, v) update and current (x, v) FP residual: $updates_cos")
+        
+        # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between previous (x, v) update and current (x, v) FP residual: $updates_cos")
     elseif LINES == :xsy
         curr_iterate_s = project_to_K(ws.vars.x_v_q[ws.p.n+1:end, 1], ws.p.K)
         curr_iterate_y = ws.ρ * (curr_iterate_s - ws.vars.x_v_q[ws.p.n+1:end, 1])
@@ -130,11 +131,13 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
                 
                 # Compute cosine between candidate update and current update.
                 updates_cos = dot(candidate - ws.vars.x_v_q[:, 1], ref_xv_update) / (norm(candidate - ws.vars.x_v_q[:, 1]) * norm(ref_xv_update))
-                println("Iter $(@sprintf("%4.1d", iter)) - Cosine between linesearch update and previous (x, v) FP residual: $updates_cos")
+                
+                # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between linesearch update and previous (x, v) FP residual: $updates_cos")
 
                 # NB this should be exactly 1.
                 vanilla_cos = dot(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1], candidate - ws.vars.x_v_q[:, 1]) / (norm(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]) * norm(candidate - ws.vars.x_v_q[:, 1]))
-                println("Iter $(@sprintf("%4.1d", iter)) - Cosine between vanilla and linesearch updates (should be 1.0): $vanilla_cos")
+                
+                # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between vanilla and linesearch updates (should be 1.0): $vanilla_cos")
 
                 # Assign to the workspace variable.
                 linesearch_update = candidate - ws.vars.x_v_q[:, 1]
@@ -161,8 +164,9 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
                 candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.ρ
 
                 # Assign to the workspace variable.
+                linesearch_update = [candidate[1:ws.p.n]; candidate_v] - ws.vars.x_v_q[:, 1]
                 ws.vars.x_v_q[:, 1] .= [candidate[1:ws.p.n]; candidate_v]
-                return true
+                return true, linesearch_update
             end
 
             # Backtrack by factor β.
