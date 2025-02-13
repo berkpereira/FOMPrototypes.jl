@@ -1,5 +1,6 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 Clarabel = "61c947e1-3e6d-4ee4-985a-eec8c727bd6e"
 ClarabelBenchmarks = "086be79b-982c-4ee0-9f3a-5052a7be4b8e"
 Compat = "34da2185-b29b-5c13-b0c7-acf172513d20"
@@ -18,3 +19,5 @@ Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 SCS = "c946c3f1-0d1f-5ce8-9dea-7daa1f7e2d13"
 SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 StatProfilerHTML = "a8a75453-ed82-57c9-9e16-4cd1196ecbf5"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
