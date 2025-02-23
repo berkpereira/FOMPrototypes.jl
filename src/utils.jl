@@ -74,21 +74,6 @@ function dim_adjusted_vec_normalise(v::AbstractVector{Float64})
     end
 end
 
-function take_away_matrix(variant_no::Integer, A_gram::AbstractMatrix{Float64})
-    # NOTE: A_gram = A' * A
-    if variant_no == 1 # NOTE: most "economical"
-        return off_diag_part(P + ρ * A_gram)
-    elseif variant_no == 2 # NOTE: least "economical"
-        return P + ρ * A_gram
-    elseif variant_no == 3 # NOTE: intermediate
-        return P + off_diag_part(ρ * A_gram)
-    elseif variant_no == 4 # NOTE: also intermediate
-        return off_diag_part(P) + ρ * A_gram
-    else
-        error("Invalid variant.")
-    end
-end;
-
 # This diagonal matrix premultiplies the x step in our method.
 # TODO: consider operating on upper triangular parts only, since all of the
 # matrices involved are symmetric.
