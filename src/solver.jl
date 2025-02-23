@@ -2,6 +2,7 @@ using LinearAlgebra
 using Plots
 using Random
 using Printf
+using Infiltrator
 include("types.jl")
 include("utils.jl")
 include("residuals.jl")
@@ -58,8 +59,9 @@ function iter_x(x::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     y::AbstractVector{Float64},
     y_prev::AbstractVector{Float64})
-    
-    new_x = similar(x)
+
+    new_x = copy(x)
+
     iter_x!(new_x, pre_matrix, P, c, A, y, y_prev)
 
     return new_x
@@ -93,7 +95,7 @@ function iter_s(s::AbstractVector{Float64},
     K::Vector{Clarabel.SupportedCone},
     ρ::Float64)
 
-    new_s = similar(s)
+    new_s = copy(s)
     iter_s!(new_s, A, x, b, y, K, ρ)
 
     return new_s
@@ -121,7 +123,7 @@ function iter_y(y::AbstractVector{Float64},
     b::AbstractVector{Float64},
     ρ::Float64)
 
-    new_y = similar(y)
+    new_y = copy(y)
     iter_y!(new_y, A, x, s, b, ρ)
     
     return new_y
@@ -241,6 +243,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     # This is just for theoretically minded checks, when we have access to the
     # true problem solution.
     ws.cache[:seminorm_mat] = [Diagonal(1.0 ./ ws.cache[:W_inv].diag) - ws.p.P ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
+
+    #implement function to compute charcteristic norm of the method
+    function char_norm(vector::AbstractArray{Float64})
+        return sqrt(dot(vector, ws.cache[:seminorm_mat] * vector))
+    end
     
     # Compute fixed bits of tilde_{A} operator.
     # The affine operator is only constructed explicitly when the user so
@@ -269,6 +276,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         y_avg = copy(ws.vars.y)
     end
 
+    #TODO: get rid of this supposed_lookahead variable:
+    supposed_lookahead = zeros(ws.p.n + 2 * ws.p.m)
+
     pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
     dual_res_temp = zeros(Float64, ws.p.n)
@@ -290,10 +300,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     acc_step_iters = Int[]
     linesearch_iters = Int[]
     xv_step_norms = Float64[]
+    xy_step_norms = Float64[]
+    xy_step_char_norms = Float64[] #record method's "char norm" of the updates
     xv_update_cosines = Float64[]
-
+    xy_update_cosines = Float64[]
     
-    # If real solution provided.
+    # If actual solution provided.
     if !isnothing(x_sol)
         x_dist_to_sol = Float64[]
         s_dist_to_sol = Float64[]
@@ -304,6 +316,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
     # I want these vectors to persist across iterations of the main loop,
     # so I have to inialise them beforehand.
+    curr_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
+    prev_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
     curr_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
     prev_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
 
@@ -334,6 +348,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
             curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+
             # NB: obtain expression for v distance by expanding norm  and
             # using v_k = s_k - y_k / ρ.
             curr_v_dist = !isnothing(x_sol) ? sqrt( norm(ws.vars.s - s_sol)^2 + norm((ws.vars.y - (-y_sol)) / ws.ρ)^2 + 2 * dot(ws.vars.s - s_sol, (-y_sol) - ws.vars.y) / ws.ρ) : nothing
@@ -354,7 +369,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             push!(update_mat_singval_ratios, curr_singval_ratio)
             push!(update_mat_iters, k)
         end
-
 
         # Store metrics.
         push!(primal_obj_vals, primal_obj)
@@ -404,11 +418,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 println("Accepted acceleration candidate at iteration $k.")
                 push!(acc_step_iters, k)
                 
+                #NOTE order of assignments to correctly assign update vectors
+                curr_xy_update = [acc_x; acc_y] - [ws.vars.x; ws.vars.y]
                 ws.vars.x .= acc_x
                 ws.vars.v .= acc_v
                 ws.vars.s .= acc_s
                 ws.vars.y .= acc_y
-
                 curr_xv_update = [ws.vars.x; ws.vars.v] - ws.vars.x_v_q[:, 1]
                 
                 # If wishing to exclude accelerate steps from the updates matrix,
@@ -420,7 +435,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 updates_matrix .= 0.0
                 current_update_mat_col = Ref(1)
                 
-                # push!(xv_step_norms, norm(curr_xv_update))
+                push!(xy_step_norms, NaN)
+                push!(xy_step_char_norms, NaN)
                 push!(xv_step_norms, NaN) # If wishing to exclude accelerated steps from monitoring matrix.
 
                 # Update "for real":
@@ -434,6 +450,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 # Accordingly, I also do not write anything into the matrix
                 # storing past iterate updates (for monitoring purposes only).
                 # However, I must account for the step norm monitoring.
+                push!(xy_step_norms, NaN)
+                push!(xy_step_char_norms, NaN)
                 push!(xv_step_norms, NaN)
                 nothing
             end
@@ -484,9 +502,13 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             # the operator B := A - I.
             prev_xv .= ws.vars.x_v_q[:, 1]
 
-            linesearch_success = false # to access outside conditional clause
+            linesearch_success = false #init to access outside conditional
             if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
-                linesearch_success, linesearch_update = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, krylov_operator_tilde_A, prev_xv_update, k)
+                linesearch_success, linesearch_update, linesearch_lookahead = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, char_norm, krylov_operator_tilde_A, k)
+                
+                #TODO: get rid of this line:
+                # supposed_lookahead .= linesearch_lookahead
+
                 if linesearch_success
                     push!(linesearch_iters, k)
                 end
@@ -498,11 +520,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 end
             end
             curr_xv_update .= ws.vars.x_v_q[:, 1] - prev_xv
-            
-            # if linesearch_success
-            #     println("Updates from linesearch monitored correctly: $(linesearch_update == curr_xv_update)")
-            #     println("Supposed cosine to record -- check 1: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
-            # end
 
             push!(xv_step_norms, norm(curr_xv_update))
             insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
@@ -529,31 +546,42 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 ws.vars.x_v_q[:, 2] .= arnoldi_step!(ws.cache[:krylov_basis], ws.vars.x_v_q[:, 2], ws.cache[:H])
             end
             
-            # Extract variables.
-            ws.vars.x .= ws.vars.x_v_q[1:ws.p.n, 1]
+            #note order of assignments to correctly assign update vectors
             ws.vars.v .= ws.vars.x_v_q[ws.p.n+1:end, 1]
+            new_y = recover_y(ws.vars.v, ws.ρ, ws.p.K)
+
+            curr_xy_update = [ws.vars.x_v_q[1:ws.p.n, 1]; new_y] - [ws.vars.x; ws.vars.y]
+            push!(xy_step_norms, norm(curr_xy_update))
+            push!(xy_step_char_norms, char_norm(curr_xy_update))
+            
+            ws.vars.x .= ws.vars.x_v_q[1:ws.p.n, 1]
             ws.vars.s .= recover_s(ws.vars.v, ws.p.K)
-            ws.vars.y .= recover_y(ws.vars.v, ws.ρ, ws.p.K)
+            ws.vars.y .= new_y
             ws.vars.q .= ws.vars.x_v_q[:, 2]
 
             just_accelerated = false
             j_restart += 1
+
+            # #TODO: get rid of this---just for debugging line search
+            # if k == 201
+            #     # compare with lookahead iterates checked from the line search
+            #     # function!
+            #     #compare current x,s,y iterate with supposed_lookahead from the 
+            #     #line search function call
+            #     @infiltrate
+            # end
+
         end
-
-        # for debugging
-        # if linesearch_success
-        #     println("Updates from linesearch monitored correctly: $(linesearch_update == curr_xv_update)")
-        #     println("Supposed cosine to record -- check 2: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
-        # end
-
+        
         # Store cosine between last two iterate updates.
         if k >= 1
+            xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
             xv_prev_updates_cos = abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update)))
             
-            # println("Supposed cosine to record -- check 3: $(abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update))))")
-            # println("Cosine to be stored now (iter = $k): $xv_prev_updates_cos")
+            push!(xy_update_cosines, xy_prev_updates_cos)
             push!(xv_update_cosines, xv_prev_updates_cos)
         end
+        prev_xy_update .= curr_xy_update
         prev_xv_update .= curr_xv_update
 
         push!(enforced_set_flags, ws.enforced_constraints)
@@ -600,5 +628,5 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xv_step_norms, xv_update_cosines)
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xy_step_norms, xy_step_char_norms, xv_step_norms, xy_update_cosines, xv_update_cosines)
 end

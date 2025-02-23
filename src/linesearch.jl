@@ -1,4 +1,4 @@
-using LinearAlgebra, Printf
+using LinearAlgebra, Printf, Infiltrator
 include("utils.jl")
 include("acceleration.jl")
 include("types.jl")
@@ -23,10 +23,8 @@ This function returns true if the line search was successful, and false
 if we end up simply taking the vanilla step instead.
 """
 function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
-    β::Float64, ϵ::Float64, krylov_operator_tilde_A::Bool,
-    ref_xv_update::AbstractVector{Float64},
+    β::Float64, ϵ::Float64, norm_func::Function, krylov_operator_tilde_A::Bool,
     iter::Int)
-    # NB ref_xv_update argument is just for testing/debugging purposes.
 
     @assert α_max > 1.0
 
@@ -36,7 +34,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
     # interprets lines in (x, s, y) space.
     # I think the latter is correct for the Giselsson et al method, but still
     # good to check practical performance, since I can.
-    
+
     # CHOOSE:
     LINES = :xsy # in {:xv, :xsy}
 
@@ -76,11 +74,6 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         candidate_s = similar(vanilla_iterate_s)
         candidate_lookahead = similar(vanilla_lookahead)
         candidate_enforced_constraints = similar(vanilla_enforced_constraints)
-
-        # Compute cosine between ref_xv_update and curr_fp_residual.
-        updates_cos = dot(ref_xv_update, curr_fp_residual) / (norm(ref_xv_update) * norm(curr_fp_residual))
-        
-        # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between previous (x, v) update and current (x, v) FP residual: $updates_cos")
     elseif LINES == :xsy
         curr_iterate_s = project_to_K(ws.vars.x_v_q[ws.p.n+1:end, 1], ws.p.K)
         curr_iterate_y = ws.ρ * (curr_iterate_s - ws.vars.x_v_q[ws.p.n+1:end, 1])
@@ -100,7 +93,8 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         vanilla_lookahead = [vanilla_lookahead_x; vanilla_lookahead_s; vanilla_lookahead_y]
 
         # Now compute fixed-point residual at vanilla iterate.
-        vanilla_fp_merit = norm(vanilla_lookahead - vanilla_iterate_xsy)
+        #note we disregard s here, hence the slicing
+        vanilla_fp_merit = norm_func(vanilla_lookahead[[1:ws.p.n; ws.p.m+ws.p.n+1:end]] - vanilla_iterate_xsy[[1:ws.p.n; ws.p.m+ws.p.n+1:end]])
 
         candidate = similar(vanilla_lookahead)
         candidate_lookahead = similar(vanilla_lookahead)
@@ -128,21 +122,13 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
 
             if candidate_fp_merit <= (1 - ϵ) * vanilla_fp_merit
                 println("Iter $(@sprintf("%4.1d", iter)) - Line search SUCCESS α = $α. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
-                
-                # Compute cosine between candidate update and current update.
-                updates_cos = dot(candidate - ws.vars.x_v_q[:, 1], ref_xv_update) / (norm(candidate - ws.vars.x_v_q[:, 1]) * norm(ref_xv_update))
-                
-                # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between linesearch update and previous (x, v) FP residual: $updates_cos")
-
-                # NB this should be exactly 1.
-                vanilla_cos = dot(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1], candidate - ws.vars.x_v_q[:, 1]) / (norm(vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]) * norm(candidate - ws.vars.x_v_q[:, 1]))
-                
-                # println("Iter $(@sprintf("%4.1d", iter)) - Cosine between vanilla and linesearch updates (should be 1.0): $vanilla_cos")
 
                 # Assign to the workspace variable.
                 linesearch_update = candidate - ws.vars.x_v_q[:, 1]
                 ws.vars.x_v_q[:, 1] .= candidate
-                return true, linesearch_update
+
+                #todo: get rid of candidate lookahead output argument
+                return true, linesearch_update, candidate_lookahead
             end
 
             # Backtrack by factor β.
@@ -150,34 +136,63 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         elseif LINES == :xsy
             candidate .= curr_iterate_xsy + α * curr_fp_residual
 
-            # Compute lookahead iterate FROM the candidate.
-            candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], candidate[ws.p.n+ws.p.m+1:end] - ws.ρ * (ws.p.A * candidate[1:ws.p.n] + candidate[ws.p.n+1:ws.p.n+ws.p.m] - ws.p.b))
-            candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m] .= iter_s(candidate[ws.p.n+1:ws.p.n+ws.p.m], ws.p.A, candidate_lookahead[1:ws.p.n], ws.p.b, candidate[ws.p.n+ws.p.m+1:end], ws.p.K, ws.ρ)
-            candidate_lookahead[ws.p.n+ws.p.m+1:end] .= iter_y(candidate[ws.p.n+ws.p.m+1:end], ws.p.A, candidate_lookahead[1:ws.p.n], candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m], ws.p.b, ws.ρ)
+            # # Compute lookahead iterate FROM the candidate.
+            # prev_y_artificial = candidate[ws.p.n+ws.p.m+1:end] - ws.ρ * (ws.p.A * candidate[1:ws.p.n] + candidate[ws.p.n+1:ws.p.n+ws.p.m] - ws.p.b)
+            # candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], prev_y_artificial)
 
-            # Hence compute fixed-point residual norm at candidate.
-            candidate_fp_merit = norm(candidate_lookahead - candidate)
+            # candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m] .= iter_s(candidate[ws.p.n+1:ws.p.n+ws.p.m], ws.p.A, candidate_lookahead[1:ws.p.n], ws.p.b, candidate[ws.p.n+ws.p.m+1:end], ws.p.K, ws.ρ)
+            
+            # candidate_lookahead[ws.p.n+ws.p.m+1:end] .= iter_y(candidate[ws.p.n+ws.p.m+1:end], ws.p.A, candidate_lookahead[1:ws.p.n], candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m], ws.p.b, ws.ρ)
+
+            # # Hence compute fixed-point residual norm at candidate.
+            # #note we disregard s here, hence the slicing
+            # candidate_fp_merit = norm_func(candidate_lookahead[[1:ws.p.n; ws.p.m+ws.p.n+1:end]] - candidate[[1:ws.p.n; ws.p.m+ws.p.n+1:end]])
+
+            #TODO: consider whether to do this in the (x, v) space?
+            #idea is to trace out steps we would've carried out in the
+            #subsequent vanilla iteration in the main loop. This should give
+            #the expected results, nothing else!
+            candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.ρ
+            reconverted_s = recover_s(candidate_v, ws.p.K)
+            reconverted_y = recover_y(candidate_v, ws.ρ, ws.p.K)
+
+            candidate_enforced_constraints = enforced_contraints_bitvec(ws, candidate_v, reconverted_s)
+            
+            #TODO: include UPDATE OF tilde_b to reflect the dynamics at the candidate point. This is ONLY constant in QP special case!
+            candidate_lookahead_xv = tilde_A_prod(ws, candidate_enforced_constraints, [candidate[1:ws.p.n]; candidate_v]) + ws.tilde_b
+            
+            #recover y to compute merit function at lookahead
+            candidate_lookahead_y = recover_y(candidate_lookahead_xv[ws.p.n+1:end], ws.ρ, ws.p.K)
+            
+            #compute fp merit function
+            candidate_fp_merit = norm_func([candidate_lookahead_xv[1:ws.p.n]; candidate_lookahead_y] - [candidate[1:ws.p.n]; reconverted_y])
+
+            println("α = $α. Vanilla fp merit: $vanilla_fp_merit, candidate fp merit: $candidate_fp_merit")
 
             if candidate_fp_merit <= (1 - ϵ) * vanilla_fp_merit
+            # if α <= 20.0 # TODO: GET RID OF FORCED STEP
+
                 println("Iter $(@sprintf("%4.1d", iter)) - Line search SUCCESS α = $α. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
                 
-                candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.ρ
-
                 # Assign to the workspace variable.
                 linesearch_update = [candidate[1:ws.p.n]; candidate_v] - ws.vars.x_v_q[:, 1]
                 ws.vars.x_v_q[:, 1] .= [candidate[1:ws.p.n]; candidate_v]
-                return true, linesearch_update
+
+                #TODO: get rid of return argument candidate_lookahead
+                return true, linesearch_update, candidate_lookahead
             end
 
             # Backtrack by factor β.
             α *= β
         end
     end
-    
-    # println("Iter $(@sprintf("%4.1d", iter)) - Line search FAILED. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
+
+    println("Iter $(@sprintf("%4.1d", iter)) - Line search FAILED. Candidate / vanilla merit: $(candidate_fp_merit / vanilla_fp_merit)")
 
     # If we reach here, we just assign the vanilla iterate.
     linesearch_update = vanilla_iterate_x_v_q[:, 1] - ws.vars.x_v_q[:, 1]
     ws.vars.x_v_q[:, 1] .= vanilla_iterate_x_v_q[:, 1]
-    return false, linesearch_update
+    
+    #TODO: get rid of return argument candidate_lookahead
+    return false, linesearch_update, candidate_lookahead
 end
