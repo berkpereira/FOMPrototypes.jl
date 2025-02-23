@@ -122,8 +122,10 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
     acc_step_iters::Vector{Int}
     linesearch_iters::Vector{Int}
 
+    xy_step_norms::Vector{T}
+    xy_step_char_norms::Vector{T}
     xv_step_norms::Vector{T}
-
+    xy_update_cosines::Vector{T}
     xv_update_cosines::Vector{T}
 end
 
