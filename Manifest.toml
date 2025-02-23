@@ -2,7 +2,7 @@
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "c8516e2d1e115783cd38ae37225d4b06143f5182"
+project_hash = "bf7e61b78edf3c5b929b1e4b84fb15e358dbba33"
 
 [[deps.AMD]]
 deps = ["LinearAlgebra", "SparseArrays", "SuiteSparse_jll"]
@@ -772,6 +772,12 @@ version = "1.26.0"
 git-tree-sha1 = "012e604e1c7458645cb8b436f8fba789a51b257f"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 version = "1.0.0"
+
+[[deps.Infiltrator]]
+deps = ["InteractiveUtils", "Markdown", "REPL", "UUIDs"]
+git-tree-sha1 = "38298a8eabe09e49e6f60927c9e1ca3481688ba0"
+uuid = "5903a43b-9cc3-4c30-8d17-598619ec4e9b"
+version = "1.8.3"
 
 [[deps.InfrastructureModels]]
 deps = ["JuMP", "Memento"]
