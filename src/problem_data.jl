@@ -1,4 +1,4 @@
-using JuMP, ClarabelBenchmarks
+using JuMP, ClarabelBenchmarks, Clarabel, LinearAlgebra
 
 function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::String)
 
@@ -30,6 +30,15 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     return (P = P, A = A, m = m, n = n, c = c, b = b, K = K)
 end;
 
+"""
+Filters a list of `Problem` objects, returning only those that are suitable for the Clarabel solver.
+
+# Arguments
+- `problems::Vector{Problem}`: A vector of `Problem` objects to be filtered.
+
+# Returns
+- A vector of `Problem` objects that are compatible with the Clarabel solver.
+"""
 function filter_clarabel_problems(
     problem_set::String;
     min_m::Union{Int, Nothing} = nothing,
@@ -88,5 +97,24 @@ function filter_clarabel_problems(
 
     # Return the list of matching problems
     return matching_problems
+end
+
+"""
+This function serves to parse the header line of the output .txt files
+containing problem names as given by a search in the Clarabel benchmark
+problems, as output by the function `filter_clarabel_problems`.
+"""
+function parse_search_header(filename)
+    lines = readlines(filename)
+    header = lines[1]
+    if !startswith(header, "#SEARCH")
+        error("Invalid header format")
+    end
+    
+    # Extract criteria string between curly braces
+    criteria = match(r"#SEARCH(\{.*\})", header)[1]
+    # Parse criteria here as needed
+    
+    return lines[2:end]  # Return problem names
 end;
 ;
