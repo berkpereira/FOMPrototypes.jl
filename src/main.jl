@@ -149,7 +149,7 @@ end
 function run_prototype(problem, A, P, c, b, m, n, x_ref, s_ref, y_ref, problem_set, problem_name)
     #basic params
     ρ = 1.0
-    variant = 2  #in {1, 2, 3, 4}
+    variant = 1  #in {1, 2, 3, 4}
     
     MAX_ITER = 1000
     PRINT_MOD = 50
@@ -404,54 +404,3 @@ end
 
 # Execute main()
 # ws, results = main();
-
-
-################################################################################
-# STEP ANGLE STUFF
-################################################################################
-
-# begin
-
-# EXP_SMOOTHING_PARAMETER = 0.95
-
-# plot(exp_moving_average(x_step_angles, EXP_SMOOTHING_PARAMETER), label="x Step Angle", xlabel="Iteration", ylabel="Angle (radians)", title="Variant $variant: Step Angles.$newline_char Restart period = $RESTART_PERIOD")
-# plot!(exp_moving_average(s_step_angles, EXP_SMOOTHING_PARAMETER), label="s Step Angle")
-# plot!(exp_moving_average(y_step_angles, EXP_SMOOTHING_PARAMETER), label="y Step Angle")
-# plot!(exp_moving_average(concat_step_angles, EXP_SMOOTHING_PARAMETER), label="Concatenated Step Angle")
-# display(plot!(exp_moving_average(normalised_concat_step_angles, EXP_SMOOTHING_PARAMETER), label="NORMALISED Concatenated Step Angle"))
-
-
-# # Running sums of angles
-
-# plot(cumsum(x_step_angles), label="x Step Angle", xlabel="Iteration", ylabel="Cumulative Angle (radians)", title="Variant $variant: Cumulative Step Angles.$newline_char Restart period = $RESTART_PERIOD")
-
-# plot!(cumsum(s_step_angles), label="s Step")
-
-# plot!(cumsum(y_step_angles), label="y Step")
-
-# plot!(cumsum(concat_step_angles), label="Concatenated Step")
-
-# display(plot!(cumsum(normalised_concat_step_angles), label="NORMALISED Concatenated Step"))
-# end
-
-################################################################################
-############################# ANALYSE RESIDUAL DATA? ###########################
-################################################################################
-
-# using FFTW
-
-# # Compute the FFT of primal_residuals
-# fft_result = fft(primal_residuals)
-
-# # Compute the magnitudes of the FFT components
-# magnitudes = abs.(fft_result)
-
-# # Find the index of the frequency with the largest magnitude
-# max_index = argmax(magnitudes)
-
-# # Determine the corresponding frequency (in normalized units)
-# N = length(primal_residuals)  # Number of data points
-# frequencies = (0:N-1) / N     # Normalized frequencies
-# dominant_frequency = frequencies[max_index]
-
-# println("Dominant Frequency (normalized): $dominant_frequency")#
