@@ -1,5 +1,5 @@
 using SparseArrays
-using LinearAlgebra
+using LinearAlgebra, LinearMaps
 import LinearAlgebra:givensAlgorithm
 using JuMP
 using Plots
@@ -7,6 +7,7 @@ using SCS
 using Statistics
 using Clarabel
 using FFTW
+include("types.jl")
 
 function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
     return 0.5 * dot(x, P * x) + dot(c, x)
@@ -43,10 +44,68 @@ function off_diag_part(A::AbstractMatrix{Float64})
 end
 
 """
+    build_operator(variant, P, A, A_gram, rho)
+
+Constructs a LinearMap for one of the following operators (assuming P is n×n):
+
+  1. R(P + ρ AᵀA)          — Off-diagonal part of P + ρ AᵀA
+  2. P + ρ AᵀA             — The full matrix
+  3. P + R(ρ AᵀA)          — P plus the off-diagonal part of ρ AᵀA
+  4. R(P) + ρ AᵀA          — Off-diagonal part of P plus ρ AᵀA
+
+The operator R(B) is defined as B with its diagonal set to zero.
+"""
+function build_operator(variant::Integer, P::Symmetric,
+    A::AbstractMatrix, A_gram::Union{LinearMap{Float64}, AbstractMatrix{Float64}},
+    rho::Float64)
+    n = size(P, 1)  # assume P is square
+    
+    # Precompute diagonals:
+    dP = diag(P)
+    # For A^T*A, the diagonal is the sum of squares of each column of A.
+    dA = rho * vec(sum(abs2, A; dims=1))
+    
+    op = nothing  # will hold our operator function
+    if variant == 1
+        # R(P + ρ AᵀA) = (P + ρ AᵀA) - diag(P + ρ AᵀA)
+        op = x -> begin
+            y = P * x + rho * (A_gram * x)
+            y .-= (dP + dA) .* x
+            y
+        end
+    elseif variant == 2
+        # P + ρ AᵀA (full matrix)
+        # TODO: consider reducing mem allocations w in-place computations here?
+        op = x -> P * x + rho * (A_gram * x)
+    elseif variant == 3
+        # P + R(ρ AᵀA) = P + [ρ AᵀA - diag(ρ AᵀA)]
+        op = x -> begin
+            y = P * x + rho * (A_gram * x)
+            y .-= dA .* x
+            y
+        end
+    elseif variant == 4
+        # R(P) + ρ AᵀA = [P - diag(P)] + ρ AᵀA
+        op = x -> begin
+            y = P * x + rho * (A_gram * x)
+            y .-= dP .* x
+            y
+        end
+    else
+        error("Unknown variant: choose 1, 2, 3, or 4.")
+    end
+    
+    # In our use cases the resulting operator is symmetric.
+    return LinearMap(op, n, n; issymmetric=true, ishermitian=true)
+end
+
+
+"""
 This function estimates the dominant eigenvalue of a matrix using the power
 method.
 """
-function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100)
+function dom_λ_power_method(A::Union{LinearMap{Float64}, AbstractMatrix{Float64}},
+    max_iter::Integer = 50)
     n = size(A, 1)
     x = randn(n)
     x /= norm(x)
@@ -56,7 +115,7 @@ function dom_λ_power_method(A::AbstractMatrix{Float64}, max_iter::Integer = 100
         x /= norm(x)
     end
     
-    # Rayleigh quotient estimate (x has unit l2 norm at this point).
+    # Rayleigh quotient estimate (x has unit l2 norm at this point)
     return dot(x, A * x)
 end
 
@@ -79,22 +138,32 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
-function pre_x_step_matrix(variant_no::Integer, P::AbstractMatrix,
-    A_gram::AbstractMatrix, τ::Float64, ρ::Float64, n::Integer)
-    if variant_no == 1
-        pre_matrix = I(n) / τ + diag_part(P + ρ * A_gram)
+function W_operator(variant_no::Integer, P::Symmetric,
+    A_gram::Symmetric, τ::Float64, ρ::Float64)
+    n = size(A_gram, 1)
+    
+    # variant_no = -1 ==> vanilla PDHG
+    if variant_no == -1
+        pre_operator = I(n) / τ + P
+    # variant_no = 0 ==> ADMM
+    elseif variant_no == 0
+        pre_operator = P + ρ * A_gram
+    
+    ################ DIAGONAL pre-gradient operators ################
+    
+    elseif variant_no == 1
+        pre_operator = I(n) / τ + diag_part(P + ρ * A_gram)
     elseif variant_no == 2
-        pre_matrix = I(n) / τ
+        pre_operator = I(n) / τ
     elseif variant_no == 3
-        pre_matrix = I(n) / τ + diag_part(ρ * A_gram)
+        pre_operator = I(n) / τ + diag_part(ρ * A_gram)
     elseif variant_no == 4
-        pre_matrix = I(n) / τ + diag_part(P)
+        pre_operator = I(n) / τ + diag_part(P)
     else
         error("Invalid variant: $variant_no.")
     end
-        
-    # Invert.
-    return Diagonal(1.0 ./ pre_matrix.diag)
+
+    return pre_operator
 end
 
 # This function implements the projection of s block-wise onto the cones in K.
@@ -120,10 +189,49 @@ function project_to_K(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCo
     return projected_s
 end
 
-# This version of project_to_K! mutates the input vector s in place.
+# This version of project_to_K! changes the input vector s in place.
 function project_to_K!(s::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
-    s .= project_to_K(s, K)
-    return s
+    start_idx = 1
+    for cone in K
+        end_idx = start_idx + cone.dim - 1
+
+        # Project portion of s depending on the cone type
+        if cone isa Clarabel.NonnegativeConeT
+            s[start_idx:end_idx] .= max.(s[start_idx:end_idx], 0)
+        elseif cone isa Clarabel.ZeroConeT
+            s[start_idx:end_idx] .= zeros(Float64, cone.dim)
+        else
+            error("Unsupported cone type: $typeof(cone)")
+        end
+
+        start_idx = end_idx + 1
+    end
+    
+    return
+end
+
+"""
+Given a cone K, this projects the variable y into the DUAL cone of K.
+"""
+function project_to_dual_K(y::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    projected_y = copy(y)
+    start_idx = 1
+    for cone in K
+        end_idx = start_idx + cone.dim - 1
+
+        # Project portion of y depending on each cone's DUAL
+        if cone isa Clarabel.NonnegativeConeT
+            @views projected_y[start_idx:end_idx] = max.(y[start_idx:end_idx], 0)
+        elseif cone isa Clarabel.ZeroConeT
+            nothing # dual cone is the whole vector space
+        else
+            error("Unsupported cone type: $typeof(cone)")
+        end
+
+        start_idx = end_idx + 1
+    end
+    
+    return projected_y
 end
 
 function add_cone_constraints!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
