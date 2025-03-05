@@ -4,6 +4,7 @@
 
 using Clarabel
 using Parameters
+using LinearAlgebra
 
 const DefaultFloat = Float64
 
@@ -15,6 +16,7 @@ const DefaultFloat = Float64
     n::Int
     b::AbstractVector{T}
     K::Vector{Clarabel.SupportedCone}
+    K_star::Vector{Clarabel.SupportedCone}
 
     function ProblemData{T}(P::AbstractMatrix{T}, c::AbstractVector{T}, A::AbstractMatrix{T}, b::AbstractVector{T}, K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat}
         m, n = size(A)
@@ -24,31 +26,30 @@ end
 ProblemData(args...) = ProblemData{DefaultFloat}(args...)
 
 struct Variables{T}
-    x::AbstractVector{T} # Primal variable.
-    s::AbstractVector{T} # Slack variable.
-    y::AbstractVector{T} # Dual variable.
+    x::AbstractVector{T} # Primal variable
+    x_bar::AbstractVector{T} # Extrapolated primal variable
+    y::AbstractVector{T} # Dual variable
 
-    # Dual variable from "previous" iteration. N.B.: after (e.g.) restarts or
-    # accelerated steps, this is actually an artificial "previous" iterate.
-    y_prev::AbstractVector{T}
+    prev_x::AbstractVector{T} # Previous primal variable, for extrapolation
     
-    # "Artificial" iterate consolidating s and y. Allows to reduce dimension of
-    # the method's operator from (n + 2 * m) to just (n + m).
-    v::AbstractVector{T}
+    # pre-projection ""dual variable"". used to determine local projection
+    # behaviour/dynamics
+    unproj_y::AbstractVector{T}
 
     # Iterate for basis building with an Arnoldi-like process as we iterate.
     # This is for purposes of affine approximation-based acceleration.
     q::AbstractVector{T}
 
-    # Consolidated (x, v) vector and q vector (for basis building) (two cols).
-    # (x,v) is exactly as it sounds. q is for building a basis with an
-    # Arnoldi-like process simultaneously as we iterate on the (x, v) sequence.
+    # Consolidated (x, y) vector and q vector (for Krylov basis building).
+    # (x, y) is exactly as it sounds. q is for building a basis with an
+    # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
     # Convenient for when we use the linearisation technique
-    # for acceleration.
-    x_v_q::AbstractMatrix{T}
+    # for Anderson/Krylov acceleration.
+    xy_q::AbstractMatrix{T}
 
+    # default (zeros) initialisation of variables
     function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n), zeros(m), zeros(m), zeros(m), zeros(m), zeros(n + m), zeros(n + m, 2))
+        new(zeros(n), zeros(n), zeros(m), zeros(n), zeros(m), zeros(n + m), zeros(n + m, 2))
     end
 end
 Variables(args...) = Variables{DefaultFloat}(args...)
@@ -73,34 +74,35 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     p::ProblemData{T}
     vars::Variables{T}
 
-    # Select method variant (to do with the proximal penalty norm used).
-    variant::Int # In {1, 2, 3, 4}.
+    # select method variant (to do with the proximal penalty norm used).
+    variant::Int # In {-1, 0, 1, 2, 3, 4}.
 
-    # Primal and dual step sizes.
+    # primal and dual step sizes
     τ::T
     ρ::T
+    # extrapolation parameter
+    θ::T
 
-    # Affine dynamics descriptors.
+    # local affine dynamics parameters
     tilde_A::AbstractMatrix{T}
     tilde_b::AbstractVector{T}
 
-    # Indicator of enforced constraints (are cone projections making a change
-    # to these blocks?).
-    enforced_constraints::AbstractVector{Bool}
+    # indicator of active projections (ie where projection causes "change")
+    active_projections::AbstractVector{Bool}
 
     # Cache for variety of useful quantities (e.g. fixed matrix-... products).
     cache::Dict{Symbol, Any}
 
     # Constructor where initial iterates are passed in.
-    function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
+    function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, vars, variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}());
+        new(p, vars, variant, τ, ρ, θ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}());
     end
 
     # Constructor where initial iterates are not passed (default set to zero).
-    function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T) where {T <: AbstractFloat}
+    function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, Variables(p.m, p.n), variant, τ, ρ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}())
+        new(p, Variables(p.m, p.n), variant, τ, ρ, θ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}())
     end
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)
@@ -129,7 +131,47 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
     xv_update_cosines::Vector{T}
 end
 
+# We now define some types to make the inversion of preconditioner + Hessian
+# matrices, required for the x update, abstract. Thus we can use diagonal ones
+# (as we intend in production) or non-diagonal symmetric ones for comparing
+# with other methods (eg ADMM or vanilla PDHG).
 
+# Define an abstract type for an inverse linear operator
+abstract type AbstractInvOp end
+
+# Concrete type for a diagonal inverse operator
+struct DiagInvOp{T} <: AbstractInvOp
+    inv_diag::Vector{T}
+end
+
+# Concrete type for a symmetric matrix's Cholesky-based inverse operator
+struct CholeskyInvOp{T} <: AbstractInvOp
+    F::Cholesky{T,Matrix{T}}  # Store the Cholesky factorization
+end
+
+# A function that prepares an inverse operator based on the type of M
+function prepare_inv(M::Diagonal{T}) where T <: Real
+    # For a Diagonal matrix, simply compute the reciprocal of the diagonal entries.
+    return DiagInvOp(1 ./ diag(M))
+end
+
+function prepare_inv(M::Symmetric{T}) where T <: Real
+    # For a symmetric positive definite matrix, compute its Cholesky factorization.
+    F = cholesky(M)
+    return CholeskyInvOp(F)
+end
+
+# Define how to apply the inverse operator to a vector
+function (op::DiagInvOp)(x::AbstractVector)
+    # Element-wise multiplication by the precomputed entry-wise reciprocal
+    return op.inv_diag .* x
+end
+
+function (op::CholeskyInvOp)(x::AbstractVector)
+    # Use the Cholesky factorization to compute the inverse-vector product.
+    # This computes F \ x, which is equivalent to inv(M)*x.
+    return op.F \ x
+end
 
 # mutable struct States
 # 	IS_ASSEMBLED::Bool # The workspace has been assembled with problem data.
