@@ -1,9 +1,14 @@
+include("types.jl")
+
 # Compute primal residual (in place)
-# r_prim = A * x + s - b
-function primal_residual!(r::AbstractVector{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, s::AbstractVector{Float64}, b::AbstractVector{Float64}) 
+# r_prim = project(A * x - b)
+function primal_residual!(ws::Workspace, r::AbstractVector{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, b::AbstractVector{Float64})
     mul!(r, A, x)
-    @. r += s
     @. r -= b
+    
+    # TODO: consider how to compute this for more general cones than in the
+    # QP case.
+    project_to_K!(r, ws.p.K)
     
     return nothing
 end
