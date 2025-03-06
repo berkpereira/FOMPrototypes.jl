@@ -5,8 +5,12 @@
 using Clarabel
 using Parameters
 using LinearAlgebra
+using LinearAlgebra.LAPACK
 
 const DefaultFloat = Float64
+
+# Define an abstract type for an inverse linear operator
+abstract type AbstractInvOp end
 
 @with_kw struct ProblemData{T}
     P::AbstractMatrix{T}
@@ -26,20 +30,6 @@ end
 ProblemData(args...) = ProblemData{DefaultFloat}(args...)
 
 struct Variables{T}
-    x::AbstractVector{T} # Primal variable
-    x_bar::AbstractVector{T} # Extrapolated primal variable
-    y::AbstractVector{T} # Dual variable
-
-    prev_x::AbstractVector{T} # Previous primal variable, for extrapolation
-    
-    # pre-projection ""dual variable"". used to determine local projection
-    # behaviour/dynamics
-    unproj_y::AbstractVector{T}
-
-    # Iterate for basis building with an Arnoldi-like process as we iterate.
-    # This is for purposes of affine approximation-based acceleration.
-    q::AbstractVector{T}
-
     # Consolidated (x, y) vector and q vector (for Krylov basis building).
     # (x, y) is exactly as it sounds. q is for building a basis with an
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
@@ -47,9 +37,12 @@ struct Variables{T}
     # for Anderson/Krylov acceleration.
     xy_q::AbstractMatrix{T}
 
+    preproj_y::AbstractVector{T} # thing fed to the projection to dual cone, useful to store
+    y_qm_bar::AbstractMatrix{T} # Extrapolated primal variable
+
     # default (zeros) initialisation of variables
     function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n), zeros(n), zeros(m), zeros(n), zeros(m), zeros(n + m), zeros(n + m, 2))
+        new(zeros(n + m, 2), zeros(m), zeros(m, 2))
     end
 end
 Variables(args...) = Variables{DefaultFloat}(args...)
@@ -83,12 +76,11 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     # extrapolation parameter
     θ::T
 
-    # local affine dynamics parameters
-    tilde_A::AbstractMatrix{T}
-    tilde_b::AbstractVector{T}
+    # preconditioner operator for the x update
+    W_inv::AbstractInvOp
 
-    # indicator of active projections (ie where projection causes "change")
-    active_projections::AbstractVector{Bool}
+    # indicator of projection by-pass (QP case: where entries "pass through")
+    proj_flags::AbstractVector{Bool}
 
     # Cache for variety of useful quantities (e.g. fixed matrix-... products).
     cache::Dict{Symbol, Any}
@@ -96,7 +88,7 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     # Constructor where initial iterates are passed in.
     function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, vars, variant, τ, ρ, θ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}());
+        new(p, vars, variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}());
     end
 
     # Constructor where initial iterates are not passed (default set to zero).
@@ -136,9 +128,6 @@ end
 # (as we intend in production) or non-diagonal symmetric ones for comparing
 # with other methods (eg ADMM or vanilla PDHG).
 
-# Define an abstract type for an inverse linear operator
-abstract type AbstractInvOp end
-
 # Concrete type for a diagonal inverse operator
 struct DiagInvOp{T} <: AbstractInvOp
     inv_diag::Vector{T}
@@ -163,7 +152,7 @@ end
 
 # Define how to apply the inverse operator to a vector
 function (op::DiagInvOp)(x::AbstractVector)
-    # Element-wise multiplication by the precomputed entry-wise reciprocal
+    # element-wise multiplication by the precomputed entry-wise reciprocal
     return op.inv_diag .* x
 end
 
@@ -171,6 +160,24 @@ function (op::CholeskyInvOp)(x::AbstractVector)
     # Use the Cholesky factorization to compute the inverse-vector product.
     # This computes F \ x, which is equivalent to inv(M)*x.
     return op.F \ x
+end
+
+# we also define in-place operators of these preconditioners
+function apply_inv!(op::DiagInvOp, x::AbstractMatrix)
+    # Elementwise in-place multiplication: x becomes op.inv_diag .* x.
+    # NB matrices get scaled column by column, as expected
+    x .*= op.inv_diag
+    return nothing
+end
+
+# we also define in-place operators of these preconditioners
+function apply_inv!(op::CholeskyInvOp, x::AbstractMatrix{T}) where T <: Real
+    # NB this does very well, and seems to be apply the inverse Cholesky 
+    # factors in-place with next to no memory allocations.
+    # IT CAN also do it for a two-column input in the same time as for a single
+    # vector!! 
+    ldiv!(op.F, x)
+    return nothing
 end
 
 # mutable struct States
