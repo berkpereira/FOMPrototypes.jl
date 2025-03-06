@@ -10,158 +10,112 @@ include("acceleration.jl")
 include("linesearch.jl")
 include("printing.jl")
 
-# Compute v iterate which consolidates the y and s iterates.
-function compute_v(A::AbstractMatrix{Float64}, b::AbstractVector{Float64},
-    x::AbstractVector{Float64}, y_prev::AbstractVector{Float64}, ρ::Float64)
-    # With the vanilla method, $v_k = b - A x_k - y_{k-1} / ρ$
-    v = b - A * x - y_prev / ρ
-    return v
-end
+"""
+In our framing of the FOM as an affine operator with generally varying
+dynamics, we want to apply the operator concurrently to two vectors.
+One of them is the iterate itself, where the way in which to do this is obvious
+and follows from the method's definition.
+The other is a so-called (by us) Arnoldi vector, which is used in building a
+basis for a Krylov subspace for GMRES/Anderson acceleration. The application
+of the FOM operator to this Arnoldi vector requires the interpretation of the
+method's non-affine dynamics --- namely, the projection to the dual cone --- as
+an affine operation. The action of this projection for some given current y
+iterate is what defines the affine dynamics we interpret the FOM to have at a
+given iteration.
 
-# This function recovers the multiplier variable y from the "consolidated" v
-# iterate.
-function recover_y(v::AbstractVector{Float64}, ρ::Float64,
-    K::Vector{Clarabel.SupportedCone})
-    y = ρ * (project_to_K(v, K) - v)
-    return y
-end
+Determining the dynamics of the affine operator happens at the same time as we
+should be applying some of the operator's action to both the vectors of
+interest. Mainly for this reason, it makes sense to encapsulate both of these
+tasks within this single function.
 
-# This function recovers the slack variable s from the "consolidated" v iterate.
-function recover_s(v::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
-    s = project_to_K(v, K)
-    return s
+Note, z is an auxiliary vector to carry out matrix multiplications by
+2 (real) columns more quickly.
+
+temp_n_mat should be of dimension n by 2
+temp_m_mat should be of dimension m by 2
+temp_m_vec should be of dimension m
+"""
+function method_operator(ws::Workspace, z::AbstractVector{ComplexF64},
+    temp_n_mat::AbstractMatrix{Float64},
+    temp_n_mat2::AbstractMatrix{Float64},
+    temp_m_mat::AbstractMatrix{Float64},
+    temp_m_vec::AbstractVector{Float64})
+    # working variable is ws.vars.xy_q, with two columns
+    
+    @views two_col_mul!(temp_m_mat, A, ws.vars.xy_q[1:n, :]) # A * x
+    temp_m_mat .-= ws.p.b
+    temp_m_mat .*= ws.ρ
+    @views temp_m_mat .+= ws.vars.xy_q[n+1:end, :]
+    @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
+    @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # result of this is y_{k+1}
+    
+    # update in-place flags switching affine dynamics based on projection action
+    # ws.proj_flags = D_k in Goodnotes notes
+    update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
+
+    # can now compute the bit of q corresponding to the y iterate
+    temp_m_mat[:, 2] .*= ws.proj_flags
+    @views temp_m_vec .= (.!ws.proj_flags) .* temp_m_mat[:, 1] # temp_m_mat[:, 1] at this point stores y_{k+1}
+    temp_m_mat[:, 2] .+= temp_m_vec # result of this is the new q_m vector
+    
+    # now compute bar iterates (y and q_m) concurrently
+    @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[n+1:end, :]
+    
+    # ASSIGN new y and q_m
+    ws.vars.xy_q[n+1:end, :] .= temp_m_mat
+
+    # now onto the bulk of x and q_n update
+    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:n, :]) # P * x
+    temp_n_mat .+= ws.p.c # add linear part of objective
+    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar) # A' * y_bar
+    temp_n_mat .+= temp_n_mat2 # this is to be pre-multiplied by W^{-1}
+    
+    # in-place efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat
+    apply_inv!(ws.cache[:W_inv], temp_n_mat)
+
+    # ASSIGN new x and q_n
+    ws.vars.xy_q[1:n, :] .-= temp_n_mat
+    
+    # TODO: check that this concludes this function!
+
+    return nothing
 end
 
 function iter_x!(x::AbstractVector{Float64},
-    pre_matrix::Diagonal{Float64},
-    P::AbstractMatrix{Float64},
+    gradient_preop::AbstractInvOp,
+    P::Symmetric,
     c::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
-    y::AbstractVector{Float64},
-    y_prev::AbstractVector{Float64})
+    y_bar::AbstractVector{Float64},
+    prev_x::AbstractVector{Float64},
+    store_step_vec::AbstractVector{Float64})
 
-    # NOTE: pre_matrix is stored inverted, hence just multiplication here.
-    step = - pre_matrix * (P * x + c + A' * (2 * y - y_prev))
+    prev_x .= x # update prev_x
     
-    x .+= step
+    # store_step_vec is used to store the latest x iterate delta
+    store_step_vec .= - gradient_preop(P * x + c + A' * y_bar)
 
-    return step
-end
+    x .+= store_step_vec
 
-"""
-Version of iter_x! which does NOT change x iterate in place.
-It also does NOT return the step vector.
-"""
-function iter_x(x::AbstractVector{Float64},
-    pre_matrix::Diagonal{Float64},
-    P::AbstractMatrix{Float64},
-    c::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    y::AbstractVector{Float64},
-    y_prev::AbstractVector{Float64})
-
-    new_x = copy(x)
-
-    iter_x!(new_x, pre_matrix, P, c, A, y, y_prev)
-
-    return new_x
-end
-
-function iter_s!(s::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    b::AbstractVector{Float64},
-    y::AbstractVector{Float64},
-    K::Vector{Clarabel.SupportedCone},
-    ρ::Float64)
-
-    s_old = copy(s)
-
-    # Take step.
-    s .= project_to_K(b - A * x - y / ρ, K)
-    
-    return s - s_old
-end
-
-"""
-Version of iter_s! which does NOT change s iterate in place.
-It also does NOT return the step vector.
-"""
-function iter_s(s::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    b::AbstractVector{Float64},
-    y::AbstractVector{Float64},
-    K::Vector{Clarabel.SupportedCone},
-    ρ::Float64)
-
-    new_s = copy(s)
-    iter_s!(new_s, A, x, b, y, K, ρ)
-
-    return new_s
+    return
 end
 
 function iter_y!(y::AbstractVector{Float64},
+    unproj_y::AbstractVector{Float64},
+    x::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    s::AbstractVector{Float64},
     b::AbstractVector{Float64},
-    ρ::Float64)
-    step = y_update(A, x, s, b, ρ)
-    y .+= step
-    return step
-end
+    K::Vector{Clarabel.SupportedCone},
+    ρ::Float64,
+    temp_store_step_vec::AbstractVector{Float64},
+    store_step_vec::AbstractVector{Float64})
 
-"""
-Version of iter_y! which does NOT change y iterate in place.
-It also does NOT return the step vector.
-"""
-function iter_y(y::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    s::AbstractVector{Float64},
-    b::AbstractVector{Float64},
-    ρ::Float64)
+    unproj_y .= y + ρ * (A * x - b)
+    temp_store_step_vec .= project_to_dual_K(unproj_y, K)
+    store_step_vec .= temp_store_step_vec - y
+    y .= temp_store_step_vec
 
-    new_y = copy(y)
-    iter_y!(new_y, A, x, s, b, ρ)
-    
-    return new_y
-end
-
-# NOTE: non-mutating iteration functions mostly (exclusively?) for debugging.
-function x_update(x::AbstractVector{Float64},
-    pre_matrix::Diagonal{Float64},
-    P::AbstractMatrix{Float64},
-    c::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    y::AbstractVector{Float64},
-    y_prev::AbstractVector{Float64})
-
-    # NOTE: pre_matrix is stored inverted, hence just multiplication here.
-    step = - pre_matrix * (P * x + c + A' * (2 * y - y_prev))
-
-    return step
-end
-
-function iter_v(A::AbstractMatrix{Float64},
-    b::AbstractVector{Float64},
-    v::AbstractVector{Float64},
-    x::AbstractVector{Float64},
-    K::Vector{Clarabel.SupportedCone})
-    v_new = b - A * x + v - project_to_K(v, K)
-
-    return v_new
-end
-
-function y_update(A::AbstractMatrix{Float64},
-    x::AbstractVector{Float64},
-    s::AbstractVector{Float64},
-    b::AbstractVector{Float64},
-    ρ::Float64)
-    # The step is y_{k+1} = y_k + ρ (A x_{k+1} + s_{k+1} - b)
-    step = ρ * (A * x + s - b)
-    return step
+    return
 end
 
 # Crude check for acceptance of an acceleration candidate.
@@ -216,7 +170,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     linesearch_ϵ::Float64 = 0.03,
     krylov_operator_tilde_A::Bool = false,
     x_sol::AbstractVector{Float64} = nothing,
-    s_sol::AbstractVector{Float64} = nothing,
     y_sol::AbstractVector{Float64} = nothing,
     explicit_affine_operator::Bool = false,
     spectrum_plot_period::Int = 17,)
@@ -231,48 +184,21 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     # updates_cond_period = Int(floor((acceleration_memory + 1) / 4))
     updates_cond_period = 1
 
-    # Compute the (fixed) matrix that premultiplies the x step.
-    # NOTE: I assume for now that A_gram is already in the cache.
-    # It is suboptimal to be storing all these matrices explicitly.
-    # It would be much better to specify how the operator computes products
-    # against vectors instead. However, for now, we will leave it like this.
-    ws.cache[:W_inv] = pre_x_step_matrix(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ, ws.p.n)
+    # prepare the pre-gradient linear operator for the x update
+    ws.cache[:W] = W_operator(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ)
+    ws.cache[:W_inv] = prepare_inv(ws.cache[:W])
 
-    # Recall that W = M_1 + P + ρ A^T A.
-    # TODO: remove this once no longer needed.
-    # This is just for theoretically minded checks, when we have access to the
-    # true problem solution.
-    ws.cache[:seminorm_mat] = [Diagonal(1.0 ./ ws.cache[:W_inv].diag) - ws.p.P ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
+    # characteristic PPM preconditioner of the method
+    ws.cache[:seminorm_mat] = [(ws.cache[:W] - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
 
-    #implement function to compute charcteristic norm of the method
+    # implement function to compute charcteristic norm of the method
     function char_norm(vector::AbstractArray{Float64})
         return sqrt(dot(vector, ws.cache[:seminorm_mat] * vector))
     end
     
-    # Compute fixed bits of tilde_{A} operator.
-    # The affine operator is only constructed explicitly when the user so
-    # requests, since it is computationally expensive and wasteful.
-    if explicit_affine_operator
-        ws.cache[:tlhs] = I(ws.p.n) - ws.cache[:W_inv] * (ws.p.P + ws.ρ * ws.cache[:A_gram])
-        ws.cache[:blhs] = -A * ws.cache[:tlhs]
-        ws.cache[:trhs_pre] = ws.ρ * ws.cache[:W_inv] * A'
-    end
-
-    # If acceleration, initialise memory for storing Krylov basis vectors, as
-    # well as Hessenberg matrix H arising during the Gram-Schmidt process.
-    if acceleration
-        ws.cache[:krylov_basis] = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
-        ws.cache[:H] = init_upper_hessenberg(acceleration_memory)
-    end
-
-    # Initialise "artificial" y_{-1} to make first x update well-defined
-    # and correct.
-    ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-    
     # for restarts, keep average iterates
     if restart_period != Inf
         x_avg = copy(ws.vars.x)
-        s_avg = copy(ws.vars.s)
         y_avg = copy(ws.vars.y)
     end
 
@@ -281,11 +207,10 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
     pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
-    dual_res_temp = zeros(Float64, ws.p.n)
+    temp_nvec = zeros(Float64, ws.p.n) # memory for intermediate computations
     acc_pri_res = zeros(Float64, ws.p.m)
     acc_dual_res = zeros(Float64, ws.p.n)
-    acc_dual_res_temp = zeros(Float64, ws.p.n)
-    prev_xv = similar(ws.vars.x_v_q[:, 1])
+    prev_xy = similar(ws.vars.xy_q[:, 1])
     j_restart = 0
 
     # Data containers for metrics (if return_run_data == true).
@@ -293,16 +218,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     dual_obj_vals = Float64[]
     pri_res_norms = Float64[]
     dual_res_norms = Float64[]
-    enforced_set_flags = Vector{Vector{Bool}}()
+    active_proj_flags = Vector{Vector{Bool}}()
     update_mat_ranks = Float64[]
     update_mat_singval_ratios = Float64[]
     update_mat_iters = Int[]
     acc_step_iters = Int[]
     linesearch_iters = Int[]
-    xv_step_norms = Float64[]
     xy_step_norms = Float64[]
     xy_step_char_norms = Float64[] #record method's "char norm" of the updates
-    xv_update_cosines = Float64[]
     xy_update_cosines = Float64[]
     
     # If actual solution provided.
@@ -318,8 +241,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     # so I have to inialise them beforehand.
     curr_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
     prev_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
-    curr_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
-    prev_xv_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
 
     # This flag helps us keep track of whether we should forgo the notion of a
     # "previous" step, including in the very first iteration.
@@ -330,13 +251,12 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         # Update average iterates
         if restart_period != Inf
             x_avg .= (j_restart * x_avg + ws.vars.x) / (j_restart + 1)
-            s_avg .= (j_restart * s_avg + ws.vars.s) / (j_restart + 1)
             y_avg .= (j_restart * y_avg + ws.vars.y) / (j_restart + 1)
         end
 
         # Compute residuals, their norms, and objective values.
-        primal_residual!(pri_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
-        dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+        primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
+        dual_residual!(dual_res, temp_nvec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
         curr_pri_res_norm = norm(pri_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
         primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
@@ -344,20 +264,17 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         gap = duality_gap(primal_obj, dual_obj)
 
         if !isnothing(x_sol)
+            # TODO: compute this in terms of norm function defined at
+            # the beginning of this function definition
             curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
             curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
-            curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
-
-            # NB: obtain expression for v distance by expanding norm  and
-            # using v_k = s_k - y_k / ρ.
-            curr_v_dist = !isnothing(x_sol) ? sqrt( norm(ws.vars.s - s_sol)^2 + norm((ws.vars.y - (-y_sol)) / ws.ρ)^2 + 2 * dot(ws.vars.s - s_sol, (-y_sol) - ws.vars.y) / ws.ρ) : nothing
         end
 
         # Print iteration info.
         if k % print_modulo == 0
-            curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
-            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist=curr_xv_dist)
+            curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
+            print_results(k, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist=curr_xy_dist)
         end
 
         # Note period of computation of the rank of updates.
@@ -377,187 +294,47 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         push!(dual_res_norms, curr_dual_res_norm)
         if !isnothing(x_sol)
             push!(x_dist_to_sol, curr_x_dist)
-            push!(s_dist_to_sol, curr_s_dist)
             push!(y_dist_to_sol, curr_y_dist)
-            push!(v_dist_to_sol, curr_v_dist)
             push!(xy_semidist, curr_xy_semidist)
         end
 
-        # Update linearised (affine) operator.
-        # Doing this explicitly is (very) expensive, so it is only done when
-        # the user requests it (eg for displaying spectra).
-        if explicit_affine_operator
-            update_affine_dynamics!(ws)
-
-            # Plot spectrum of tilde_A operator.
-            if k % spectrum_plot_period == 0
-                # We keep the eigendecomposition for further analysis once
-                # we have computed the iterate update from this operator. 
-                eig_decomp = plot_spectrum(ws.tilde_A, k)
-            end
-        end
-
         ### ITERATE ###
-
-        # NB, for mat-mat-free implementation, we replace the above heavy
-        # function update_affine_dynamics! with updates of just the enforced
-        # constraint set and tilde_b (avoiding matrix-matrix products).
-        update_enforced_constraints!(ws)
+        
+        # STANDARD OR LINESEARCH ITERATION.
+        update_active_projections!(ws)
         update_tilde_b!(ws)
         
-        # ACCELERATED ITERATION UPDATE.
-        if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
-            accelerated_point = custom_acceleration_candidate(ws, krylov_operator_tilde_A, acceleration_memory)
-            acc_x, acc_v = accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end]
-            acc_y, acc_s = recover_y(acc_v, ws.ρ, ws.p.K), recover_s(acc_v, ws.p.K)
+        # NB: mat-vec-only implementation here.
+        # NB: my first implementation of Arnoldi puts the sequence through
+        # the operator B := A - I.
+        prev_xy .= ws.vars.xy_q[:, 1]
+
+        linesearch_success = false #init to access outside conditional
+        if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
+            linesearch_success, linesearch_update, linesearch_lookahead = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, char_norm, krylov_operator_tilde_A, k)
             
-            primal_residual!(acc_pri_res, ws.p.A, acc_x, acc_s, ws.p.b)
-            dual_residual!(acc_dual_res, acc_dual_res_temp, ws.p.P, ws.p.A, acc_x, acc_y, ws.p.c)
+            #TODO: get rid of this line:
+            # supposed_lookahead .= linesearch_lookahead
 
-            if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res, residual_norm)
-                println("Accepted acceleration candidate at iteration $k.")
-                push!(acc_step_iters, k)
-                
-                #NOTE order of assignments to correctly assign update vectors
-                curr_xy_update = [acc_x; acc_y] - [ws.vars.x; ws.vars.y]
-                ws.vars.x .= acc_x
-                ws.vars.v .= acc_v
-                ws.vars.s .= acc_s
-                ws.vars.y .= acc_y
-                curr_xv_update = [ws.vars.x; ws.vars.v] - ws.vars.x_v_q[:, 1]
-                
-                # If wishing to exclude accelerate steps from the updates matrix,
-                # we have the line just below this commented out.
-                # insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
-                
-                # If wishing to reset the stored matrix of iterate updates when
-                # a successful accelerated step is taken:
-                updates_matrix .= 0.0
-                current_update_mat_col = Ref(1)
-                
-                push!(xy_step_norms, NaN)
-                push!(xy_step_char_norms, NaN)
-                push!(xv_step_norms, NaN) # If wishing to exclude accelerated steps from monitoring matrix.
-
-                # Update "for real":
-                ws.vars.x_v_q[:, 1] .= [ws.vars.x; ws.vars.v]
-                
-                # It does not make sense to have ws.vars.y_prev as usual here.
-                # This is more like a restart situation.
-                ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-            else
-                # NOTE: if we have an unsuccessful acceleration candidate, iteration does NOT update at all!
-                # Accordingly, I also do not write anything into the matrix
-                # storing past iterate updates (for monitoring purposes only).
-                # However, I must account for the step norm monitoring.
-                push!(xy_step_norms, NaN)
-                push!(xy_step_char_norms, NaN)
-                push!(xv_step_norms, NaN)
-                nothing
+            if linesearch_success
+                push!(linesearch_iters, k)
             end
+        else # STANDARD (no line search) ITERATION
+            iter_x!(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.prev_x, curr_xy_update)
+            ws.vars.x_bar .= ws.vars.x + ws.θ * (ws.vars.x - ws.vars.prev_x)
+            iter_y!(ws.vars.y, ws.vars.unproj_y, ws.vars.x_bar, ws.p.A, ws.p.b, ws.p.K, ws.ρ, temp_nvec, curr_xy_update)
 
-            # NB: We reset the Krylov basis memory each time
-            # we ATTEMPT an acceleration step.
-            ws.cache[:krylov_basis] .= 0.0
-            ws.cache[:H] .= 0.0
+            # assign to xy_q variable
+            ws.vars.xy_q[:, 1] .= [ws.vars.x; ws.vars.y]
 
-            # TODO: consider how to handle acceleration steps in the context of
-            # running averages for restarts!?
-            # RESET AVERAGES PERHAPS? ALONG WITH SETTING j_restart = 0 ?
-            just_accelerated = true
-            j_restart = 0
-        # RESTARTED ITERATION UPDATE.
-        elseif k > 0 && k % restart_period == 0
-            error("I have not yet thought through the interactions between restarts and acceleration! This part of the code is suspended til then.")
-            # NOTE: suspended adaptive trigger in the line below.
-            # if restart_trigger(restart_period, k, x_angle_sum, s_angle_sum, y_angle_sum)
-            # Restart. Use averages of (x, s, y) sequence, then recover v.
-            ws.vars.x .= x_avg
-            ws.vars.s .= s_avg
-            ws.vars.y .= y_avg
-            ws.vars.y_prev .= ws.vars.y - y_update(ws.p.A, ws.vars.x, ws.vars.s, ws.p.b, ws.ρ)
-            ws.vars.v .= compute_v(ws.p.A, ws.p.b, ws.vars.x, ws.vars.y_prev, ws.ρ)
-            ws.vars.x_v_q[1:end, 1] .= [ws.vars.x; ws.vars.v]
-            ws.vars.x_v_q[1:end, 2] .= ones(ws.p.n + ws.p.m) # TODO: ADAPT THIS TO SOMETHING SENSIBLE.
+            curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
-            # Reset iterate averages.
-            x_avg .= ws.vars.x
-            s_avg .= ws.vars.s
-            y_avg .= ws.vars.y
-
-            # Reset inner loop counters/sums.
-            just_restarted = true # NOTE: this may not work as expected when reintroducing step angle stuff for adaptive restarts.
-            j_restart = 0
-        else # STANDARD OR LINESEARCH ITERATION.
-            # Standard iterate update through x^+ = tilde_A * x + tilde_b.
-            # Krylov iterate (2nd column) is instead updated through
-            # q^+ = (tilde_A - I) * q + tilde_b.
-            
-            # NB: I replaced this with a mat-vec only imlpementation of tilde_A
-            # vector products, just below.
-            # ws.vars.x_v_q .= ws.tilde_A * ws.vars.x_v_q + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
-            
-            # NB: mat-vec-only implementation here.
-            # NB: my first implementation of Arnoldi puts the sequence through
-            # the operator B := A - I.
-            prev_xv .= ws.vars.x_v_q[:, 1]
-
-            linesearch_success = false #init to access outside conditional
-            if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
-                linesearch_success, linesearch_update, linesearch_lookahead = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, char_norm, krylov_operator_tilde_A, k)
-                
-                #TODO: get rid of this line:
-                # supposed_lookahead .= linesearch_lookahead
-
-                if linesearch_success
-                    push!(linesearch_iters, k)
-                end
-            else # STANDARD ITERATION
-                if krylov_operator_tilde_A
-                    ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b zeros(ws.p.m + ws.p.n)]
-                else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
-                    ws.vars.x_v_q .= tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q) + [ws.tilde_b (-ws.vars.x_v_q[:, 2])]
-                end
-            end
-            curr_xv_update .= ws.vars.x_v_q[:, 1] - prev_xv
-
-            push!(xv_step_norms, norm(curr_xv_update))
-            insert_update_into_matrix!(updates_matrix, curr_xv_update, current_update_mat_col)
-
-
-            if explicit_affine_operator && k % spectrum_plot_period == 0
-                plot_eigenvec_alignment_vs_phase(curr_xv_update, eig_decomp.values, eig_decomp.vectors, k)
-            end
-            
-            # It is sensible to have the first vector in the Krylov basis be
-            # the residual achieved by our initial guess.
-            if acceleration && just_accelerated
-                # When we are beginning to build a basis, the first step is
-                # therefore just to assign the initial (fixed-point) residual.
-                ws.vars.x_v_q[:, 2] .= ws.vars.x_v_q[:, 1] - [ws.vars.x; ws.vars.v]
-                
-                ws.vars.x_v_q[:, 2] ./= norm(ws.vars.x_v_q[:, 2]) # Normalise.
-                ws.cache[:krylov_basis][:, 1] .= ws.vars.x_v_q[:, 2]
-            elseif acceleration
-                # In these circumstances, what we have to do is orthogonalise
-                # the new Krylov vector, resultant from applying (A - I) +
-                # + tilde_b, against the previous vectors.
-                # This is the modified Gram-Schmidt process.
-                ws.vars.x_v_q[:, 2] .= arnoldi_step!(ws.cache[:krylov_basis], ws.vars.x_v_q[:, 2], ws.cache[:H])
-            end
-            
-            #note order of assignments to correctly assign update vectors
-            ws.vars.v .= ws.vars.x_v_q[ws.p.n+1:end, 1]
-            new_y = recover_y(ws.vars.v, ws.ρ, ws.p.K)
-
-            curr_xy_update = [ws.vars.x_v_q[1:ws.p.n, 1]; new_y] - [ws.vars.x; ws.vars.y]
             push!(xy_step_norms, norm(curr_xy_update))
             push!(xy_step_char_norms, char_norm(curr_xy_update))
+            insert_update_into_matrix!(updates_matrix, curr_xy_update, current_update_mat_col)
             
-            ws.vars.x .= ws.vars.x_v_q[1:ws.p.n, 1]
-            ws.vars.s .= recover_s(ws.vars.v, ws.p.K)
-            ws.vars.y .= new_y
-            ws.vars.q .= ws.vars.x_v_q[:, 2]
+            # to be sorted out w rest of Krylov acceleration stuff
+            ws.vars.q .= ws.vars.xy_q[:, 2]
 
             just_accelerated = false
             j_restart += 1
@@ -576,15 +353,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         # Store cosine between last two iterate updates.
         if k >= 1
             xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
-            xv_prev_updates_cos = abs(dot(curr_xv_update, prev_xv_update) / (norm(curr_xv_update) * norm(prev_xv_update)))
-            
             push!(xy_update_cosines, xy_prev_updates_cos)
-            push!(xv_update_cosines, xv_prev_updates_cos)
         end
         prev_xy_update .= curr_xy_update
-        prev_xv_update .= curr_xv_update
 
-        push!(enforced_set_flags, ws.enforced_constraints)
+        push!(active_proj_flags, ws.active_projections)
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
@@ -593,8 +366,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
     # END: Compute residuals, their norms, and objective values.
     # TODO: make this stuff modular as opposed to copied from the main loop.
-    primal_residual!(pri_res, ws.p.A, ws.vars.x, ws.vars.s, ws.p.b)
-    dual_residual!(dual_res, dual_res_temp, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+    primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
+    dual_residual!(dual_res, temp_nvec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
     curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
@@ -603,12 +376,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     
     curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
     curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
-    curr_s_dist = !isnothing(s_sol) ? norm(ws.vars.s - s_sol) : nothing
     curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
-    
-    # NB: obtain expression for v distance by expanding norm  and
-    # using v_k = s_k - y_k / ρ.
-    curr_v_dist = !isnothing(x_sol) ? sqrt( norm(ws.vars.s - s_sol)^2 + norm((ws.vars.y - (-y_sol)) / ws.ρ)^2 + 2 * dot(ws.vars.s - s_sol, (-y_sol) - ws.vars.y) / ws.ρ) : nothing
 
     # END: Store metrics if requested.
     # TODO: make this stuff modular as opposed to copied from the main loop.
@@ -618,15 +386,13 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     push!(dual_res_norms, curr_dual_res_norm)
     if !isnothing(x_sol)
         push!(x_dist_to_sol, curr_x_dist)
-        push!(s_dist_to_sol, curr_s_dist)
         push!(y_dist_to_sol, curr_y_dist)
-        push!(v_dist_to_sol, curr_v_dist)
         push!(xy_semidist, curr_xy_semidist)
     end
 
     # END: print iteration info.
-    curr_xv_dist = sqrt.(curr_x_dist .^ 2 .+ curr_v_dist .^ 2)
-    print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xv_dist = curr_xv_dist, terminated = true)
+    curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
+    print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist = curr_xy_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, enforced_set_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xy_step_norms, xy_step_char_norms, xv_step_norms, xy_update_cosines, xv_update_cosines)
+    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, active_proj_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xy_step_norms, xy_step_char_norms, xy_step_norms, xy_update_cosines, xy_update_cosines)
 end
