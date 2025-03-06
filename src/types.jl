@@ -100,27 +100,7 @@ end
 Workspace(args...) = Workspace{DefaultFloat}(args...)
 
 @with_kw mutable struct Results{T <: AbstractFloat}
-    primal_obj_vals::Vector{T}
-    dual_obj_vals::Vector{T}
-    pri_res_norms::Vector{T}
-    dual_res_norms::Vector{T}
-    enforced_set_flags::Vector{Vector{Bool}}
-    x_dist_to_sol::Vector{T}
-    s_dist_to_sol::Vector{T}
-    y_dist_to_sol::Vector{T}
-    v_dist_to_sol::Vector{T}
-    xy_semidist::Vector{T}
-    update_mat_iters::Vector{Int}
-    update_mat_ranks::Vector{T}
-    update_mat_singval_ratios::Vector{T}
-    acc_step_iters::Vector{Int}
-    linesearch_iters::Vector{Int}
-
-    xy_step_norms::Vector{T}
-    xy_step_char_norms::Vector{T}
-    xv_step_norms::Vector{T}
-    xy_update_cosines::Vector{T}
-    xv_update_cosines::Vector{T}
+    data::Dict{Symbol, Any} = Dict{Symbol,Any}()
 end
 
 # We now define some types to make the inversion of preconditioner + Hessian
