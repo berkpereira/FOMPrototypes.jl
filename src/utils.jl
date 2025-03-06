@@ -9,15 +9,39 @@ using Clarabel
 using FFTW
 include("types.jl")
 
-# TODO: fill in two_col_mul!. See end of linearmap_time.jl file
-# for code which should closely inspire the implementation of both.
-# Exploit complex vector to make quicker multiplication by a matrix having
-# two columns!
-# SYNTAX should be as the standard for mul and mul! functions from LinearAlgebra
-function two_col_mul!(Y::AbstractMatrix{Float64},
-    A::AbstractMatrix{Float64}, B::AbstractMatrix{Float64})
-    return
+"""
+This function multiplies in-place a matrix by another matrix with two columns.
+To make it fast, it exploits complex vectors, storing the two columns of the
+second matrix as a single complex vector, and calling mul! for this product.
+It then decomposes the result back into the two target columns.
+
+temp_n_vec and temp_m_vec are workspace complex to store intermediate results.
+temp_n_vec is n-vector.
+temp_m_vec is m-vector.
+"""
+@inline function two_col_mul!(Y::AbstractMatrix{Float64},
+    A::AbstractMatrix{Float64},
+    B::AbstractMatrix{Float64},
+    temp_n_vec::Vector{ComplexF64},
+    temp_m_vec::Vector{ComplexF64})
+    
+    # Dimensions:
+    # A is m×n, B is n×2, Y must be m×2
+    # temp_n_vec is n-vector, temp_m_vec is m-vector
+
+    # pack the two real columns of B into one complex vector
+    @views temp_n_vec .= complex.(B[:, 1], B[:, 2])
+
+    # compute temp_m_vec = A * temp_n_vec in-place, avoiding extra allocations
+    mul!(temp_m_vec, A, temp_n_vec)
+
+    # unpack the complex result into the two columns of Y
+    Y[:, 1] .= real(temp_m_vec)
+    Y[:, 2] .= imag(temp_m_vec)
+
+    return nothing
 end
+
 
 function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
     return 0.5 * dot(x, P * x) + dot(c, x)
@@ -85,7 +109,7 @@ function build_operator(variant::Integer, P::Symmetric,
         end
     elseif variant == 2
         # P + ρ AᵀA (full matrix)
-        # TODO: consider reducing mem allocations w in-place computations here?
+        # TODO: consider reducing mem allocations with in-place computations here?
         op = x -> P * x + rho * (A_gram * x)
     elseif variant == 3
         # P + R(ρ AᵀA) = P + [ρ AᵀA - diag(ρ AᵀA)]
