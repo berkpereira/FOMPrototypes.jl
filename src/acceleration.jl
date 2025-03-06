@@ -4,53 +4,22 @@ using SparseArrays
 using IterativeSolvers
 using Clarabel
 
-function flag_arrays(v::AbstractVector{Float64}, s::AbstractVector{Float64},
-    m::Integer, K::Vector{Clarabel.SupportedCone})
-    # NOTE: commented out code below is more along the lines of the generalised
-    # notion of parameterising these projection operations at a particular
-    # iterate (x_k, v_k). HOWEVER, we must go finer than this: in particular,
-    # when using nonnegative orthants and zero cones, we must actually do this
-    # process entry-by-entry! NOT cone by cone, since only this can offer us
-    # the "same facet projection" interpretation of papers such as Boley 2013.
-    
-    # !!! MAY REQUIRE ADJUSTMENTS, ADAPT FROM ENTRY-WISE CODE FURTHER BELOW!!!
-
-    # # Start partition indexing
-    # start_idx = 1
-    # for cone in K
-    #     end_idx = start_idx + cone.dim - 1
-
-    #     # Extract partitions of s and v for the current block
-    #     s_block = s[start_idx:end_idx]
-    #     v_block = v[start_idx:end_idx]
-
-    #     # Check whether the blocks of s and v are equal
-    #     if s_block == v_block
-    #         # Fill diagonal entries for the case where s == v
-    #         D_k_x_diag[start_idx:end_idx] .= 1.0
-    #         D_k_x_b_diag[start_idx:end_idx] .= 0.0
-    #     else
-    #         # Fill diagonal entries for the case where s != v
-    #         D_k_x_diag[start_idx:end_idx] .= -1.0
-    #         D_k_x_b_diag[start_idx:end_idx] .= 2.0
-    #     end
-
-    #     # Update the start index for the next block
-    #     start_idx = end_idx + 1
-    # end
-
-    # For LINEAR CONSTRAINTS DO as in the above but ENTRY BY ENTRY, not cone
+function update_proj_flags!(proj_flags::BitVector,
+    preproj_y::AbstractVector{Float64},
+    postproj_y::AbstractVector{Float64})
+    # For LINEAR CONSTRAINTS DO ENTRY BY ENTRY, not cone
     # by cone. Check for entry-wise equality/inequality.
-    return s .== v
+    proj_flags .= (preproj_y .== postproj_y)
 end
 
 """
 This function is lighter than update_affine_dynamics, but still fully
     determines the affine dynamics of our prototype at a given iteration.
     We use this for the mat-mat-free implementation of tilde_A-vec products.
+    TODO: adapt this to more general cones (not as simple as QP case).
 """
-function update_enforced_constraints!(ws::Workspace)
-    ws.enforced_constraints .= .!(flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
+function update_active_projections!(ws::Workspace)
+    ws.active_projections .= ws.vars.y .!= ws.vars.unproj_y
 end
 
 """
@@ -62,7 +31,7 @@ stores the relevant state variables---we also pass in the vectors v and s.
 function enforced_contraints_bitvec(ws::Workspace,
     v::AbstractVector{Float64},
     s::AbstractVector{Float64})
-    return .!(flag_arrays(v, s, ws.p.m, ws.p.K))
+    return .!(proj_flags(v, s, ws.p.m, ws.p.K))
 end
 
 
@@ -86,7 +55,7 @@ end
 # concept.
 function update_affine_dynamics!(ws::Workspace)
     # Compute the diagonal flag matrices required.
-    D_k_π = Diagonal(flag_arrays(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
+    D_k_π = Diagonal(proj_flags(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
     new_enforced_constraints = .!D_k_π.diag # Bitwise negation.
 
     # Dynamics have not changed (and we are past the first iteration).
