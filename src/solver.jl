@@ -28,21 +28,21 @@ should be applying some of the operator's action to both the vectors of
 interest. Mainly for this reason, it makes sense to encapsulate both of these
 tasks within this single function.
 
-Note, z is an auxiliary vector to carry out matrix multiplications by
-2 (real) columns more quickly.
-
 temp_n_mat should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
-function method_operator(ws::Workspace, z::AbstractVector{ComplexF64},
+function method_operator!(ws::Workspace,
     temp_n_mat::AbstractMatrix{Float64},
     temp_n_mat2::AbstractMatrix{Float64},
     temp_m_mat::AbstractMatrix{Float64},
-    temp_m_vec::AbstractVector{Float64})
+    temp_m_vec::AbstractVector{Float64},
+    temp_n_vec_complex::AbstractVector{ComplexF64},
+    temp_m_vec_complex::AbstractVector{ComplexF64})
+    
     # working variable is ws.vars.xy_q, with two columns
     
-    @views two_col_mul!(temp_m_mat, A, ws.vars.xy_q[1:n, :]) # A * x
+    @views two_col_mul!(temp_m_mat, A, ws.vars.xy_q[1:n, :], temp_n_vec_complex, temp_m_vec_complex) # A * x
     temp_m_mat .-= ws.p.b
     temp_m_mat .*= ws.ρ
     @views temp_m_mat .+= ws.vars.xy_q[n+1:end, :]
@@ -65,18 +65,20 @@ function method_operator(ws::Workspace, z::AbstractVector{ComplexF64},
     ws.vars.xy_q[n+1:end, :] .= temp_m_mat
 
     # now onto the bulk of x and q_n update
-    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:n, :]) # P * x
+    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:n, :], temp_n_vec_complex, temp_m_vec_complex) # P * x
     temp_n_mat .+= ws.p.c # add linear part of objective
-    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar) # A' * y_bar
+    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_n_vec_complex, temp_m_vec_complex) # A' * y_bar
     temp_n_mat .+= temp_n_mat2 # this is to be pre-multiplied by W^{-1}
     
-    # in-place efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat
     apply_inv!(ws.cache[:W_inv], temp_n_mat)
 
     # ASSIGN new x and q_n
     ws.vars.xy_q[1:n, :] .-= temp_n_mat
     
-    # TODO: check that this concludes this function!
+    # TODO: figure out different operations based on the Krylov operator to use
+    # for q: tilde_A or B := tilde_A - I.
+    # TAKE OUT non-linear affine bit, i.e. tilde_b, for q sequence.
 
     return nothing
 end
@@ -174,6 +176,9 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     explicit_affine_operator::Bool = false,
     spectrum_plot_period::Int = 17,)
 
+    # initialise dict to store results
+    results = Results{Float64}()
+
     # We maintain a matrix whose columns are formed by the past
     # acceleration_memory iterate updates, normalised to unit l2 norm.
     # Init this matrix.
@@ -189,11 +194,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     ws.cache[:W_inv] = prepare_inv(ws.cache[:W])
 
     # characteristic PPM preconditioner of the method
-    ws.cache[:seminorm_mat] = [(ws.cache[:W] - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
+    ws.cache[:char_norm_mat] = [(ws.cache[:W] - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
 
     # implement function to compute charcteristic norm of the method
     function char_norm(vector::AbstractArray{Float64})
-        return sqrt(dot(vector, ws.cache[:seminorm_mat] * vector))
+        return sqrt(dot(vector, ws.cache[:char_norm_mat] * vector))
     end
     
     # for restarts, keep average iterates
@@ -202,18 +207,22 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         y_avg = copy(ws.vars.y)
     end
 
-    #TODO: get rid of this supposed_lookahead variable:
-    supposed_lookahead = zeros(ws.p.n + 2 * ws.p.m)
-
+    # pre-allocate vectors to store auxiliary quantities, residuals, etc.
     pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
-    temp_nvec = zeros(Float64, ws.p.n) # memory for intermediate computations
+    temp_n_mat = zeros(Float64, ws.p.n, 2)
+    temp_n_mat2 = zeros(Float64, ws.p.n, 2)
+    temp_m_mat = zeros(Float64, ws.p.m, 2)
+    temp_n_vec = zeros(Float64, ws.p.n) # memory for intermediate computations
+    temp_m_vec = zeros(Float64, ws.p.m)
+    temp_n_vec_complex = zeros(ComplexF64, ws.p.n)
+    temp_m_vec_complex = zeros(ComplexF64, ws.p.m)
     acc_pri_res = zeros(Float64, ws.p.m)
     acc_dual_res = zeros(Float64, ws.p.n)
     prev_xy = similar(ws.vars.xy_q[:, 1])
     j_restart = 0
 
-    # Data containers for metrics (if return_run_data == true).
+    # data containers for metrics (if return_run_data == true).
     primal_obj_vals = Float64[]
     dual_obj_vals = Float64[]
     pri_res_norms = Float64[]
@@ -256,7 +265,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
         # Compute residuals, their norms, and objective values.
         primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
-        dual_residual!(dual_res, temp_nvec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+        dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
         curr_pri_res_norm = norm(pri_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
         primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
@@ -266,7 +275,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         if !isnothing(x_sol)
             # TODO: compute this in terms of norm function defined at
             # the beginning of this function definition
-            curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
+            curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:char_norm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
             curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
         end
@@ -301,12 +310,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         ### ITERATE ###
         
         # STANDARD OR LINESEARCH ITERATION.
-        update_active_projections!(ws)
-        update_tilde_b!(ws)
-        
-        # NB: mat-vec-only implementation here.
-        # NB: my first implementation of Arnoldi puts the sequence through
-        # the operator B := A - I.
+    
         prev_xy .= ws.vars.xy_q[:, 1]
 
         linesearch_success = false #init to access outside conditional
@@ -320,9 +324,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
                 push!(linesearch_iters, k)
             end
         else # STANDARD (no line search) ITERATION
-            iter_x!(ws.vars.x, ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, ws.vars.y, ws.vars.prev_x, curr_xy_update)
-            ws.vars.x_bar .= ws.vars.x + ws.θ * (ws.vars.x - ws.vars.prev_x)
-            iter_y!(ws.vars.y, ws.vars.unproj_y, ws.vars.x_bar, ws.p.A, ws.p.b, ws.p.K, ws.ρ, temp_nvec, curr_xy_update)
+            method_operator!(ws, temp_n_mat, temp_n_mat2,
+            temp_m_mat, temp_m_vec, temp_n_vec_complex, temp_m_vec_complex)
 
             # assign to xy_q variable
             ws.vars.xy_q[:, 1] .= [ws.vars.x; ws.vars.y]
@@ -339,15 +342,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             just_accelerated = false
             j_restart += 1
 
-            # #TODO: get rid of this---just for debugging line search
-            # if k == 201
-            #     # compare with lookahead iterates checked from the line search
-            #     # function!
-            #     #compare current x,s,y iterate with supposed_lookahead from the 
-            #     #line search function call
-            #     @infiltrate
-            # end
-
         end
         
         # Store cosine between last two iterate updates.
@@ -363,18 +357,17 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         just_restarted = false
     end
 
-
     # END: Compute residuals, their norms, and objective values.
     # TODO: make this stuff modular as opposed to copied from the main loop.
     primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
-    dual_residual!(dual_res, temp_nvec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+    dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
     curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
     dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
     gap = duality_gap(primal_obj, dual_obj)
     
-    curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:seminorm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
+    curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:char_norm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
     curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
     curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
 
@@ -394,5 +387,25 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
     print_results(max_iter, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist = curr_xy_dist, terminated = true)
 
-    return Results(primal_obj_vals, dual_obj_vals, pri_res_norms, dual_res_norms, active_proj_flags, x_dist_to_sol, s_dist_to_sol, y_dist_to_sol, v_dist_to_sol, xy_semidist, update_mat_iters, update_mat_ranks, update_mat_singval_ratios, acc_step_iters, linesearch_iters, xy_step_norms, xy_step_char_norms, xy_step_norms, xy_update_cosines, xy_update_cosines)
+    # assign results as appropriate
+    results.data = Dict(
+        :primal_obj_vals => primal_obj_vals,
+        :dual_obj_vals => dual_obj_vals,
+        :pri_res_norms => pri_res_norms,
+        :dual_res_norms => dual_res_norms,
+        :active_proj_flags => active_proj_flags,
+        :x_dist_to_sol => x_dist_to_sol,
+        :y_dist_to_sol => y_dist_to_sol,
+        :xy_semidist => xy_semidist,
+        :update_mat_iters => update_mat_iters,
+        :update_mat_ranks => update_mat_ranks,
+        :update_mat_singval_ratios => update_mat_singval_ratios,
+        :acc_step_iters => acc_step_iters,
+        :linesearch_iters => linesearch_iters,
+        :xy_step_norms => xy_step_norms,
+        :xy_step_char_norms => xy_step_char_norms,
+        :xy_update_cosines => xy_update_cosines
+    )
+
+    return results
 end
