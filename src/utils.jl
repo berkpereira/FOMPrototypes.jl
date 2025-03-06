@@ -9,6 +9,16 @@ using Clarabel
 using FFTW
 include("types.jl")
 
+# TODO: fill in two_col_mul!. See end of linearmap_time.jl file
+# for code which should closely inspire the implementation of both.
+# Exploit complex vector to make quicker multiplication by a matrix having
+# two columns!
+# SYNTAX should be as the standard for mul and mul! functions from LinearAlgebra
+function two_col_mul!(Y::AbstractMatrix{Float64},
+    A::AbstractMatrix{Float64}, B::AbstractMatrix{Float64})
+    return
+end
+
 function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
     return 0.5 * dot(x, P * x) + dot(c, x)
 end
@@ -232,6 +242,29 @@ function project_to_dual_K(y::AbstractVector{Float64}, K::Vector{Clarabel.Suppor
     end
     
     return projected_y
+end
+
+"""
+Given a cone K, this projects the variable y into the DUAL cone of K.
+"""
+function project_to_dual_K!(y::AbstractVector{Float64}, K::Vector{Clarabel.SupportedCone})
+    start_idx = 1
+    for cone in K
+        end_idx = start_idx + cone.dim - 1
+
+        # Project portion of y depending on each cone's DUAL
+        if cone isa Clarabel.NonnegativeConeT
+            @views y[start_idx:end_idx] .= max.(y[start_idx:end_idx], 0)
+        elseif cone isa Clarabel.ZeroConeT
+            nothing # dual cone is the whole vector space
+        else
+            error("Unsupported cone type: $typeof(cone)")
+        end
+
+        start_idx = end_idx + 1
+    end
+    
+    return nothing
 end
 
 function add_cone_constraints!(model::JuMP.Model, s::JuMP.Containers.Array, K::Vector{Clarabel.SupportedCone})
