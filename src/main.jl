@@ -11,6 +11,7 @@ include("acceleration.jl")
 
 # Import packages.
 using Revise
+using LinearMaps
 using Infiltrator
 using Profile
 using StatProfilerHTML
@@ -49,7 +50,7 @@ end
 
 function choose_problem()
     # Choose problem option. Valid options: :LASSO, :HUBER, :MAROS, :GISELSSON
-    problem_option = :GISELSSON
+    problem_option = :LASSO
 
     if problem_option === :LASSO
         problem_set = "sslsq"
@@ -149,7 +150,8 @@ end
 function run_prototype(problem, A, P, c, b, m, n, x_ref, s_ref, y_ref, problem_set, problem_name)
     #basic params
     ρ = 1.0
-    variant = 1  #in {1, 2, 3, 4}
+    θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
+    variant = 1  #in {-1, 0, 1, 2, 3, 4}
     
     MAX_ITER = 1000
     PRINT_MOD = 50
@@ -171,22 +173,16 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, s_ref, y_ref, problem_s
     COMPUTE_OPERATOR_EXPLICITLY = false
     SPEC_PLOT_PERIOD = 26
     
-    A_gram = A' * A
-    if variant == 1
-        take_away_mat = off_diag_part(P + ρ * A_gram)
-    elseif variant == 2
-        take_away_mat = P + ρ * A_gram
-    elseif variant == 3
-        take_away_mat = P + off_diag_part(ρ * A_gram)
-    elseif variant == 4
-        take_away_mat = off_diag_part(P) + ρ * A_gram
-    else
-        error("Invalid variant.")
-    end
+    # NB we do not compute A' * A, just store its specification as a linear map
+    A_gram = LinearMap(x -> A' * (A * x), size(A, 2), size(A, 2); issymmetric = true)
 
-    Random.seed!(42)  # Seed for reproducibility.
-    max_τ = 1 / dom_λ_power_method(Matrix(take_away_mat), 30)
-    τ = 0.90 * max_τ
+    if variant != 0 # we skip this if using ADMM
+        take_away_op = build_operator(variant, P, A, A_gram, ρ)
+        Random.seed!(42)  # seed for reproducibility
+        max_τ = 1 / dom_λ_power_method(take_away_op, 30)
+    end
+    
+    τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
 
     println("RUNNING PROTOTYPE VARIANT $variant...")
     println("Problem set/name: $problem_set/$problem_name")
@@ -197,10 +193,12 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, s_ref, y_ref, problem_s
     end
 
     # Initialize the workspace.
-    ws = Workspace(problem, variant, τ, ρ)
+    ws = Workspace(problem, variant, τ, ρ, θ)
     ws.cache[:A_gram] = A_gram
 
     # Run the solver (time the execution).
+    @infiltrate
+
     results = nothing
     @time begin
         results = optimise!(ws,
@@ -213,7 +211,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, s_ref, y_ref, problem_s
             linesearch_period = LINESEARCH_PERIOD,
             linesearch_ϵ = LINESEARCH_ϵ,
             krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
-            x_sol = x_ref, s_sol = s_ref, y_sol = y_ref,
+            x_sol = x_ref, y_sol = y_ref,
             explicit_affine_operator = COMPUTE_OPERATOR_EXPLICITLY,
             spectrum_plot_period = SPEC_PLOT_PERIOD)
     end
