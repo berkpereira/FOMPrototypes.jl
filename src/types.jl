@@ -6,6 +6,7 @@ using Clarabel
 using Parameters
 using LinearAlgebra
 using LinearAlgebra.LAPACK
+import SparseArrays
 
 const DefaultFloat = Float64
 
@@ -76,9 +77,6 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     # extrapolation parameter
     θ::T
 
-    # preconditioner operator for the x update
-    W_inv::AbstractInvOp
-
     # indicator of projection by-pass (QP case: where entries "pass through")
     proj_flags::AbstractVector{Bool}
 
@@ -94,7 +92,7 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     # Constructor where initial iterates are not passed (default set to zero).
     function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, Variables(p.m, p.n), variant, τ, ρ, θ, spzeros(T, n + m, n + m), spzeros(T, n + m), falses(m), Dict{Symbol, Any}())
+        new(p, Variables(p.m, p.n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
     end
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)
@@ -110,12 +108,12 @@ end
 
 # Concrete type for a diagonal inverse operator
 struct DiagInvOp{T} <: AbstractInvOp
-    inv_diag::Vector{T}
+    inv_diag::AbstractVector{T}
 end
 
 # Concrete type for a symmetric matrix's Cholesky-based inverse operator
 struct CholeskyInvOp{T} <: AbstractInvOp
-    F::Cholesky{T,Matrix{T}}  # Store the Cholesky factorization
+    F::SparseArrays.CHOLMOD.Factor  # Store the Cholesky factorization
 end
 
 # A function that prepares an inverse operator based on the type of M
@@ -126,7 +124,7 @@ end
 
 function prepare_inv(M::Symmetric{T}) where T <: Real
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
-    F = cholesky(M)
+    F = LinearAlgebra.cholesky(M)
     return CholeskyInvOp(F)
 end
 
