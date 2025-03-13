@@ -36,8 +36,8 @@ temp_m_vec is m-vector.
     mul!(temp_m_vec, A, temp_n_vec)
 
     # unpack the complex result into the two columns of Y
-    Y[:, 1] .= real(temp_m_vec)
-    Y[:, 2] .= imag(temp_m_vec)
+    @views Y[:, 1] .= real(temp_m_vec)
+    @views Y[:, 2] .= imag(temp_m_vec)
 
     return nothing
 end
@@ -78,7 +78,7 @@ function off_diag_part(A::AbstractMatrix{Float64})
 end
 
 """
-    build_operator(variant, P, A, A_gram, rho)
+    build_operator(variant, P, A, A_gram, ρ)
 
 Constructs a LinearMap for one of the following operators (assuming P is n×n):
 
@@ -91,37 +91,37 @@ The operator R(B) is defined as B with its diagonal set to zero.
 """
 function build_operator(variant::Integer, P::Symmetric,
     A::AbstractMatrix, A_gram::Union{LinearMap{Float64}, AbstractMatrix{Float64}},
-    rho::Float64)
+    ρ::Float64)
     n = size(P, 1)  # assume P is square
     
     # Precompute diagonals:
     dP = diag(P)
     # For A^T*A, the diagonal is the sum of squares of each column of A.
-    dA = rho * vec(sum(abs2, A; dims=1))
+    dA = ρ * vec(sum(abs2, A; dims=1))
     
     op = nothing  # will hold our operator function
     if variant == 1
         # R(P + ρ AᵀA) = (P + ρ AᵀA) - diag(P + ρ AᵀA)
         op = x -> begin
-            y = P * x + rho * (A_gram * x)
+            y = P * x + ρ * (A_gram * x)
             y .-= (dP + dA) .* x
             y
         end
     elseif variant == 2
         # P + ρ AᵀA (full matrix)
         # TODO: consider reducing mem allocations with in-place computations here?
-        op = x -> P * x + rho * (A_gram * x)
+        op = x -> P * x + ρ * (A_gram * x)
     elseif variant == 3
         # P + R(ρ AᵀA) = P + [ρ AᵀA - diag(ρ AᵀA)]
         op = x -> begin
-            y = P * x + rho * (A_gram * x)
+            y = P * x + ρ * (A_gram * x)
             y .-= dA .* x
             y
         end
     elseif variant == 4
         # R(P) + ρ AᵀA = [P - diag(P)] + ρ AᵀA
         op = x -> begin
-            y = P * x + rho * (A_gram * x)
+            y = P * x + ρ * (A_gram * x)
             y .-= dP .* x
             y
         end
@@ -172,27 +172,34 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
-function W_operator(variant_no::Integer, P::Symmetric,
-    A_gram::Symmetric, τ::Float64, ρ::Float64)
+function W_operator(variant_no::Integer, P::Symmetric, A::AbstractMatrix,
+    A_gram::LinearMap, τ::Float64, ρ::Float64)
     n = size(A_gram, 1)
     
     # variant_no = -1 ==> vanilla PDHG
     if variant_no == -1
-        pre_operator = I(n) / τ + P
+        pre_operator = Symmetric(sparse(I(n)) / τ + P)
     # variant_no = 0 ==> ADMM
     elseif variant_no == 0
-        pre_operator = P + ρ * A_gram
+        # note: I think in this case I am forced to form the 
+        # matrix P + ρ * A' * A explicitly, in order to then compute
+        # its Cholesky factors.
+        pre_operator = Symmetric(P + ρ * A' * A)
     
     ################ DIAGONAL pre-gradient operators ################
-    
+
     elseif variant_no == 1
-        pre_operator = I(n) / τ + diag_part(P + ρ * A_gram)
+        dP = diag(P)
+        dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
+        pre_operator = Diagonal(sparse(ones(n)) / τ + dP + dA)
     elseif variant_no == 2
-        pre_operator = I(n) / τ
+        pre_operator = Diagonal(sparse(ones(n)) / τ)
     elseif variant_no == 3
-        pre_operator = I(n) / τ + diag_part(ρ * A_gram)
+        dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
+        pre_operator = Diagonal(sparse(ones(n)) / τ + dA)
     elseif variant_no == 4
-        pre_operator = I(n) / τ + diag_part(P)
+        dP = diag(P)
+        pre_operator = Diagonal(sparse(ones(n)) / τ + dP)
     else
         error("Invalid variant: $variant_no.")
     end
