@@ -42,10 +42,10 @@ function method_operator!(ws::Workspace,
     
     # working variable is ws.vars.xy_q, with two columns
     
-    @views two_col_mul!(temp_m_mat, A, ws.vars.xy_q[1:n, :], temp_n_vec_complex, temp_m_vec_complex) # A * x
+    @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # A * x
     temp_m_mat .-= ws.p.b
     temp_m_mat .*= ws.ρ
-    @views temp_m_mat .+= ws.vars.xy_q[n+1:end, :]
+    @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :]
     @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # result of this is y_{k+1}
     
@@ -59,13 +59,13 @@ function method_operator!(ws::Workspace,
     temp_m_mat[:, 2] .+= temp_m_vec # result of this is the new q_m vector
     
     # now compute bar iterates (y and q_m) concurrently
-    @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[n+1:end, :]
+    @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
     
     # ASSIGN new y and q_m
-    ws.vars.xy_q[n+1:end, :] .= temp_m_mat
+    ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
 
     # now onto the bulk of x and q_n update
-    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:n, :], temp_n_vec_complex, temp_m_vec_complex) # P * x
+    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # P * x
     temp_n_mat .+= ws.p.c # add linear part of objective
     @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_n_vec_complex, temp_m_vec_complex) # A' * y_bar
     temp_n_mat .+= temp_n_mat2 # this is to be pre-multiplied by W^{-1}
@@ -74,7 +74,7 @@ function method_operator!(ws::Workspace,
     apply_inv!(ws.cache[:W_inv], temp_n_mat)
 
     # ASSIGN new x and q_n
-    ws.vars.xy_q[1:n, :] .-= temp_n_mat
+    ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat
     
     # TODO: figure out different operations based on the Krylov operator to use
     # for q: tilde_A or B := tilde_A - I.
@@ -179,6 +179,11 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     # initialise dict to store results
     results = Results{Float64}()
 
+    # create views into x and y variables, along with "Arnoldi vector" q
+    @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
+    @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
+    @views view_q = ws.vars.xy_q[:, 2]
+
     # We maintain a matrix whose columns are formed by the past
     # acceleration_memory iterate updates, normalised to unit l2 norm.
     # Init this matrix.
@@ -190,7 +195,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     updates_cond_period = 1
 
     # prepare the pre-gradient linear operator for the x update
-    ws.cache[:W] = W_operator(ws.variant, ws.p.P, ws.cache[:A_gram], ws.τ, ws.ρ)
+    ws.cache[:W] = W_operator(ws.variant, ws.p.P, ws.p.A, ws.cache[:A_gram], ws.τ, ws.ρ)
     ws.cache[:W_inv] = prepare_inv(ws.cache[:W])
 
     # characteristic PPM preconditioner of the method
@@ -203,8 +208,8 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     
     # for restarts, keep average iterates
     if restart_period != Inf
-        x_avg = copy(ws.vars.x)
-        y_avg = copy(ws.vars.y)
+        x_avg = copy(view_x)
+        y_avg = copy(view_y)
     end
 
     # pre-allocate vectors to store auxiliary quantities, residuals, etc.
@@ -227,7 +232,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     dual_obj_vals = Float64[]
     pri_res_norms = Float64[]
     dual_res_norms = Float64[]
-    active_proj_flags = Vector{Vector{Bool}}()
+    record_proj_flags = Vector{Vector{Bool}}()
     update_mat_ranks = Float64[]
     update_mat_singval_ratios = Float64[]
     update_mat_iters = Int[]
@@ -259,25 +264,25 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     for k in 0:max_iter
         # Update average iterates
         if restart_period != Inf
-            x_avg .= (j_restart * x_avg + ws.vars.x) / (j_restart + 1)
-            y_avg .= (j_restart * y_avg + ws.vars.y) / (j_restart + 1)
+            x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
+            y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
         end
 
         # Compute residuals, their norms, and objective values.
-        primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
-        dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+        primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
+        dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
         curr_pri_res_norm = norm(pri_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
-        primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
-        dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
+        primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
+        dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
         gap = duality_gap(primal_obj, dual_obj)
 
         if !isnothing(x_sol)
             # TODO: compute this in terms of norm function defined at
             # the beginning of this function definition
-            curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:char_norm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
-            curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
-            curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+            curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([view_x - x_sol; view_y + y_sol], ws.cache[:char_norm_mat] * [view_x - x_sol; view_y + y_sol])) : nothing
+            curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
+            curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
         end
 
         # Print iteration info.
@@ -328,16 +333,14 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             temp_m_mat, temp_m_vec, temp_n_vec_complex, temp_m_vec_complex)
 
             # assign to xy_q variable
-            ws.vars.xy_q[:, 1] .= [ws.vars.x; ws.vars.y]
+            ws.vars.xy_q[:, 1] .= [view_x; view_y]
 
             curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
             push!(xy_step_norms, norm(curr_xy_update))
             push!(xy_step_char_norms, char_norm(curr_xy_update))
             insert_update_into_matrix!(updates_matrix, curr_xy_update, current_update_mat_col)
-            
-            # to be sorted out w rest of Krylov acceleration stuff
-            ws.vars.q .= ws.vars.xy_q[:, 2]
+
 
             just_accelerated = false
             j_restart += 1
@@ -351,7 +354,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         end
         prev_xy_update .= curr_xy_update
 
-        push!(active_proj_flags, ws.active_projections)
+        push!(record_proj_flags, ws.proj_flags)
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
@@ -359,17 +362,17 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
     # END: Compute residuals, their norms, and objective values.
     # TODO: make this stuff modular as opposed to copied from the main loop.
-    primal_residual!(ws, pri_res, ws.p.A, ws.vars.x, ws.p.b)
-    dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, ws.vars.x, ws.vars.y, ws.p.c)
+    primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
+    dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
     curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
-    primal_obj = primal_obj_val(ws.p.P, ws.p.c, ws.vars.x)
-    dual_obj = dual_obj_val(ws.p.P, ws.p.b, ws.vars.x, ws.vars.y)
+    primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
+    dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
     gap = duality_gap(primal_obj, dual_obj)
     
-    curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([ws.vars.x - x_sol; ws.vars.y + y_sol], ws.cache[:char_norm_mat] * [ws.vars.x - x_sol; ws.vars.y + y_sol])) : nothing
-    curr_x_dist = !isnothing(x_sol) ? norm(ws.vars.x - x_sol) : nothing
-    curr_y_dist = !isnothing(y_sol) ? norm(ws.vars.y - (-y_sol)) : nothing
+    curr_xy_semidist = !isnothing(x_sol) ? sqrt(dot([view_x - x_sol; view_y + y_sol], ws.cache[:char_norm_mat] * [view_x - x_sol; view_y + y_sol])) : nothing
+    curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
+    curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
 
     # END: Store metrics if requested.
     # TODO: make this stuff modular as opposed to copied from the main loop.
@@ -393,7 +396,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
         :dual_obj_vals => dual_obj_vals,
         :pri_res_norms => pri_res_norms,
         :dual_res_norms => dual_res_norms,
-        :active_proj_flags => active_proj_flags,
+        :record_proj_flags => record_proj_flags,
         :x_dist_to_sol => x_dist_to_sol,
         :y_dist_to_sol => y_dist_to_sol,
         :xy_semidist => xy_semidist,
