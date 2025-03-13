@@ -35,11 +35,6 @@ function print_results(
         print_output *= @sprintf(" | x err: %12.5e", norm(x - x_sol))
     end
 
-    # Include s error if both s and s_sol are provided
-    if s !== nothing && s_sol !== nothing
-        print_output *= @sprintf(" | s err: %12.5e", norm(s - s_sol))
-    end
-
     # Include y error if both y and y_sol are provided
     if y !== nothing && y_sol !== nothing
         print_output *= @sprintf(" | y err: %12.5e", norm(y - (-y_sol)))
@@ -54,9 +49,9 @@ function print_results(
     # Include duality gap
     print_output *= @sprintf(" | gap: %12.5e", curr_duality_gap)
 
-    # (x, v) distance to solution
+    # (x, y) distance to solution
     if !isnothing(curr_xy_dist)
-        print_output *= @sprintf(" | (x, v) dist: %12.5e", curr_xy_dist)
+        print_output *= @sprintf(" | (x, y) dist: %12.5e", curr_xy_dist)
     end
         
 
