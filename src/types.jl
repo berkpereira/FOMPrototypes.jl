@@ -141,7 +141,7 @@ function (op::CholeskyInvOp)(x::AbstractVector)
 end
 
 # we also define in-place operators of these preconditioners
-function apply_inv!(op::DiagInvOp, x::AbstractMatrix)
+function apply_inv!(op::DiagInvOp, x::AbstractArray)
     # Elementwise in-place multiplication: x becomes op.inv_diag .* x.
     # NB matrices get scaled column by column, as expected
     x .*= op.inv_diag
@@ -149,7 +149,7 @@ function apply_inv!(op::DiagInvOp, x::AbstractMatrix)
 end
 
 # we also define in-place operators of these preconditioners
-function apply_inv!(op::CholeskyInvOp, x::AbstractMatrix{T}) where T <: Real
+function apply_inv!(op::CholeskyInvOp, x::AbstractArray{T}) where T <: Real
     # NB this does very well, and seems to be apply the inverse Cholesky 
     # factors in-place with next to no memory allocations.
     # IT CAN also do it for a two-column input in the same time as for a single

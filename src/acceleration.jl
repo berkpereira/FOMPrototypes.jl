@@ -13,85 +13,6 @@ function update_proj_flags!(proj_flags::BitVector,
 end
 
 """
-This function is lighter than update_affine_dynamics, but still fully
-    determines the affine dynamics of our prototype at a given iteration.
-    We use this for the mat-mat-free implementation of tilde_A-vec products.
-    TODO: adapt this to more general cones (not as simple as QP case).
-"""
-function update_active_projections!(ws::Workspace)
-    ws.active_projections .= ws.vars.y .!= ws.vars.unproj_y
-end
-
-"""
-This function serves a similar purpose to update_enforced_constraints!, but
-is used for "hypothetical" iterates, eg for line searches.
-This is why, even though we pass in the Workspace instace ws---which already
-stores the relevant state variables---we also pass in the vectors v and s.
-"""
-function enforced_contraints_bitvec(ws::Workspace,
-    v::AbstractVector{Float64},
-    s::AbstractVector{Float64})
-    return .!(proj_flags(v, s, ws.p.m, ws.p.K))
-end
-
-
-"""
-To complement update_enforced_constraints!, we also need, still, to update the
-tilde_b vector. As a vector, this is, of course, fine enough to maintain in
-memory.
-"""
-function update_tilde_b!(ws::Workspace)
-    # b_k_π = ws.enforced_constraints .* ws.vars.s # GENERAL CASE
-    b_k_π = zeros(Float64, ws.p.m) # LINEAR CONSTRAINTS CASE
-    top = - ws.cache[:W_inv] * (ws.ρ * ws.p.A' * (2 * b_k_π - ws.p.b) + ws.p.c)
-    bot = - ws.p.A * top + ws.p.b - b_k_π
-    ws.tilde_b .= [top; bot]
-    return
-end
-
-# Recall that pre_x_matrix is often denoted by $W^{-1}$ in my/Paul's notes.
-# TODO: consider making operations in this whole "affinisation" process more
-# efficient. At the moment it is done in quite a naive fashion for proof of 
-# concept.
-function update_affine_dynamics!(ws::Workspace)
-    # Compute the diagonal flag matrices required.
-    D_k_π = Diagonal(proj_flags(ws.vars.v, ws.vars.s, ws.p.m, ws.p.K))
-    new_enforced_constraints = .!D_k_π.diag # Bitwise negation.
-
-    # Dynamics have not changed (and we are past the first iteration).
-    if new_enforced_constraints == ws.enforced_constraints && ws.tilde_A != spzeros(eltype(ws.tilde_A), ws.p.n + ws.p.m, ws.p.n + ws.p.m)
-        return
-    # Enforced constraints (and therefore "affinised" dynamics) have changed.
-    else
-        # Update enforced constraints.
-        ws.enforced_constraints .= new_enforced_constraints
-        
-        # Assemble updated tilde_A.
-        D_k_π_neg = Diagonal(ws.enforced_constraints)
-        trhs = ws.cache[:trhs_pre] * (D_k_π_neg - D_k_π)
-        brhs = -A * trhs + D_k_π_neg
-        ws.tilde_A .= [ws.cache[:tlhs] trhs; ws.cache[:blhs] brhs]
-
-        # NOTE: b_k_π IS ALWAYS ZERO WHEN WE ARE CONSIDERING LINEAR CONSTRAINTS
-        # IE NONNEGATIVE ORTHANT AND ZERO CONES.
-        # b_k_π = D_k_π_neg * ws.vars.s # GENERAL case
-        b_k_π = zeros(Float64, ws.p.m)  # LINEAR CONSTRAINTS case
-
-        # tilde_b IN THE GENERAL CASE
-        tilde_b_top = -ws.cache[:trhs_pre] * (2 * b_k_π - ws.p.b) - ws.cache[:W_inv] * ws.p.c
-        tilde_b_bot = -ws.p.A * tilde_b_top + ws.p.b - b_k_π
-        
-        # NOTE: tilde_b IS INVARIANT IN THE LINEAR CONSTRAINTS CASE
-
-        # Assemble tilde_b.
-        ws.tilde_b .= [tilde_b_top; tilde_b_bot]
-
-        return ws.tilde_A, ws.tilde_b
-    end
-end
-
-
-"""
 This function implements a mat-mat free specification of the application of
 tilde_A to a vector, at some iteration.
 
@@ -147,41 +68,39 @@ implementations of the Arnoldi and Krylov procedures.
 """
 function custom_acceleration_candidate(ws::Workspace,
     krylov_operator_tilde_A::Bool,
-    acceleration_memory::Integer)
-    # The steps at a high-level are the following.
-    
-    # The workspace contains:
+    acceleration_memory::Integer,
+    temp_mn_vec::AbstractVector{Float64},
+    temp_n_vec1::AbstractVector{Float64},
+    temp_n_vec2::AbstractVector{Float64},
+    temp_m_vec::AbstractVector{Float64})
+    # note, Workspace should contain:
     # ws.cache[:H], the Arnoldi upper Hessenberg matrix.
     # ws.cache[:krylov_basis], the Arnoldi-Krylov orthonormal basis matrix.
-    # ws.tilde_A, the affine operator matrix.
-    # ws.tilde_b, the affine operator vector.
-    
-    
-    # rhs_res = ws.tilde_A * ws.vars.x_v_q[:, 1] + ws.tilde_b - ws.vars.x_v_q[:, 1]
 
-    # NOTE: need to pre-multiply by the transpose of "Q_{k+1}" here.
-    # This is assumed by the function krylov_least_squares!
-    rhs_res_custom = ws.cache[:krylov_basis]' * (tilde_A_prod(ws, ws.enforced_constraints, ws.vars.x_v_q[:, 1]) + ws.tilde_b - ws.vars.x_v_q[:, 1])
+    # TODO pre-allocate working vectors in this function when acceleration
+    # is used
+
+    # compute iterate from xy_q[:, 1], and store it in temp_mn_vec
+    onecol_method_operator!(ws, ws.vars.xy_q[:, 1], temp_mn_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    rhs_res_custom = ws.cache[:krylov_basis]' * (temp_mn_vec - ws.vars.xy_q[:, 1])
     
+    # compute Hessenber LLS solution, reduced dimension y
     if krylov_operator_tilde_A
         shifted_hessenberg = ws.cache[:H] - [I(acceleration_memory - 1); zeros(1, acceleration_memory - 1)]
+        
+        # TODO pre-allocate vector/memory for y_krylov_sol ? below too, then
         y_krylov_sol = krylov_least_squares!(shifted_hessenberg, rhs_res_custom)
     else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
         y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
-        
-        # coeff_mat = ws.cache[:krylov_basis] * ws.cache[:H]
-        # y_krylov_sol = (coeff_mat' * coeff_mat) \ (coeff_mat' * (-rhs_res))
     end
 
-    gmres_sol = ws.vars.x_v_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
-    
-    # NOTE: only left to convert from GMRES problem solution to Anderson
-    # acceleration problem solution (see Walker and Ni, 2011 for details).
-    
-    # TODO: question this? tilde_b and tilde_A may no longer make sense from
-    # the point which we have just computed? Not sure what's most sensible.
-    # Possible alternative would be to just return gmres_sol.
-    acceleration_point = tilde_A_prod(ws, ws.enforced_constraints, gmres_sol) + ws.tilde_b
+    # compute full-dimension LLS solution
+    gmres_sol = ws.vars.xy_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
+
+    # TODO pre-allocate memory for acceleration_point ?
+    acceleration_point = zeros(Float64, ws.p.n + ws.p.m)
+    # obtain actual acceleration candidate
+    onecol_method_operator!(ws, gmres_sol, acceleration_point, temp_n_vec1, temp_n_vec2, temp_m_vec)
     
     return acceleration_point
 end

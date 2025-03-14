@@ -28,26 +28,26 @@ should be applying some of the operator's action to both the vectors of
 interest. Mainly for this reason, it makes sense to encapsulate both of these
 tasks within this single function.
 
-temp_n_mat should be of dimension n by 2
+temp_n_mat1 should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
-function method_operator!(ws::Workspace,
-    temp_n_mat::AbstractMatrix{Float64},
+function twocol_method_operator!(ws::Workspace,
+    krylov_operator_tilde_A::Bool,
+    temp_n_mat1::AbstractMatrix{Float64},
     temp_n_mat2::AbstractMatrix{Float64},
     temp_m_mat::AbstractMatrix{Float64},
-    temp_m_vec::AbstractVector{Float64},
     temp_n_vec_complex::AbstractVector{ComplexF64},
     temp_m_vec_complex::AbstractVector{ComplexF64})
     
     # working variable is ws.vars.xy_q, with two columns
     
-    @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # A * x
-    temp_m_mat .-= ws.p.b
+    @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # compute A * [x, q_n]
+    temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
     temp_m_mat .*= ws.ρ
-    @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :]
+    @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
     @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
-    @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # result of this is y_{k+1}
+    @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # temp_m_mat[:, 1] now stores y_{k+1}
     
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes notes
@@ -55,31 +55,84 @@ function method_operator!(ws::Workspace,
 
     # can now compute the bit of q corresponding to the y iterate
     temp_m_mat[:, 2] .*= ws.proj_flags
-    @views temp_m_vec .= (.!ws.proj_flags) .* temp_m_mat[:, 1] # temp_m_mat[:, 1] at this point stores y_{k+1}
-    temp_m_mat[:, 2] .+= temp_m_vec # result of this is the new q_m vector
+    if !krylov_operator_tilde_A # ie use B = A - I as krylov operator
+        temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
+    end
+    # NOTE: temp_m_mat[:, 2] now stores UPDATED q_m
     
     # now compute bar iterates (y and q_m) concurrently
     @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
     
-    # ASSIGN new y and q_m
+    # ASSIGN new y and q_m to Workspace variables
     ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
 
-    # now onto the bulk of x and q_n update
-    @views two_col_mul!(temp_n_mat, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # P * x
-    temp_n_mat .+= ws.p.c # add linear part of objective
-    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_n_vec_complex, temp_m_vec_complex) # A' * y_bar
-    temp_n_mat .+= temp_n_mat2 # this is to be pre-multiplied by W^{-1}
+    # now we go to "bulk of" x and q_n update
+    @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # compute P * [x, q_n]
+    temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective to P * x (but NOT to P * q_n)
+    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_n_vec_complex, temp_m_vec_complex) # compute A' * [y_bar, q_m_bar]
+    temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
-    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat
-    apply_inv!(ws.cache[:W_inv], temp_n_mat)
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
+    apply_inv!(ws.cache[:W_inv], temp_n_mat1)
 
-    # ASSIGN new x and q_n
-    ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat
+    # ASSIGN new x and q_n: subtract off what we just computed, both columns
+    if krylov_operator_tilde_A
+        ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1
+    else # ie use B = A - I as krylov operator
+        @views ws.vars.xy_q[1:ws.p.n, 1] .-= temp_n_mat1[:, 1] # as above
+        @views ws.vars.xy_q[1:ws.p.n, 2] .= -temp_n_mat1[:, 2] # simpler
+    end
+
+    return nothing
+end
+
+"""
+This function is somewhat analogous to twocol_method_operator!, but it is
+concerned only with applying the iteration to some actual iterate, ie
+it does not consider any sort of concurrent Arnoldi-like process.
+
+This is convenient whenever we need the method's operator but without
+updating an Arnoldi vector, eg when solving the upper Hessenber linear least
+squares problem following from the Krylov/Anderson acceleration subproblem.
+
+Note that xy is the "current" iterate as a single vector in R^{n+m}.
+Solution is written in-place onto result_vec.
+"""
+function onecol_method_operator!(ws::Workspace,
+    xy::AbstractVector{Float64},
+    result_vec::AbstractVector{Float64},
+    temp_n_vec1::AbstractVector{Float64},
+    temp_n_vec2::AbstractVector{Float64},
+    temp_m_vec::AbstractVector{Float64})
+
+    @views mul!(temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
+    # @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # compute A * [x, q_n]
+    temp_m_vec .-= ws.p.b # subtract b from A * x
+    # temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
+    temp_m_vec .*= ws.ρ
+    # temp_m_mat .*= ws.ρ
+    @views temp_m_vec .+= xy[ws.p.n+1:end] # add current
+    # @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
+    @views project_to_dual_K!(temp_m_vec, ws.p.K) # temp_m_vec now stores y_{k+1}
+    # @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # temp_m_mat[:, 1] now stores y_{k+1}
     
-    # TODO: figure out different operations based on the Krylov operator to use
-    # for q: tilde_A or B := tilde_A - I.
-    # TAKE OUT non-linear affine bit, i.e. tilde_b, for q sequence.
+    # now compute y_bar
+    # @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
 
+    # now we go to "bulk of" x and q_n update
+    @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
+    temp_n_vec1 .+= ws.p.c # add linear part of objective to P * x
+    @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
+    # TODO pre-allocate memory for the bar iterate in this mul! call?
+    temp_n_vec1 .+= temp_n_vec2 # this is what is pre-multiplied by W^{-1}
+    
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
+    apply_inv!(ws.cache[:W_inv], temp_n_vec1)
+
+    # assign new iterates
+    @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - temp_n_vec1
+    result_vec[ws.p.n+1:end] .= temp_m_vec
+    
     return nothing
 end
 
@@ -205,21 +258,25 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     function char_norm(vector::AbstractArray{Float64})
         return sqrt(dot(vector, ws.cache[:char_norm_mat] * vector))
     end
-    
-    # for restarts, keep average iterates
-    if restart_period != Inf
-        x_avg = copy(view_x)
-        y_avg = copy(view_y)
+
+    # if using (Krylov) acceleration, init krylov basis and Hessenberg arrays
+    if acceleration
+        ws.cache[:krylov_basis] = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
+        ws.cache[:H] = init_upper_hessenberg(acceleration_memory)
     end
+    
+    # init acceleration trigger flag
+    just_accelerated = true
 
     # pre-allocate vectors to store auxiliary quantities, residuals, etc.
     pri_res = zeros(Float64, ws.p.m)
     dual_res = zeros(Float64, ws.p.n)
-    temp_n_mat = zeros(Float64, ws.p.n, 2)
+    temp_n_mat1 = zeros(Float64, ws.p.n, 2)
     temp_n_mat2 = zeros(Float64, ws.p.n, 2)
     temp_m_mat = zeros(Float64, ws.p.m, 2)
-    temp_n_vec = zeros(Float64, ws.p.n) # memory for intermediate computations
-    temp_m_vec = zeros(Float64, ws.p.m)
+    temp_n_vec1 = zeros(Float64, ws.p.n) # memory for intermediate computations
+    temp_n_vec2 = zeros(Float64, ws.p.n) 
+    temp_mn_vec = zeros(Float64, ws.p.n + ws.p.m)
     temp_n_vec_complex = zeros(ComplexF64, ws.p.n)
     temp_m_vec_complex = zeros(ComplexF64, ws.p.m)
     acc_pri_res = zeros(Float64, ws.p.m)
@@ -256,11 +313,6 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     curr_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
     prev_xy_update = Vector{Float64}(undef, ws.p.n + ws.p.m)
 
-    # This flag helps us keep track of whether we should forgo the notion of a
-    # "previous" step, including in the very first iteration.
-    just_restarted = true
-    just_accelerated = true
-
     for k in 0:max_iter
         # Update average iterates
         if restart_period != Inf
@@ -270,7 +322,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
         # Compute residuals, their norms, and objective values.
         primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-        dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+        dual_residual!(dual_res, temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
         curr_pri_res_norm = norm(pri_res, residual_norm)
         curr_dual_res_norm = norm(dual_res, residual_norm)
         primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
@@ -314,37 +366,72 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
         ### ITERATE ###
         
-        # STANDARD OR LINESEARCH ITERATION.
-    
+        # record previous iterate before going into iteration code
         prev_xy .= ws.vars.xy_q[:, 1]
 
-        linesearch_success = false #init to access outside conditional
-        if k % linesearch_period == 0 && k > 0 # LINESEARCH ATTEMPT
-            linesearch_success, linesearch_update, linesearch_lookahead = fixed_point_linesearch!(ws, linesearch_α_max, linesearch_β, linesearch_ϵ, char_norm, krylov_operator_tilde_A, k)
+        if acceleration && k % (acceleration_memory + 1) == 0 && k > 0
+            @views accelerated_point = custom_acceleration_candidate(ws, krylov_operator_tilde_A, acceleration_memory, temp_mn_vec, temp_n_vec1, temp_n_vec2, temp_m_mat[:, 1])
             
-            #TODO: get rid of this line:
-            # supposed_lookahead .= linesearch_lookahead
+            # TODO check whether residuals are sensible in the new (x, y) setup
+            @views primal_residual!(ws, acc_pri_res, ws.p.A, accelerated_point[1:ws.p.n], ws.p.b)
+            @views dual_residual!(acc_dual_res, temp_n_vec1, ws.p.P, ws.p.A, accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end], ws.p.c)
 
-            if linesearch_success
-                push!(linesearch_iters, k)
+            if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res, residual_norm)
+                println("Accepted acceleration candidate at iteration $k.")
+                push!(acc_step_iters, k)
+
+                @views curr_xy_update .= accelerated_point - ws.vars.xy_q[:, 1]
+                
+                # assign actually
+                ws.vars.xy_q[:, 1] .= accelerated_point
+
+                # reset update vector matrix data
+                updates_matrix .= 0.0
+                current_update_mat_col = Ref(1)
+
+                push!(xy_step_norms, NaN)
+                push!(xy_step_char_norms, NaN)
+            else
+                push!(xy_step_norms, NaN)
+                push!(xy_step_char_norms, NaN)
             end
-        else # STANDARD (no line search) ITERATION
-            method_operator!(ws, temp_n_mat, temp_n_mat2,
-            temp_m_mat, temp_m_vec, temp_n_vec_complex, temp_m_vec_complex)
 
-            # assign to xy_q variable
-            ws.vars.xy_q[:, 1] .= [view_x; view_y]
+            # reset krylov acceleration data at each attempt regardless of success
+            ws.cache[:krylov_basis] .= 0.0
+            ws.cache[:H] .= 0.0
+
+            just_accelerated = true
+
+        else # STANDARD ITERATION
+            # apply method operator (to both (x, y) and Arnoldi (q) vectors)
+            twocol_method_operator!(ws, krylov_operator_tilde_A, temp_n_mat1, temp_n_mat2,
+            temp_m_mat, temp_n_vec_complex, temp_m_vec_complex)
 
             curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
+            # record iteration data
             push!(xy_step_norms, norm(curr_xy_update))
             push!(xy_step_char_norms, char_norm(curr_xy_update))
             insert_update_into_matrix!(updates_matrix, curr_xy_update, current_update_mat_col)
 
+            if acceleration && just_accelerated
+                # assign initial vector in the Krylov basis as initial 
+                # fixed-point residual
+                ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] - prev_xy
+                # normalise
+                @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+                # store in Krylov basis
+                ws.cache[:krylov_basis][:, 1] .= ws.vars.xy_q[:, 2]
+            elseif acceleration
+                # Arnoldi "step", orthogonalises the incoming basis vector
+                # and updates the Hessenberg matrix appropriately, all in-place
+                arnoldi_step!(ws.cache[:krylov_basis], ws.vars.xy_q[:, 2], ws.cache[:H])
+            end
 
+            # reset krylov acceleration flag
             just_accelerated = false
-            j_restart += 1
 
+            j_restart += 1
         end
         
         # Store cosine between last two iterate updates.
@@ -363,7 +450,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
     # END: Compute residuals, their norms, and objective values.
     # TODO: make this stuff modular as opposed to copied from the main loop.
     primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-    dual_residual!(dual_res, temp_n_vec, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+    dual_residual!(dual_res, temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
     curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)

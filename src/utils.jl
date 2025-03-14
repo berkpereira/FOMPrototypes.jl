@@ -371,12 +371,11 @@ end
 
 """
 Perform one Modified Gram-Schmidt orthogonalisation step for Krylov methods.
-RETURNS the result of the orthogonalisation of the input new vector (usable
-for fields of mutable structs).
+Orthogonalises the new vector IN-PLACE.
 
 Inputs:
 - V::Matrix{T}: Existing tall matrix of orthonormal vectors (pre-allocated, may contain zero columns).
-- v_new::Vector{T}: New vector to orthonormalize.
+- v_new::Vector{T}: New vector to orthonormalise in-place.
 - H::Matrix{T}: Upper Hessenberg matrix (to be updated in-place).
 
 Assumptions:
@@ -401,7 +400,7 @@ function arnoldi_step!(V::AbstractMatrix{T},
         H[j, k] = dot(V[:, j], v_new)
 
         # Subtract the projection from v_new.
-        v_new -= H[j, k] .* V[:, j]
+        v_new .-= H[j, k] .* V[:, j]
     end
 
     # Compute the norm of the orthogonalised vector.
@@ -413,12 +412,12 @@ function arnoldi_step!(V::AbstractMatrix{T},
     end
 
     # Normalize v_new to make it unit length
-    v_new /= H[k + 1, k]
+    v_new ./= H[k + 1, k]
 
     # Place the orthonormalized vector into the basis matrix V
     V[:, k + 1] .= v_new
 
-    return v_new
+    return nothing
 end
 
 """
