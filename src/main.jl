@@ -55,8 +55,8 @@ function choose_problem()
     if problem_option === :LASSO
         problem_set = "sslsq"
         # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
-        problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        # Additional LASSO options commented out...
+        # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
+        problem_name = "HB_ash219_lasso"
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -162,7 +162,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     
     #krylov acceleration
     ACCEL_MEMORY = 19
-    ACCELERATION = false
+    ACCELERATION = true
     KRYLOV_OPERATOR_TILDE_A = false
     
     #line search
