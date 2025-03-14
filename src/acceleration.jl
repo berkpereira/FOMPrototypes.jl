@@ -88,9 +88,10 @@ function custom_acceleration_candidate(ws::Workspace,
     if krylov_operator_tilde_A
         shifted_hessenberg = ws.cache[:H] - [I(acceleration_memory - 1); zeros(1, acceleration_memory - 1)]
         
-        # TODO pre-allocate vector/memory for y_krylov_sol ? below too, then
+        # TODO pre-allocate vector/memory for y_krylov_sol ?
         y_krylov_sol = krylov_least_squares!(shifted_hessenberg, rhs_res_custom)
     else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
+        # TODO pre-allocate vector/memory for y_krylov_sol ?
         y_krylov_sol = krylov_least_squares!(ws.cache[:H], rhs_res_custom)
     end
 
@@ -98,9 +99,8 @@ function custom_acceleration_candidate(ws::Workspace,
     gmres_sol = ws.vars.xy_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
 
     # TODO pre-allocate memory for acceleration_point ?
-    acceleration_point = zeros(Float64, ws.p.n + ws.p.m)
-    # obtain actual acceleration candidate
-    onecol_method_operator!(ws, gmres_sol, acceleration_point, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    # obtain actual acceleration candidate, write it to temp_mn_vec
+    onecol_method_operator!(ws, gmres_sol, temp_mn_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
     
-    return acceleration_point
+    return temp_mn_vec
 end

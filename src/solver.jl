@@ -404,8 +404,7 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
 
         else # STANDARD ITERATION
             # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-            twocol_method_operator!(ws, krylov_operator_tilde_A, temp_n_mat1, temp_n_mat2,
-            temp_m_mat, temp_n_vec_complex, temp_m_vec_complex)
+            twocol_method_operator!(ws, krylov_operator_tilde_A, temp_n_mat1, temp_n_mat2, temp_m_mat, temp_n_vec_complex, temp_m_vec_complex)
 
             curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
@@ -417,15 +416,15 @@ function optimise!(ws::Workspace, max_iter::Integer, print_modulo::Integer;
             if acceleration && just_accelerated
                 # assign initial vector in the Krylov basis as initial 
                 # fixed-point residual
-                ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] - prev_xy
+                @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] - prev_xy
                 # normalise
                 @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
                 # store in Krylov basis
-                ws.cache[:krylov_basis][:, 1] .= ws.vars.xy_q[:, 2]
+                @views ws.cache[:krylov_basis][:, 1] .= ws.vars.xy_q[:, 2]
             elseif acceleration
                 # Arnoldi "step", orthogonalises the incoming basis vector
                 # and updates the Hessenberg matrix appropriately, all in-place
-                arnoldi_step!(ws.cache[:krylov_basis], ws.vars.xy_q[:, 2], ws.cache[:H])
+                @views arnoldi_step!(ws.cache[:krylov_basis], ws.vars.xy_q[:, 2], ws.cache[:H])
             end
 
             # reset krylov acceleration flag
