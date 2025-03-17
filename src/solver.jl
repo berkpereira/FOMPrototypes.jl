@@ -6,7 +6,7 @@ using Infiltrator
 include("types.jl")
 include("utils.jl")
 include("residuals.jl")
-include("acceleration.jl")
+include("krylov_acceleration.jl")
 include("linesearch.jl")
 include("printing.jl")
 

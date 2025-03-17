@@ -7,7 +7,7 @@ include("problem_data.jl")
 include("solver.jl")
 include("printing.jl")
 include("plotting.jl")
-include("acceleration.jl")
+include("krylov_acceleration.jl")
 
 # Import packages.
 using Revise
@@ -153,7 +153,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
     variant = 1  #in {-1, 0, 1, 2, 3, 4}
     
-    MAX_ITER = 1000
+    MAX_ITER = 800
     PRINT_MOD = 50
     RES_NORM = Inf
     
@@ -378,4 +378,4 @@ function main()
 end
 
 # call main()
-# ws, results = main();
+ws, results = main();

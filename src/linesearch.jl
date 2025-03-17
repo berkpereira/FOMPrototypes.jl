@@ -1,6 +1,6 @@
 using LinearAlgebra, Printf, Infiltrator
 include("utils.jl")
-include("acceleration.jl")
+include("krylov_acceleration.jl")
 include("types.jl")
 
 """
