@@ -3,7 +3,7 @@ using Printf
 # Function below prints in the format given
 
 function print_results(
-    k::Int,
+    k::Int, run_fast::Bool, print_modulo::Int,
     curr_obj::Float64,
     primal_res_norm::Float64,
     dual_res_norm::Float64,
@@ -16,6 +16,11 @@ function print_results(
     y::Union{Vector{Float64}, Nothing} = nothing,
     terminated::Bool = false
 )
+    # if running fast or not at print_modulo, do nothing
+    if run_fast || k % print_modulo != 0
+        return
+    end
+
     if terminated
         println("--------------------")
         println("     TERMINATED     ")
