@@ -48,15 +48,14 @@ end
 # 2. Problem Selection & Data Fetch #
 #####################################
 
-function choose_problem()
+function choose_problem(problem_option::Symbol)
     # Choose problem option. Valid options: :LASSO, :HUBER, :MAROS, :GISELSSON
-    problem_option = :LASSO
 
     if problem_option === :LASSO
         problem_set = "sslsq"
         # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
-        # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        problem_name = "HB_ash219_lasso"
+        problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
+        # problem_name = "HB_ash219_lasso"
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -151,49 +150,53 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     #basic params
     ρ = 1.0
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
-    variant = 1  #in {-1, 0, 1, 2, 3, 4}
+    VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
     
-    MAX_ITER = 800
+    MAX_ITER = 1000
     PRINT_MOD = 50
     RES_NORM = Inf
+    RUN_FAST = false
     
     #restarts
     RESTART_PERIOD = Inf
     
-    #krylov acceleration
+    #acceleration
     ACCEL_MEMORY = 19
-    ACCELERATION = true
+    ANDERSON_PERIOD = 20
+    ACCELERATION = :none
     KRYLOV_OPERATOR_TILDE_A = false
     
     #line search
     LINESEARCH_PERIOD = Inf
     LINESEARCH_ϵ = 0.001
     
-    #monitoring "affine" operator structure
-    COMPUTE_OPERATOR_EXPLICITLY = false
-    SPEC_PLOT_PERIOD = 26
-    
     # NB we do not compute A' * A, just store its specification as a linear map
     A_gram = LinearMap(x -> A' * (A * x), size(A, 2), size(A, 2); issymmetric = true)
 
-    if variant != 0 # we skip this if using ADMM
-        take_away_op = build_operator(variant, P, A, A_gram, ρ)
+    if VARIANT != :ADMM
+        take_away_op = build_operator(VARIANT, P, A, A_gram, ρ)
         Random.seed!(42)  # seed for reproducibility
         max_τ = 1 / dom_λ_power_method(take_away_op, 30)
+        τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
     end
     
-    τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
+    
 
-    println("RUNNING PROTOTYPE VARIANT $variant...")
+    println("RUNNING PROTOTYPE VARIANT $VARIANT...")
     println("Problem set/name: $problem_set/$problem_name")
-    println("Restart period: $RESTART_PERIOD")
     println("Acceleration: $ACCELERATION")
-    if ACCELERATION
+    if ACCELERATION in [:krylov, :anderson]
         println("Acceleration memory: $ACCEL_MEMORY")
     end
 
     # Initialize the workspace.
-    ws = Workspace(problem, variant, τ, ρ, θ)
+    if ACCELERATION != :krylov
+        one_col = true
+    else
+        one_col = false
+    end
+
+    ws = Workspace(problem, VARIANT, τ, ρ, θ, one_col)
     ws.cache[:A_gram] = A_gram
 
     # Run the solver (time the execution).
@@ -203,26 +206,27 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
         results = optimise!(ws,
             MAX_ITER,
             PRINT_MOD,
+            RUN_FAST,
+            ACCELERATION,
             restart_period = RESTART_PERIOD,
             residual_norm = RES_NORM,
-            acceleration = ACCELERATION,
             acceleration_memory = ACCEL_MEMORY,
+            anderson_period = ANDERSON_PERIOD,
+            krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
             linesearch_period = LINESEARCH_PERIOD,
             linesearch_ϵ = LINESEARCH_ϵ,
-            krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
             x_sol = x_ref, y_sol = y_ref,
-            explicit_affine_operator = COMPUTE_OPERATOR_EXPLICITLY,
-            spectrum_plot_period = SPEC_PLOT_PERIOD)
+            explicit_affine_operator = false)
     end
 
-    return ws, results, variant, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A
+    return ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A
 end
 
 ###############################
 # 5. Refactored Plotting Block #
 ###############################
 
-function plot_results(results, variant, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+function plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
     ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
     problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A; show_vlines::Bool = true)
 # Plotting constants.
@@ -230,7 +234,7 @@ LINEWIDTH = 2.5
 VERT_LINEWIDTH = 1.5
 ALPHA = 0.9
 
-title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $variant $newline_char"
+title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $VARIANT $newline_char"
 title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY).$newline_char Linesearch period = $LINESEARCH_PERIOD."
 
 if KRYLOV_OPERATOR_TILDE_A
@@ -295,13 +299,16 @@ add_vlines!(xy_dist_plot)
 display(xy_dist_plot)
 
 # (x, y) characteristic norm distance to solution plot.
-seminorm_plot = plot(0:MAX_ITER+1, results.data[:xy_semidist], linewidth=LINEWIDTH,
+seminorm_plot = plot(0:MAX_ITER+1, results.data[:xy_chardist], linewidth=LINEWIDTH,
 label="(x, y) Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
 title="$title_beginning (x, y) Characteristic Norm Distance to Solution $krylov_operator_str $title_end", yaxis=:log)
 add_vlines!(seminorm_plot)
 display(seminorm_plot)
 
 # (x, y) step norms plot.
+
+@infiltrate
+
 xy_step_norms_plot = plot(0:MAX_ITER, results.data[:xy_step_norms], linewidth=LINEWIDTH,
     label="(x, y) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm",
     title="$title_beginning (x, y) l2 Step Norm $krylov_operator_str $title_end", yaxis=:log)
@@ -345,12 +352,14 @@ end
 
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
+    PROBLEM_OPTION = :LASSO
+
     newline_char = initialize_project()
 
     # Choose the problem and fetch data.
     println()
     println("About to import problem data...")
-    problem_option, problem_set, problem_name = choose_problem()
+    problem_option, problem_set, problem_name = choose_problem(PROBLEM_OPTION)
     problem, P, c, A, b, m, n, K = fetch_data(problem_option, problem_set, problem_name)
 
     # Solve the reference problem (Clarabel/SCS).
@@ -361,14 +370,14 @@ function main()
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
-    ws, results, variant, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY,
+    ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY,
     LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A =
         run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name)
 
     # Generate refactored plots.
     println()
     println("About to plot results...")
-    plot_results(results, variant, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+    plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
                  ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
                  problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
                  show_vlines = false)
