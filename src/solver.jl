@@ -274,10 +274,12 @@ function push_to_record!(ws::Workspace, record::NamedTuple, run_fast::Bool,
         if k > 0
             # NB: effective rank counts number of normalised singular values
             # larger than a specified small tolerance (eg 1e-8).
-            curr_effective_rank, curr_singval_ratio = effective_rank(record.updates_matrix, 1e-8)
-            push!(record.update_mat_ranks, curr_effective_rank)
-            push!(record.update_mat_singval_ratios, curr_singval_ratio)
-            push!(record.update_mat_iters, k)
+            # curr_effective_rank, curr_singval_ratio = effective_rank(record.updates_matrix, 1e-8)
+            # push!(record.update_mat_ranks, curr_effective_rank)
+            # push!(record.update_mat_singval_ratios, curr_singval_ratio)
+            # push!(record.update_mat_iters, k)
+            
+            nothing
         end
         if !isnothing(x_sol)
             push!(record.x_dist_to_sol, curr_x_dist)
@@ -487,20 +489,17 @@ function optimise!(ws::Workspace,
                 # overwites ws.vars.xy
                 COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, aa, k_anderson)
 
-                # set flag for Anderson success
-                if temp_mn_vec1 .== ws.vars.xy
-                    anderson_success = false
-                else
-                    anderson_success = true
-                end
-
-                # account for records as appropriate
                 if !run_fast
-                    if anderson_success
+                    # record step (might be zero if acceleration failed)
+                    curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+
+                    # account for records as appropriate
+                    if curr_xy_update .== 0.0
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col = Ref(1)
                     end
+                    
                     # prevent recording large or zero update norm
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
@@ -525,10 +524,16 @@ function optimise!(ws::Workspace,
                     # on acceleration attempts --- only on standard ones
                     k_anderson += 1
                 end
-            end
 
-            # record step (might be zero if acceleration failed)
-            curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+                if !run_fast
+                    # record step (might be zero if acceleration failed)
+                    curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+
+                    # record iteration data here
+                    push!(record.xy_step_norms, norm(curr_xy_update))
+                    push!(record.xy_step_char_norms, char_norm(curr_xy_update))
+                end
+            end
         end
         
         # store cosine between last two iterate updates
@@ -596,8 +601,6 @@ function optimise!(ws::Workspace,
             :xy_update_cosines => record.xy_update_cosines
         )
     end
-
-    @infiltrate
 
     return results
 end
