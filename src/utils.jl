@@ -89,7 +89,7 @@ Constructs a LinearMap for one of the following operators (assuming P is n×n):
 
 The operator R(B) is defined as B with its diagonal set to zero.
 """
-function build_operator(variant::Integer, P::Symmetric,
+function build_operator(variant::Union{Integer, Symbol}, P::Symmetric,
     A::AbstractMatrix, A_gram::Union{LinearMap{Float64}, AbstractMatrix{Float64}},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
@@ -126,7 +126,7 @@ function build_operator(variant::Integer, P::Symmetric,
             y
         end
     else
-        error("Unknown variant: choose 1, 2, 3, or 4.")
+        error("Variant not applicable: choose 1, 2, 3, or 4.")
     end
     
     # In our use cases the resulting operator is symmetric.
@@ -172,15 +172,13 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
-function W_operator(variant_no::Integer, P::Symmetric, A::AbstractMatrix,
+function W_operator(variant::Union{Integer, Symbol}, P::Symmetric, A::AbstractMatrix,
     A_gram::LinearMap, τ::Float64, ρ::Float64)
     n = size(A_gram, 1)
     
-    # variant_no = -1 ==> vanilla PDHG
-    if variant_no == -1
+    if variant == :PDHG
         pre_operator = Symmetric(sparse(I(n)) / τ + P)
-    # variant_no = 0 ==> ADMM
-    elseif variant_no == 0
+    elseif variant == :ADMM
         # note: I think in this case I am forced to form the 
         # matrix P + ρ * A' * A explicitly, in order to then compute
         # its Cholesky factors.
@@ -188,20 +186,20 @@ function W_operator(variant_no::Integer, P::Symmetric, A::AbstractMatrix,
     
     ################ DIAGONAL pre-gradient operators ################
 
-    elseif variant_no == 1
+    elseif variant == 1
         dP = diag(P)
         dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
         pre_operator = Diagonal(sparse(ones(n)) / τ + dP + dA)
-    elseif variant_no == 2
+    elseif variant == 2
         pre_operator = Diagonal(sparse(ones(n)) / τ)
-    elseif variant_no == 3
+    elseif variant == 3
         dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
         pre_operator = Diagonal(sparse(ones(n)) / τ + dA)
-    elseif variant_no == 4
+    elseif variant == 4
         dP = diag(P)
         pre_operator = Diagonal(sparse(ones(n)) / τ + dP)
     else
-        error("Invalid variant: $variant_no.")
+        error("Invalid variant: $variant.")
     end
 
     return pre_operator
@@ -285,9 +283,10 @@ function project_to_dual_K!(y::AbstractVector{Float64}, K::Vector{Clarabel.Suppo
 
         # Project portion of y depending on each cone's DUAL
         if cone isa Clarabel.NonnegativeConeT
+            # nonnegative orthant is self-dual
             @views y[start_idx:end_idx] .= max.(y[start_idx:end_idx], 0)
         elseif cone isa Clarabel.ZeroConeT
-            nothing # dual cone is the whole vector space
+            nothing # dual cone is the whole space
         else
             error("Unsupported cone type: $typeof(cone)")
         end
@@ -474,6 +473,16 @@ function insert_update_into_matrix!(matrix, update, current_col_ref)
 
     # Update the column index in a circular fashion.
     current_col_ref[] = current_col_ref[] % size(matrix, 2) + 1
+end
+
+"""
+This function swaps, in-place, the contents of vectors x and y.
+It requires a temp working vector.
+"""
+function custom_swap!(x::AbstractVector{Float64}, y::AbstractVector{Float64}, temp::AbstractVector{Float64})
+    copy!(temp, x)
+    copy!(x, y)
+    copy!(y, temp)
 end
 
 """
