@@ -8,7 +8,7 @@ function primal_residual!(ws::Workspace, r::AbstractVector{Float64}, A::Abstract
     
     # TODO: consider how to compute this for more general cones than in the
     # QP case.
-    project_to_K!(r, ws.p.K)
+    project_to_dual_K!(r, ws.p.K)
     
     return nothing
 end
