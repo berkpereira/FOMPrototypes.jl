@@ -30,7 +30,9 @@ abstract type AbstractInvOp end
 end
 ProblemData(args...) = ProblemData{DefaultFloat}(args...)
 
-struct Variables{T}
+abstract type AbstractVariables{T<:AbstractFloat} end
+
+struct Variables{T <: AbstractFloat} <: AbstractVariables{T}
     # Consolidated (x, y) vector and q vector (for Krylov basis building).
     # (x, y) is exactly as it sounds. q is for building a basis with an
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
@@ -48,28 +50,22 @@ struct Variables{T}
 end
 Variables(args...) = Variables{DefaultFloat}(args...)
 
-@with_kw mutable struct RunResults{T <: AbstractFloat}
-    # Primal and dual objective values.
-    primal_obj::AbstractVector{T} = T[]
-    dual_obj::AbstractVector{T} = T[]
-
-    # Duality gap.
-    gaps::AbstractVector{T} = T[]
-
-    # Primal and dual residuals.
-    pri_res::AbstractVector{T} = T[]
-    dual_res::AbstractVector{T} = T[]
+struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
+    xy::AbstractVector{T}
+    
+    function OnecolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(zeros(n + m))
+    end
 end
-RunResults(args...) = RunResults{DefaultFloat}(args...)
+OnecolVariables(args...) = OnecolVariables{DefaultFloat}(args...)
 
-
-@with_kw mutable struct Workspace{T <: AbstractFloat}
+@with_kw mutable struct Workspace{T <: AbstractFloat, V <: AbstractVariables{T}}
     # Problem data.
     p::ProblemData{T}
-    vars::Variables{T}
+    vars::V
 
     # select method variant (to do with the proximal penalty norm used).
-    variant::Int # In {-1, 0, 1, 2, 3, 4}.
+    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
 
     # primal and dual step sizes
     τ::T
@@ -84,15 +80,26 @@ RunResults(args...) = RunResults{DefaultFloat}(args...)
     cache::Dict{Symbol, Any}
 
     # Constructor where initial iterates are passed in.
-    function Workspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    function Workspace{T}(p::ProblemData{T}, vars::AbstractVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, vars, variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}());
+        new{T, typeof(vars)}(p, vars, variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}());
     end
 
     # Constructor where initial iterates are not passed (default set to zero).
-    function Workspace{T}(p::ProblemData{T}, variant::Int, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    # if no onecol boolean specified, we default to the two-column setup.
+    function Workspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new(p, Variables(p.m, p.n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
+        new{T, Variables{T}}(p, Variables(p.m, p.n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
+    end
+
+    # if a onecol boolean is provided, this informs the constructor
+    function Workspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, onecol::Bool) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        if onecol
+            new{T, OnecolVariables{T}}(p, OnecolVariables(m, n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
+        else
+            new{T, Variables{T}}(p, Variables(m, n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
+        end
     end
 end
 Workspace(args...) = Workspace{DefaultFloat}(args...)
@@ -100,6 +107,20 @@ Workspace(args...) = Workspace{DefaultFloat}(args...)
 @with_kw mutable struct Results{T <: AbstractFloat}
     data::Dict{Symbol, Any} = Dict{Symbol,Any}()
 end
+
+@with_kw mutable struct RunResults{T <: AbstractFloat}
+    # Primal and dual objective values.
+    primal_obj::AbstractVector{T} = T[]
+    dual_obj::AbstractVector{T} = T[]
+
+    # Duality gap.
+    gaps::AbstractVector{T} = T[]
+
+    # Primal and dual residuals.
+    pri_res::AbstractVector{T} = T[]
+    dual_res::AbstractVector{T} = T[]
+end
+RunResults(args...) = RunResults{DefaultFloat}(args...)
 
 # We now define some types to make the inversion of preconditioner + Hessian
 # matrices, required for the x update, abstract. Thus we can use diagonal ones
