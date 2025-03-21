@@ -38,12 +38,13 @@ function twocol_method_operator!(ws::Workspace,
     temp_n_mat1::AbstractMatrix{Float64},
     temp_n_mat2::AbstractMatrix{Float64},
     temp_m_mat::AbstractMatrix{Float64},
-    temp_n_vec_complex::AbstractVector{ComplexF64},
+    temp_n_vec_complex1::AbstractVector{ComplexF64},
+    temp_n_vec_complex2::AbstractVector{ComplexF64},
     temp_m_vec_complex::AbstractVector{ComplexF64})
     
     # working variable is ws.vars.xy_q, with two columns
     
-    @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # compute A * [x, q_n]
+    @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_m_vec_complex) # compute A * [x, q_n]
     temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
     temp_m_mat .*= ws.ρ
     @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
@@ -52,7 +53,7 @@ function twocol_method_operator!(ws::Workspace,
     
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes notes
-    update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
+    @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
 
     # can now compute the bit of q corresponding to the y iterate
     temp_m_mat[:, 2] .*= ws.proj_flags
@@ -68,9 +69,9 @@ function twocol_method_operator!(ws::Workspace,
     ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
 
     # now we go to "bulk of" x and q_n update
-    @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex, temp_m_vec_complex) # compute P * [x, q_n]
+    @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_n_vec_complex2) # compute P * [x, q_n]
     temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective to P * x (but NOT to P * q_n)
-    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_n_vec_complex, temp_m_vec_complex) # compute A' * [y_bar, q_m_bar]
+    @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_m_vec_complex, temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
@@ -166,21 +167,30 @@ function iter_y!(y::AbstractVector{Float64},
     return
 end
 
-# Crude check for acceptance of a Krylov acceleration candidate.
+# check for acceptance of a Krylov acceleration candidate.
 function accept_acc_candidate(ws::Workspace,
-    acc_pri_res::AbstractVector{Float64},
-    acc_dual_res::AbstractVector{Float64},
-    curr_pri_res::AbstractVector{Float64},
-    curr_dual_res::AbstractVector{Float64},
-    residual_norm::Real)
-    # Compute residual norms.
-    acc_pri_res_norm = norm(acc_pri_res, residual_norm)
-    acc_dual_res_norm = norm(acc_dual_res, residual_norm)
-    curr_pri_res_norm = norm(curr_pri_res, residual_norm)
-    curr_dual_res_norm = norm(curr_dual_res, residual_norm)
+    current_xy::AbstractVector{Float64},
+    accelerated_xy::AbstractVector{Float64},
+    temp_mn_vec1::AbstractVector{Float64},
+    temp_mn_vec2::AbstractVector{Float64},
+    temp_n_vec1::AbstractVector{Float64},
+    temp_n_vec2::AbstractVector{Float64},
+    temp_m_vec::AbstractVector{Float64})
 
-    # Accept candidate if reduced residuals.
-    return acc_pri_res_norm < curr_pri_res_norm && acc_dual_res_norm < curr_dual_res_norm
+    # compute fixed-point residual at standard next iterate
+    onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from current_xy
+    onecol_method_operator!(ws, temp_mn_vec1, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from temp_mn_vec1, which follows from current_xy
+
+    fp_res_standard = norm(temp_mn_vec2 - temp_mn_vec1)
+
+    # now compute fixed-point residual at accelerated iterate
+    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    fp_res_accel = norm(temp_mn_vec1 - accelerated_xy)
+
+    # accept candidate if it reduces fixed-point residual
+    println("Accel FP residual over standard FP residual: $(fp_res_accel / fp_res_standard)")
+    
+    return fp_res_accel < fp_res_standard
 end
 
 """
@@ -206,13 +216,16 @@ function preallocate_scratch(ws::Workspace, acceleration::Symbol)
             temp_n_mat1 = zeros(Float64, ws.p.n, 2),
             temp_n_mat2 = zeros(Float64, ws.p.n, 2),
             temp_m_mat = zeros(Float64, ws.p.m, 2),
-            # temp_m_vec = zeros(Float64, ws.p.m),
+            temp_m_vec = zeros(Float64, ws.p.m),
             temp_n_vec1 = zeros(Float64, ws.p.n),
             temp_n_vec2 = zeros(Float64, ws.p.n), 
             temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
+            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
+            temp_n_vec_complex1 = zeros(ComplexF64, ws.p.n),
+            temp_n_vec_complex2 = zeros(ComplexF64, ws.p.n),
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
             prev_xy = zeros(Float64, ws.p.n + ws.p.m),
+            accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
         )
     elseif acceleration == :none || acceleration == :anderson
         return (
@@ -223,7 +236,7 @@ function preallocate_scratch(ws::Workspace, acceleration::Symbol)
             temp_n_vec1 = zeros(Float64, ws.p.n),
             temp_n_vec2 = zeros(Float64, ws.p.n), 
             temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m), # note second mn vec
+            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
             temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
             prev_xy = zeros(Float64, ws.p.n + ws.p.m),
@@ -413,29 +426,29 @@ function optimise!(ws::Workspace,
         # krylov setup
         if acceleration == :krylov
             # copy older iterate
-            @views prev_xy .= ws.varx.xy_q[:, 1]
+            @views prev_xy .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
             if k % (acceleration_memory + 1) == 0 && k > 0
-                @views accelerated_point = custom_acceleration_candidate(ws, krylov_operator_tilde_A, acceleration_memory, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_mat[:, 1])
+                custom_acceleration_candidate!(ws, krylov_operator_tilde_A, acceleration_memory, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                 
                 # TODO check whether residuals are sensible in the new (x, y) setup
-                @views primal_residual!(ws, acc_pri_res, ws.p.A, accelerated_point[1:ws.p.n], ws.p.b)
-                @views dual_residual!(acc_dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, accelerated_point[1:ws.p.n], accelerated_point[ws.p.n+1:end], ws.p.c)
+                @views primal_residual!(ws, acc_pri_res, ws.p.A, scratch.accelerated_point[1:ws.p.n], ws.p.b)
+                @views dual_residual!(acc_dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, scratch.accelerated_point[1:ws.p.n], scratch.accelerated_point[ws.p.n+1:end], ws.p.c)
 
-                if accept_acc_candidate(ws, acc_pri_res, acc_dual_res, pri_res, dual_res, residual_norm)
+                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     println("Accepted acceleration candidate at iteration $k.")
 
-                    @views curr_xy_update .= accelerated_point - ws.vars.xy_q[:, 1]
+                    @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
                     
                     # assign actually
-                    ws.vars.xy_q[:, 1] .= accelerated_point
+                    ws.vars.xy_q[:, 1] .= scratch.accelerated_point
 
                     # record stuff
                     if !run_fast
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
-                        record.current_update_mat_col = Ref(1)
+                        record.current_update_mat_col[] = 1
                     end
                 end
                 # prevent recording 0 or very large update norm
@@ -452,7 +465,7 @@ function optimise!(ws::Workspace,
             # standard step in the krylov setup (two columns)
             else
                 # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-                twocol_method_operator!(ws, krylov_operator_tilde_A, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex, scratch.temp_m_vec_complex)
+                twocol_method_operator!(ws, krylov_operator_tilde_A, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex)
 
                 curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
@@ -461,7 +474,7 @@ function optimise!(ws::Workspace,
                 push!(record.xy_step_char_norms, char_norm(curr_xy_update))
                 insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
 
-                if acceleration == :krylov && just_accelerated
+                if just_accelerated
                     # assign initial vector in the Krylov basis as initial
                     # fixed-point residual
                     @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] - prev_xy
@@ -469,7 +482,7 @@ function optimise!(ws::Workspace,
                     @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
                     # store in Krylov basis
                     @views ws.cache[:krylov_basis][:, 1] .= ws.vars.xy_q[:, 2]
-                elseif acceleration
+                else
                     # Arnoldi "step", orthogonalises the incoming basis vector
                     # and updates the Hessenberg matrix appropriately, all in-place
                     @views arnoldi_step!(ws.cache[:krylov_basis], ws.vars.xy_q[:, 2], ws.cache[:H])
@@ -497,7 +510,7 @@ function optimise!(ws::Workspace,
                     if curr_xy_update .== 0.0
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
-                        record.current_update_mat_col = Ref(1)
+                        record.current_update_mat_col[] = 1
                     end
                     
                     # prevent recording large or zero update norm
