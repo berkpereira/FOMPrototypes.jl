@@ -54,8 +54,8 @@ function choose_problem(problem_option::Symbol)
     if problem_option === :LASSO
         problem_set = "sslsq"
         # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
-        problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        # problem_name = "HB_ash219_lasso"
+        # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
+        problem_name = "HB_ash219_lasso"
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -152,7 +152,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
     VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
     
-    MAX_ITER = 1000
+    MAX_ITER = 5000
     PRINT_MOD = 50
     RES_NORM = Inf
     RUN_FAST = false
@@ -163,7 +163,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     #acceleration
     ACCEL_MEMORY = 19
     ANDERSON_PERIOD = 20
-    ACCELERATION = :none
+    ACCELERATION = :krylov #in {:none, :anderson, :krylov}
     KRYLOV_OPERATOR_TILDE_A = false
     
     #line search
@@ -306,9 +306,6 @@ add_vlines!(seminorm_plot)
 display(seminorm_plot)
 
 # (x, y) step norms plot.
-
-@infiltrate
-
 xy_step_norms_plot = plot(0:MAX_ITER, results.data[:xy_step_norms], linewidth=LINEWIDTH,
     label="(x, y) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm",
     title="$title_beginning (x, y) l2 Step Norm $krylov_operator_str $title_end", yaxis=:log)
