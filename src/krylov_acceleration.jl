@@ -66,10 +66,10 @@ end
 This implementation of the accelerated point computation relies on our custom
 implementations of the Arnoldi and Krylov procedures.
 """
-function custom_acceleration_candidate(ws::Workspace,
+function custom_acceleration_candidate!(ws::Workspace,
     krylov_operator_tilde_A::Bool,
     acceleration_memory::Integer,
-    temp_mn_vec::AbstractVector{Float64},
+    result_vec::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
     temp_m_vec::AbstractVector{Float64})
@@ -80,9 +80,9 @@ function custom_acceleration_candidate(ws::Workspace,
     # TODO pre-allocate working vectors in this function when acceleration
     # is used
 
-    # compute iterate from xy_q[:, 1], and store it in temp_mn_vec
-    onecol_method_operator!(ws, ws.vars.xy_q[:, 1], temp_mn_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
-    rhs_res_custom = ws.cache[:krylov_basis]' * (temp_mn_vec - ws.vars.xy_q[:, 1])
+    # compute iterate from xy_q[:, 1], and store it in result_vec
+    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    rhs_res_custom = ws.cache[:krylov_basis]' * (result_vec - ws.vars.xy_q[:, 1])
     
     # compute Hessenber LLS solution, reduced dimension y
     if krylov_operator_tilde_A
@@ -98,9 +98,8 @@ function custom_acceleration_candidate(ws::Workspace,
     # compute full-dimension LLS solution
     gmres_sol = ws.vars.xy_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
 
-    # TODO pre-allocate memory for acceleration_point ?
-    # obtain actual acceleration candidate, write it to temp_mn_vec
-    onecol_method_operator!(ws, gmres_sol, temp_mn_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
-    
-    return temp_mn_vec
+    # obtain actual acceleration candidate, write it to result_vec
+    onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+
+    return nothing
 end
