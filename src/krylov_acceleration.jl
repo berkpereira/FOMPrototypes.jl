@@ -4,11 +4,14 @@ using SparseArrays
 using IterativeSolvers
 using Clarabel
 
+"""
+For LINEAR CONSTRAINTS DO ENTRY BY ENTRY, not cone by cone. Check for
+entry-wise equality/inequality.
+"""
 function update_proj_flags!(proj_flags::BitVector,
     preproj_y::AbstractVector{Float64},
     postproj_y::AbstractVector{Float64})
-    # For LINEAR CONSTRAINTS DO ENTRY BY ENTRY, not cone
-    # by cone. Check for entry-wise equality/inequality.
+
     proj_flags .= (preproj_y .== postproj_y)
 end
 
