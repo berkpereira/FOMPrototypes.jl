@@ -32,7 +32,7 @@ function initialize_project()
     # Set Plots backend.
     # For interactive plots: plotlyjs()
     # For faster plotting: gr()
-    plotlyjs()
+    gr()
 
     # Determine newline character based on backend.
     local newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
@@ -55,7 +55,7 @@ function choose_problem(problem_option::Symbol)
         problem_set = "sslsq"
         # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
         # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        problem_name = "HB_ash219_lasso"
+        problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -125,6 +125,8 @@ function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name
     if reference_solver === :SCS
         set_optimizer_attribute(model, "eps_abs", 1e-12)
         set_optimizer_attribute(model, "eps_rel", 1e-12)
+    elseif reference_solver === :Clarabel
+        set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
     end
 
     # Define the quadratic objective.
@@ -152,7 +154,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
     VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
     
-    MAX_ITER = 5000
+    MAX_ITER = 1000
     PRINT_MOD = 50
     RES_NORM = Inf
     RUN_FAST = false
@@ -161,10 +163,10 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     RESTART_PERIOD = Inf
     
     #acceleration
-    ACCEL_MEMORY = 19
+    ACCEL_MEMORY = 49
     ANDERSON_PERIOD = 20
     ACCELERATION = :krylov #in {:none, :anderson, :krylov}
-    KRYLOV_OPERATOR_TILDE_A = false
+    KRYLOV_OPERATOR_TILDE_A = true
     
     #line search
     LINESEARCH_PERIOD = Inf
@@ -247,12 +249,12 @@ constraint_lines = constraint_changes(results.data[:record_proj_flags])
 
 # Helper function to add common vertical lines, only if show_vlines is true.
 function add_vlines!(plt; constraint_style=(:dash, ALPHA, :green, VERT_LINEWIDTH))
-if show_vlines
-vline!(plt, results.data[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH), label="Accelerated Steps")
-vline!(plt, results.data[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
-vline!(plt, constraint_lines, line = constraint_style, label="Active set changes")
-end
-return plt
+    if show_vlines
+        vline!(plt, results.data[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH), label="Accelerated Steps")
+        vline!(plt, results.data[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
+        vline!(plt, constraint_lines, line = constraint_style, label="Active set changes")
+    end
+    return plt
 end
 
 # Primal objective plot.
@@ -335,6 +337,9 @@ linewidth=LINEWIDTH, xticks=0:100:MAX_ITER)
 add_vlines!(update_ranks_plot)
 display(update_ranks_plot)
 
+# Projection flags plot (often intensive)
+# enforced_constraints_plot(results.data[:record_proj_flags])
+
 # Consecutive update (x, y) cosines plot.
 xy_update_cosines_plot = plot(1:MAX_ITER, results.data[:xy_update_cosines], linewidth=LINEWIDTH,
     label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates",
@@ -349,7 +354,7 @@ end
 
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
-    PROBLEM_OPTION = :LASSO
+    PROBLEM_OPTION = :HUBER
 
     newline_char = initialize_project()
 
@@ -377,11 +382,11 @@ function main()
     plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
                  ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
                  problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
-                 show_vlines = false)
+                 show_vlines = true)
     
     #return data of interest to inspect
-    return ws, results
+    return ws, results, x_ref, y_ref
 end
 
 # call main()
-ws, results = main();
+ws, results, x_ref, y_ref = main();

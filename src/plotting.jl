@@ -29,6 +29,6 @@ function enforced_constraints_plot(enforced_constraint_flags::Vector{Vector{Bool
         xlabel="Solver Iteration", 
         ylabel="Constraint index", 
         legend=false,
-        title="Green --- UNenforced Constraints"
+        title="UNenforced Constraints"
     ))
 end
