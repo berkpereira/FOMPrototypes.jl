@@ -52,18 +52,24 @@ function twocol_method_operator!(ws::Workspace,
     @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # temp_m_mat[:, 1] now stores y_{k+1}
     
     # update in-place flags switching affine dynamics based on projection action
-    # ws.proj_flags = D_k in Goodnotes notes
+    # ws.proj_flags = D_k in Goodnotes handwritten notes
     @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
 
     # can now compute the bit of q corresponding to the y iterate
     temp_m_mat[:, 2] .*= ws.proj_flags
-    if !krylov_operator_tilde_A # ie use B = A - I as krylov operator
-        temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
-    end
-    # NOTE: temp_m_mat[:, 2] now stores UPDATED q_m
-    
+
     # now compute bar iterates (y and q_m) concurrently
     @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
+
+    if !krylov_operator_tilde_A # ie use B = A - I as krylov operator
+        @views temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
+    end
+    # NOTE: temp_m_mat[:, 2] now stores UPDATED q_m
+
+    # TODO note this code was here, but I seem to have fixed the !krylov_operator_tilde_A
+    # case by moving it just above the conditional!
+    # # now compute bar iterates (y and q_m) concurrently
+    # @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
     
     # ASSIGN new y and q_m to Workspace variables
     ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
