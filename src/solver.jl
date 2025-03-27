@@ -65,11 +65,6 @@ function twocol_method_operator!(ws::Workspace,
         @views temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
     end
     # NOTE: temp_m_mat[:, 2] now stores UPDATED q_m
-
-    # TODO note this code was here, but I seem to have fixed the !krylov_operator_tilde_A
-    # case by moving it just above the conditional!
-    # # now compute bar iterates (y and q_m) concurrently
-    # @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
     
     # ASSIGN new y and q_m to Workspace variables
     ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
@@ -123,7 +118,6 @@ function onecol_method_operator!(ws::Workspace,
     @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
     temp_n_vec1 .+= ws.p.c # add linear part of objective to P * x
     @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
-    # TODO pre-allocate memory for the bar iterate in this mul! call?
     temp_n_vec1 .+= temp_n_vec2 # this is what is pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
@@ -187,6 +181,8 @@ function accept_acc_candidate(ws::Workspace,
     onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from current_xy
     onecol_method_operator!(ws, temp_mn_vec1, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from temp_mn_vec1, which follows from current_xy
 
+    # this computes fixed point residual OF THE standard iterate from
+    # the current iterate
     fp_res_standard = norm(temp_mn_vec2 - temp_mn_vec1)
 
     # now compute fixed-point residual at accelerated iterate
@@ -438,7 +434,6 @@ function optimise!(ws::Workspace,
             if k % (acceleration_memory + 1) == 0 && k > 0
                 custom_acceleration_candidate!(ws, krylov_operator_tilde_A, acceleration_memory, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                 
-                # TODO check whether residuals are sensible in the new (x, y) setup
                 @views primal_residual!(ws, acc_pri_res, ws.p.A, scratch.accelerated_point[1:ws.p.n], ws.p.b)
                 @views dual_residual!(acc_dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, scratch.accelerated_point[1:ws.p.n], scratch.accelerated_point[ws.p.n+1:end], ws.p.c)
 
