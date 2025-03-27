@@ -354,7 +354,7 @@ end
 
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
-    PROBLEM_OPTION = :HUBER
+    PROBLEM_OPTION = :LASSO
 
     newline_char = initialize_project()
 
