@@ -72,10 +72,10 @@ implementations of the Arnoldi and Krylov procedures.
 function custom_acceleration_candidate!(ws::Workspace,
     krylov_operator_tilde_A::Bool,
     acceleration_memory::Integer,
-    result_vec::AbstractVector{Float64},
-    temp_n_vec1::AbstractVector{Float64},
-    temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64})
+    result_vec::Vector{Float64},
+    temp_n_vec1::Vector{Float64},
+    temp_n_vec2::Vector{Float64},
+    temp_m_vec::Vector{Float64})
     # note, Workspace should contain:
     # ws.cache[:H], the Arnoldi upper Hessenberg matrix.
     # ws.cache[:krylov_basis], the Arnoldi-Krylov orthonormal basis matrix.
@@ -99,7 +99,7 @@ function custom_acceleration_candidate!(ws::Workspace,
     end
 
     # compute full-dimension LLS solution
-    gmres_sol = ws.vars.xy_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
+    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.cache[:krylov_basis][:, 1:end - 1] * y_krylov_sol
 
     # obtain actual acceleration candidate, write it to result_vec
     onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
