@@ -14,15 +14,12 @@ using Revise
 using LinearMaps
 using Infiltrator
 using Profile
-using StatProfilerHTML
 using BenchmarkTools
 using Printf
 using Plots
 using SparseArrays
 using SCS
 using Random
-using JLD2
-using Pkg
 
 ###########################
 # 1. Initialization Block #
@@ -92,12 +89,12 @@ function fetch_data(problem_option, problem_set, problem_name)
 end
 
 #########################################
-# 3. Solve the Reference (Clarabel/SCS)   #
+# 3. Solve the Reference (Clarabel/SCS) 
 #########################################
 
 function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name)
     # Choose the reference solver: :SCS or :Clarabel
-    reference_solver = :Clarabel
+    reference_solver = :SCS
 
     println()
     if reference_solver === :SCS
@@ -123,8 +120,8 @@ function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name
     add_cone_constraints!(model, s_ref, K)
 
     if reference_solver === :SCS
-        set_optimizer_attribute(model, "eps_abs", 1e-12)
-        set_optimizer_attribute(model, "eps_rel", 1e-12)
+        set_optimizer_attribute(model, "eps_abs", 1e-14)
+        set_optimizer_attribute(model, "eps_rel", 1e-14)
     elseif reference_solver === :Clarabel
         set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
     end
@@ -148,24 +145,23 @@ end
 # 4. Run the Prototype Optimization      #
 ##########################################
 
-function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name)
-    #basic params
-    ρ = 1.0
+function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, run_fast)
+#basic params
+ρ = 1.0
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
     VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
     
     MAX_ITER = 1000
     PRINT_MOD = 50
     RES_NORM = Inf
-    RUN_FAST = false
     
     #restarts
     RESTART_PERIOD = Inf
     
     #acceleration
     ACCEL_MEMORY = 49
-    ANDERSON_PERIOD = 20
-    ACCELERATION = :krylov #in {:none, :anderson, :krylov}
+    ANDERSON_PERIOD = 10
+    ACCELERATION = :anderson # in {:none, :anderson, :krylov}
     KRYLOV_OPERATOR_TILDE_A = true
     
     #line search
@@ -201,24 +197,28 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     ws = Workspace(problem, VARIANT, τ, ρ, θ, one_col)
     ws.cache[:A_gram] = A_gram
 
+    ws_copy = deepcopy(ws)
+
     # Run the solver (time the execution).
 
     results = nothing
-    @time begin
-        results = optimise!(ws,
-            MAX_ITER,
-            PRINT_MOD,
-            RUN_FAST,
-            ACCELERATION,
-            restart_period = RESTART_PERIOD,
-            residual_norm = RES_NORM,
-            acceleration_memory = ACCEL_MEMORY,
-            anderson_period = ANDERSON_PERIOD,
-            krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
-            linesearch_period = LINESEARCH_PERIOD,
-            linesearch_ϵ = LINESEARCH_ϵ,
-            x_sol = x_ref, y_sol = y_ref,
-            explicit_affine_operator = false)
+    for i in 1:1
+        ws = deepcopy(ws_copy)
+        
+        @time results = optimise!(ws,
+        MAX_ITER,
+        PRINT_MOD,
+        run_fast,
+        ACCELERATION,
+        restart_period = RESTART_PERIOD,
+        residual_norm = RES_NORM,
+        acceleration_memory = ACCEL_MEMORY,
+        anderson_period = ANDERSON_PERIOD,
+        krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
+        linesearch_period = LINESEARCH_PERIOD,
+        linesearch_ϵ = LINESEARCH_ϵ,
+        x_sol = x_ref, y_sol = y_ref,
+        explicit_affine_operator = false)
     end
 
     return ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A
@@ -321,21 +321,21 @@ xy_step_char_norms_plot = plot(0:MAX_ITER, results.data[:xy_step_char_norms], li
 add_vlines!(xy_step_char_norms_plot)
 display(xy_step_char_norms_plot)
 
-# Singular values ratio plot.
-sing_vals_ratio_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_singval_ratios], linewidth=LINEWIDTH,
-label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio",
-title="$title_beginning Update Matrix Singular Value Ratio $krylov_operator_str $title_end",
-yaxis=:log, marker=:circle)
-add_vlines!(sing_vals_ratio_plot)
-display(sing_vals_ratio_plot)
+# # Singular values ratio plot.
+# sing_vals_ratio_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_singval_ratios], linewidth=LINEWIDTH,
+# label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio",
+# title="$title_beginning Update Matrix Singular Value Ratio $krylov_operator_str $title_end",
+# yaxis=:log, marker=:circle)
+# add_vlines!(sing_vals_ratio_plot)
+# display(sing_vals_ratio_plot)
 
-# Update matrix rank plot.
-update_ranks_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_ranks],
-label="Prototype Update Matrix", xlabel="Iteration", ylabel="Rank",
-title="$title_beginning Update Matrix Rank $krylov_operator_str $title_end",
-linewidth=LINEWIDTH, xticks=0:100:MAX_ITER)
-add_vlines!(update_ranks_plot)
-display(update_ranks_plot)
+# # Update matrix rank plot.
+# update_ranks_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_ranks],
+# label="Prototype Update Matrix", xlabel="Iteration", ylabel="Rank",
+# title="$title_beginning Update Matrix Rank $krylov_operator_str $title_end",
+# linewidth=LINEWIDTH, xticks=0:100:MAX_ITER)
+# add_vlines!(update_ranks_plot)
+# display(update_ranks_plot)
 
 # Projection flags plot (often intensive)
 # enforced_constraints_plot(results.data[:record_proj_flags])
@@ -355,6 +355,7 @@ end
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
     PROBLEM_OPTION = :LASSO
+    RUN_FAST = false
 
     newline_char = initialize_project()
 
@@ -374,15 +375,17 @@ function main()
     println("About to run prototype solver...")
     ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY,
     LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A =
-        run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name)
+        run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
+    
 
-    # Generate refactored plots.
-    println()
-    println("About to plot results...")
-    plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
-                 ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
-                 problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
-                 show_vlines = true)
+    if !RUN_FAST
+        println()
+        println("About to plot results...")    
+        plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+                    ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
+                    problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
+                    show_vlines = true)
+    end
     
     #return data of interest to inspect
     return ws, results, x_ref, y_ref
