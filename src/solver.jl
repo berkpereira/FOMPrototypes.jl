@@ -59,6 +59,7 @@ function twocol_method_operator!(ws::Workspace,
     temp_m_mat[:, 2] .*= ws.proj_flags
 
     # now compute bar iterates (y and q_m) concurrently
+    # TODO reduce memory allocation in this line...
     @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
 
     if !krylov_operator_tilde_A # ie use B = A - I as krylov operator
@@ -80,7 +81,7 @@ function twocol_method_operator!(ws::Workspace,
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
     if krylov_operator_tilde_A
-        ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1
+        @views ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1
     else # ie use B = A - I as krylov operator
         @views ws.vars.xy_q[1:ws.p.n, 1] .-= temp_n_mat1[:, 1] # as above
         @views ws.vars.xy_q[1:ws.p.n, 2] .= -temp_n_mat1[:, 2] # simpler
@@ -360,7 +361,9 @@ function optimise!(ws::Workspace,
         ws.cache[:krylov_basis] = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
         ws.cache[:H] = init_upper_hessenberg(acceleration_memory)
     elseif acceleration == :anderson
-        aa = COSMOAccelerators.AndersonAccelerator(ws.p.n + ws.p.m, mem = acceleration_memory)
+        # default types:
+        # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
+        aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
     end
     
     # init acceleration trigger flag
@@ -419,11 +422,11 @@ function optimise!(ws::Workspace,
             curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
             curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
             curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
-        end
 
-        # print info and save data if requested
-        print_results(k, run_fast, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist=curr_xy_dist)
-        push_to_record!(ws, record, run_fast, k, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist, primal_obj, dual_obj, curr_pri_res_norm, curr_dual_res_norm)
+            # print info and save data if requested
+            print_results(k, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist=curr_xy_dist)
+            push_to_record!(ws, record, run_fast, k, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist, primal_obj, dual_obj, curr_pri_res_norm, curr_dual_res_norm)
+        end
 
         # krylov setup
         if acceleration == :krylov
@@ -433,20 +436,16 @@ function optimise!(ws::Workspace,
             # acceleration attempt step
             if k % (acceleration_memory + 1) == 0 && k > 0
                 custom_acceleration_candidate!(ws, krylov_operator_tilde_A, acceleration_memory, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
-                
-                @views primal_residual!(ws, acc_pri_res, ws.p.A, scratch.accelerated_point[1:ws.p.n], ws.p.b)
-                @views dual_residual!(acc_dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, scratch.accelerated_point[1:ws.p.n], scratch.accelerated_point[ws.p.n+1:end], ws.p.c)
 
                 @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     println("Accepted acceleration candidate at iteration $k.")
-
-                    @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
 
                     # record stuff
                     if !run_fast
+                        @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
@@ -468,12 +467,14 @@ function optimise!(ws::Workspace,
                 # apply method operator (to both (x, y) and Arnoldi (q) vectors)
                 twocol_method_operator!(ws, krylov_operator_tilde_A, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex)
 
-                curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
 
                 # record iteration data
-                push!(record.xy_step_norms, norm(curr_xy_update))
-                push!(record.xy_step_char_norms, char_norm(curr_xy_update))
-                insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
+                if !run_fast
+                    curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
+                    push!(record.xy_step_norms, norm(curr_xy_update))
+                    push!(record.xy_step_char_norms, char_norm(curr_xy_update))
+                    insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
+                end
 
                 if just_accelerated
                     # assign initial vector in the Krylov basis as initial
@@ -497,7 +498,7 @@ function optimise!(ws::Workspace,
         else # NOT krylov set-up, so working variable is one-column
             if acceleration == :anderson && k % anderson_period == 0 && k > 0
                 # ws.vars.xy might be overwritten, so we take note of it here
-                temp_mn_vec1 .= ws.vars.xy
+                scratch.temp_mn_vec1 .= ws.vars.xy
 
                 # attempt acceleration step. if successful, this
                 # overwites ws.vars.xy
@@ -508,7 +509,7 @@ function optimise!(ws::Workspace,
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
                     # account for records as appropriate
-                    if curr_xy_update .== 0.0
+                    if any(x -> x != 0.0, curr_xy_update)
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
@@ -550,14 +551,17 @@ function optimise!(ws::Workspace,
             end
         end
         
-        # store cosine between last two iterate updates
-        if k >= 1
-            xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
-            push!(record.xy_update_cosines, xy_prev_updates_cos)
-        end
-        prev_xy_update .= curr_xy_update
+        if !run_fast
+            # store cosine between last two iterate updates
+            if k >= 1
+                xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
+                push!(record.xy_update_cosines, xy_prev_updates_cos)
+            end
+            prev_xy_update .= curr_xy_update
 
-        push!(record.record_proj_flags, ws.proj_flags)
+            # store active set flags
+            push!(record.record_proj_flags, ws.proj_flags)
+        end
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
@@ -573,29 +577,27 @@ function optimise!(ws::Workspace,
     dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
     gap = duality_gap(primal_obj, dual_obj)
     
-    curr_xy_chardist = !isnothing(x_sol) ? sqrt(dot([view_x - x_sol; view_y + y_sol], ws.cache[:char_norm_mat] * [view_x - x_sol; view_y + y_sol])) : nothing
-    curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
-    curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
-
     # END: Store metrics if requested.
-    # TODO: make this stuff modular as opposed to copied from the main loop.
-    push!(record.primal_obj_vals, primal_obj)
-    push!(record.dual_obj_vals, dual_obj)
-    push!(record.pri_res_norms, curr_pri_res_norm)
-    push!(record.dual_res_norms, curr_dual_res_norm)
-    if !isnothing(x_sol)
-        push!(record.x_dist_to_sol, curr_x_dist)
-        push!(record.y_dist_to_sol, curr_y_dist)
-        push!(record.xy_chardist, curr_xy_chardist)
-    end
-
-
-    # END: print iteration info
-    curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
-    print_results(max_iter, run_fast, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist = curr_xy_dist, terminated = true)
-
-    # assign results as appropriate
     if !run_fast
+        curr_xy_chardist = !isnothing(x_sol) ? sqrt(dot([view_x - x_sol; view_y + y_sol], ws.cache[:char_norm_mat] * [view_x - x_sol; view_y + y_sol])) : nothing
+        curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
+        curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
+
+        push!(record.primal_obj_vals, primal_obj)
+        push!(record.dual_obj_vals, dual_obj)
+        push!(record.pri_res_norms, curr_pri_res_norm)
+        push!(record.dual_res_norms, curr_dual_res_norm)
+        if !isnothing(x_sol)
+            push!(record.x_dist_to_sol, curr_x_dist)
+            push!(record.y_dist_to_sol, curr_y_dist)
+            push!(record.xy_chardist, curr_xy_chardist)
+        end
+
+        # END: print iteration info
+        curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
+        print_results(max_iter, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist = curr_xy_dist, terminated = true)
+
+        # assign results as appropriate
         results.data = Dict(
             :primal_obj_vals => record.primal_obj_vals,
             :dual_obj_vals => record.dual_obj_vals,
