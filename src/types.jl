@@ -140,7 +140,7 @@ end
 # A function that prepares an inverse operator based on the type of M
 function prepare_inv(M::Diagonal{T}) where T <: Real
     # For a Diagonal matrix, simply compute the reciprocal of the diagonal entries.
-    return DiagInvOp(1 ./ diag(M))
+    return DiagInvOp(1 ./ Vector(diag(M)))
 end
 
 function prepare_inv(M::Symmetric{T}) where T <: Real
