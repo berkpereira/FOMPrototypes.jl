@@ -437,7 +437,7 @@ end
     krylov_least_squares!(H, rhs_res)
 
 Solve the least-squares problem `min_y ||H * y + rhs_res||^2`
-arising in Krylov subspace methods, where `rhs_res` is assumed to be pre-transformed by `Q`.
+arising in Krylov subspace methods.
 
 Inputs:
 - `H`: Upper Hessenberg matrix of size (k+1) × k (modified in-place).
@@ -449,28 +449,26 @@ Outputs:
 function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T}) where T
     k = size(H, 2)  # Number of columns in H
 
-    # println("Smallest values of H square part: ", svd(H).S[end-10:end])
-
-    # Check dimensions
-    # @assert size(H, 1) == k + 1 "H must have dimensions (k+1) × k"
-    # @assert length(rhs_res) == k + 1 "rhs_res must have length k+1"
-
     # Givens rotation application to reduce H to upper triangular form
-    for j in 1:k
-        # Generate Givens rotation for element (j, j) and (j+1, j)
-        c, s, r = givensAlgorithm(H[j, j], H[j+1, j])
+    for i in 1:k
+        # Generate Givens rotation for element (i, i) and (i+1, i)
+        # givensAlgorithm generates a plane rotation so that
+        # [  c  s  ]  .  [ f ]  =  [ r ]
+        # [ -s  c  ]     [ g ]     [ 0 ]
+        # (note that this interprets positive rotations as clockwise!)
+        c, s, r = givensAlgorithm(H[i, i], H[i+1, i])
 
-        # Apply Givens rotation to the j-th and (j+1)-th rows of H
-        for i in j:k
-            temp = c * H[j, i] + s * H[j+1, i]
-            H[j+1, i] = -s * H[j, i] + c * H[j+1, i]
-            H[j, i] = temp
+        # Apply Givens rotation to the jth and (i+1)th rows of H
+        for j in i:k
+            temp = c * H[i, j] + s * H[i+1, j]
+            H[i+1, j] = -s * H[i, j] + c * H[i+1, j]
+            H[i, j] = temp
         end
 
         # Apply Givens rotation to the RHS vector
-        temp = c * rhs_res[j] + s * rhs_res[j+1]
-        rhs_res[j+1] = -s * rhs_res[j] + c * rhs_res[j+1]
-        rhs_res[j] = temp
+        temp = c * rhs_res[i] + s * rhs_res[i+1]
+        rhs_res[i+1] = -s * rhs_res[i] + c * rhs_res[i+1]
+        rhs_res[i] = temp
     end
 
     # The Givens rotations reduce the problem to a k by k linear system.
