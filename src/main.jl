@@ -22,7 +22,7 @@ using SCS
 using Random
 
 ###########################
-# 1. Initialisation Block #
+# 1. Initialization Block #
 ###########################
     
 function initialize_project()
@@ -50,9 +50,9 @@ function choose_problem(problem_option::Symbol)
 
     if problem_option === :LASSO
         problem_set = "sslsq"
-        # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
+        problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
         # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
+        # problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -145,9 +145,9 @@ end
 # 4. Run the Prototype Optimization      #
 ##########################################
 
-function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, run_fast)
+function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64}, P::Symmetric{Float64}, c::Vector{Float64}, b::Vector{Float64}, m::Int, n::Int, x_ref::Vector{Float64}, y_ref::Vector{Float64}, problem_set::String, problem_name::String, run_fast::Bool)
 #basic params
-ρ = 1.0
+    ρ = 1.0
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
     VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
     
@@ -162,7 +162,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     ACCEL_MEMORY = 49
     ANDERSON_PERIOD = 10
     ACCELERATION = :krylov # in {:none, :anderson, :krylov}
-    KRYLOV_OPERATOR_TILDE_A = true
+    KRYLOV_OPERATOR = :tilde_A # in {:tilde_A, :B}
     
     #line search
     LINESEARCH_PERIOD = Inf
@@ -186,40 +186,35 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     end
 
     # Initialize the workspace.
-    if ACCELERATION != :krylov
-        one_col = true
+    if ACCELERATION == :krylov
+        ws = KrylovWorkspace{Float64}(problem, VARIANT, A_gram, τ, ρ, θ, ACCEL_MEMORY, KRYLOV_OPERATOR)
+    elseif ACCELERATION == :anderson
+        ws = AndersonWorkspace(problem, VARIANT, A_gram, τ, ρ, θ, ACCEL_MEMORY, ANDERSON_PERIOD)
     else
-        one_col = false
+        ws = NoneWorkspace(problem, VARIANT, A_gram, τ, ρ, θ)
     end
-
-    ws = Workspace(problem, VARIANT, τ, ρ, θ, one_col)
-    ws.cache[:A_gram] = A_gram
 
     ws_copy = deepcopy(ws)
 
-    # Run the solver (time the execution).
-
+    # Run the solver (time or profile execution)
     results = nothing
     for i in 1:1
         ws = deepcopy(ws_copy)
         
-        @profview results = optimise!(ws,
+        results = optimise!(ws,
         MAX_ITER,
         PRINT_MOD,
         run_fast,
         ACCELERATION,
         restart_period = RESTART_PERIOD,
         residual_norm = RES_NORM,
-        acceleration_memory = ACCEL_MEMORY,
-        anderson_period = ANDERSON_PERIOD,
-        krylov_operator_tilde_A = KRYLOV_OPERATOR_TILDE_A,
         linesearch_period = LINESEARCH_PERIOD,
         linesearch_ϵ = LINESEARCH_ϵ,
         x_sol = x_ref, y_sol = y_ref,
         explicit_affine_operator = false)
     end
 
-    return ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A
+    return ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR
 end
 
 ###############################
@@ -228,7 +223,7 @@ end
 
 function plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
     ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
-    problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A; show_vlines::Bool = true)
+    problem_set, problem_name, KRYLOV_OPERATOR; show_vlines::Bool = true)
 # Plotting constants.
 LINEWIDTH = 2.5
 VERT_LINEWIDTH = 1.5
@@ -237,10 +232,10 @@ ALPHA = 0.9
 title_beginning = "Problem: $problem_set $problem_name.$newline_char Variant $VARIANT $newline_char"
 title_end = "$newline_char Restart period = $RESTART_PERIOD.$newline_char Acceleration: $ACCELERATION (memory = period = $ACCEL_MEMORY).$newline_char Linesearch period = $LINESEARCH_PERIOD."
 
-if KRYLOV_OPERATOR_TILDE_A
-krylov_operator_str = "$newline_char Krylov operator is A"
+if KRYLOV_OPERATOR == :tilde_A
+    krylov_operator_str = "$newline_char Krylov operator is A"
 else
-krylov_operator_str = "$newline_char Krylov operator is B = A – I"
+    krylov_operator_str = "$newline_char Krylov operator is B = A – I"
 end
 
 constraint_lines = constraint_changes(results.data[:record_proj_flags])
@@ -365,29 +360,27 @@ function main()
 
     # Solve the reference problem (Clarabel/SCS).
     println()
-    println("About so solve problem with reference solver...")
+    println("About to solve problem with reference solver...")
     x_ref, s_ref, y_ref, obj_ref = solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name)
 
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
-    ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY,
-    LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR_TILDE_A =
-        run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
+    @profview ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR = run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
     
 
-    if !RUN_FAST
-        println()
-        println("About to plot results...")
-        plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
-                    ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
-                    problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
-                    show_vlines = true)
-    end
+    # if !RUN_FAST
+    #     println()
+    #     println("About to plot results...")
+    #     plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+    #                 ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
+    #                 problem_set, problem_name, KRYLOV_OPERATOR,
+    #                 show_vlines = true)
+    # end
     
     #return data of interest to inspect
     return ws, results, x_ref, y_ref
 end
 
-# call main()
-ws, results, x_ref, y_ref = main();
+# call main(), if using Infiltrator macros
+# ws, results, x_ref, y_ref = main();

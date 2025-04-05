@@ -22,7 +22,7 @@ as the Arnoldi step for whatever iteration we are currently on.
 This function returns true if the line search was successful, and false
 if we end up simply taking the vanilla step instead.
 """
-function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
+function fixed_point_linesearch!(ws::AbstractWorkspace, α_max::Float64,
     β::Float64, ϵ::Float64, norm_func::Function, krylov_operator_tilde_A::Bool,
     iter::Int)
 
@@ -86,7 +86,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
         curr_fp_residual = vanilla_iterate_xsy - curr_iterate_xsy
 
         # Now need fixed-point residual AT the vanilla point.
-        vanilla_lookahead_x = iter_x(vanilla_iterate_xsy[1:ws.p.n], ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, vanilla_iterate_y, curr_iterate_y)
+        vanilla_lookahead_x = iter_x(vanilla_iterate_xsy[1:ws.p.n], ws.W_inv, ws.p.P, ws.p.c, ws.p.A, vanilla_iterate_y, curr_iterate_y)
         vanilla_lookahead_s = iter_s(vanilla_iterate_s, ws.p.A, vanilla_lookahead_x, ws.p.b, vanilla_iterate_y, ws.p.K, ws.ρ)
         vanilla_lookahead_y = iter_y(vanilla_iterate_y, ws.p.A, vanilla_lookahead_x, vanilla_lookahead_s, ws.p.b, ws.ρ)
         
@@ -138,7 +138,7 @@ function fixed_point_linesearch!(ws::Workspace, α_max::Float64,
 
             # # Compute lookahead iterate FROM the candidate.
             # prev_y_artificial = candidate[ws.p.n+ws.p.m+1:end] - ws.ρ * (ws.p.A * candidate[1:ws.p.n] + candidate[ws.p.n+1:ws.p.n+ws.p.m] - ws.p.b)
-            # candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.cache[:W_inv], ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], prev_y_artificial)
+            # candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.W_inv, ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], prev_y_artificial)
 
             # candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m] .= iter_s(candidate[ws.p.n+1:ws.p.n+ws.p.m], ws.p.A, candidate_lookahead[1:ws.p.n], ws.p.b, candidate[ws.p.n+ws.p.m+1:end], ws.p.K, ws.ρ)
             

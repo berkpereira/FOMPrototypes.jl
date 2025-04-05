@@ -2,7 +2,7 @@ include("types.jl")
 
 # Compute primal residual (in place)
 # r_prim = project(A * x - b)
-function primal_residual!(ws::Workspace, r::AbstractVector{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, b::AbstractVector{Float64})
+function primal_residual!(ws::AbstractWorkspace, r::AbstractVector{Float64}, A::AbstractMatrix{Float64}, x::AbstractVector{Float64}, b::AbstractVector{Float64})
     mul!(r, A, x)
     @. r -= b
     

@@ -1,12 +1,10 @@
-# Workspace to contain problem and algorithm data before/during/after solver
-# runs.
-# We enable the use of default values as well as keyword arguments.
-
+import COSMOAccelerators
 using Clarabel
 using Parameters
 using LinearAlgebra
 using LinearAlgebra.LAPACK
 import SparseArrays
+using LinearMaps
 
 const DefaultFloat = Float64
 
@@ -38,10 +36,10 @@ struct Variables{T <: AbstractFloat} <: AbstractVariables{T}
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
     # Convenient for when we use the linearisation technique
     # for Anderson/Krylov acceleration.
-    xy_q::AbstractMatrix{T}
+    xy_q::Matrix{T}
 
-    preproj_y::AbstractVector{T} # thing fed to the projection to dual cone, useful to store
-    y_qm_bar::AbstractMatrix{T} # Extrapolated primal variable
+    preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
+    y_qm_bar::Matrix{T} # Extrapolated primal variable
 
     # default (zeros) initialisation of variables
     function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
@@ -51,7 +49,8 @@ end
 Variables(args...) = Variables{DefaultFloat}(args...)
 
 struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
-    xy::AbstractVector{T}
+    xy::Vector{T}
+    # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
     function OnecolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
         new(zeros(n + m))
@@ -59,50 +58,163 @@ struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
 end
 OnecolVariables(args...) = OnecolVariables{DefaultFloat}(args...)
 
-@with_kw mutable struct Workspace{T <: AbstractFloat, V <: AbstractVariables{T}}
-    # Problem data.
+abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
+
+# workspace type for when :none acceleration is used
+struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
     p::ProblemData{T}
-    vars::V
-
-    # select method variant (to do with the proximal penalty norm used).
+    vars::OnecolVariables{T}
     variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
-
-    # primal and dual step sizes
+    W::Union{Diagonal{T}, Symmetric{T}}
+    W_inv::AbstractInvOp
+    A_gram::LinearMap{T}
     τ::T
     ρ::T
-    # extrapolation parameter
     θ::T
-
-    # indicator of projection by-pass (QP case: where entries "pass through")
     proj_flags::AbstractVector{Bool}
 
-    # Cache for variety of useful quantities (e.g. fixed matrix-... products).
-    cache::Dict{Symbol, Any}
-
-    # Constructor where initial iterates are passed in.
-    function Workspace{T}(p::ProblemData{T}, vars::AbstractVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    # constructor where initial iterates are passed in
+    function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new{T, typeof(vars)}(p, vars, variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}());
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
-    # Constructor where initial iterates are not passed (default set to zero).
-    # if no onecol boolean specified, we default to the two-column setup.
-    function Workspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    # constructor where initial iterates are not passed (default set to zero)
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        new{T, Variables{T}}(p, Variables(p.m, p.n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
-    # if a onecol boolean is provided, this informs the constructor
-    function Workspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, onecol::Bool) where {T <: AbstractFloat}
+    # constructor where initial iterates are not passed (default set to zero)
+    # but A_gram is
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
-        if onecol
-            new{T, OnecolVariables{T}}(p, OnecolVariables(m, n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
-        else
-            new{T, Variables{T}}(p, Variables(m, n), variant, τ, ρ, θ, falses(m), Dict{Symbol, Any}())
-        end
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 end
-Workspace(args...) = Workspace{DefaultFloat}(args...)
+NoneWorkspace(args...) = NoneWorkspace{DefaultFloat}(args...)
+
+# workspace type for when Krylov acceleration is used
+struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
+    p::ProblemData{T}
+    vars::Variables{T}
+    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
+    W::Union{Diagonal{T}, Symmetric{T}}
+    W_inv::AbstractInvOp
+    A_gram::LinearMap{T}
+    τ::T
+    ρ::T
+    θ::T
+    proj_flags::AbstractVector{Bool}
+
+    # additional Krylov-related fields
+    mem::Int # memory for Krylov acceleration
+    krylov_operator::Symbol # either :tilde_A or :B
+    H::Matrix{T} # Arnoldi Hessenberg matrix, size (mem+1, mem)
+    krylov_basis::Matrix{T} # Krylov basis matrix, size (m + n, mem)
+    
+    # NOTE that mem is (k+1) in the usual Arnoldi relation written as
+    # $ A Q_k = Q_{k+1} \tilde{H}_k $
+
+    # constructor where initial iterates are passed in
+    function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+    end
+
+    # constructor where initial iterates are not passed (default set to zero)
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, Variables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+    end
+
+    # constructor where initial iterates are not passed (default set to zero)
+    # but A_gram is
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+        new{T}(p, Variables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+    end
+end
+
+# workspace type for when Anderson acceleration is used
+struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
+    p::ProblemData{T}
+    vars::OnecolVariables{T}
+    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
+    W::Union{Diagonal{T}, Symmetric{T}}
+    W_inv::AbstractInvOp
+    A_gram::LinearMap{T}
+    τ::T
+    ρ::T
+    θ::T
+    proj_flags::AbstractVector{Bool}
+
+    # additional Anderson-related fields
+    mem::Int # memory for Anderson accelerator
+    attempt_period::Int # how often to attempt Anderson acceleration
+    accelerator::COSMOAccelerators.AndersonAccelerator
+
+    # constructor where initial iterates are passed in
+    function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+
+        # default types:
+        # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
+
+        aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
+        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+    end
+
+    # constructor where initial iterates are not passed (default set to zero)
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+
+        # default types:
+        # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
+
+        aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
+        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+    end
+
+    # constructor where initial iterates are not passed (default set to zero)
+    # but A_gram is
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W_inv = prepare_inv(W)
+
+        # default types:
+        # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
+
+        aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
+        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+    end
+
+end
+AndersonWorkspace(args...) = AndersonWorkspace{DefaultFloat}(args...)
+
 
 @with_kw mutable struct Results{T <: AbstractFloat}
     data::Dict{Symbol, Any} = Dict{Symbol,Any}()

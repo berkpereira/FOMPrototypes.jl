@@ -90,8 +90,8 @@ Constructs a LinearMap for one of the following operators (assuming P is n×n):
 
 The operator R(B) is defined as B with its diagonal set to zero.
 """
-function build_operator(variant::Union{Integer, Symbol}, P::Symmetric,
-    A::AbstractMatrix, A_gram::Union{LinearMap{Float64}, AbstractMatrix{Float64}},
+function build_operator(variant::Union{Integer, Symbol}, P::Symmetric{Float64},
+    A::SparseMatrixCSC{Float64, Int64}, A_gram::LinearMap{Float64},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
     
@@ -143,15 +143,20 @@ function dom_λ_power_method(A::Union{LinearMap{Float64}, AbstractMatrix{Float64
     max_iter::Integer = 50)
     n = size(A, 1)
     x = randn(n)
-    x /= norm(x)
+    temp = zeros(n)
+    
+    x ./= norm(x)
     
     for k in 1:max_iter
-        x = A * x
-        x /= norm(x)
+        mul!(temp, A, x)
+        x .= temp
+        x ./= norm(temp)
     end
     
-    # Rayleigh quotient estimate (x has unit l2 norm at this point)
-    return dot(x, A * x)
+    # Rayleigh quotient estimate dot(x, A * x)
+    # note that x has unit l2 norm at this point
+    mul!(temp, A, x)
+    return dot(x, temp)
 end
 
 """
@@ -362,8 +367,6 @@ end
 Initialises an UpperHessenberg view of a n by (n - 1) matrix filled with zeros.
 """
 function init_upper_hessenberg(n::Int)
-    # TODO: consider whether to use sparse or dense represenation (see lines
-    # below).
     # H = spzeros(n + 1, n)
     H = zeros(n, n - 1)
     return UpperHessenberg(H)

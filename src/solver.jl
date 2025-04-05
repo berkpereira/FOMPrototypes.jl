@@ -33,8 +33,7 @@ temp_n_mat1 should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
-function twocol_method_operator!(ws::Workspace,
-    krylov_operator_tilde_A::Bool,
+function twocol_method_operator!(ws::KrylovWorkspace,
     temp_n_mat1::AbstractMatrix{Float64},
     temp_n_mat2::AbstractMatrix{Float64},
     temp_m_mat::AbstractMatrix{Float64},
@@ -60,14 +59,16 @@ function twocol_method_operator!(ws::Workspace,
 
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line...
-    @views ws.vars.y_qm_bar .= (1 + ws.θ) * temp_m_mat - ws.θ * ws.vars.xy_q[ws.p.n+1:end, :]
+    ws.vars.y_qm_bar .= temp_m_mat
+    ws.vars.y_qm_bar .*= (1 + ws.θ)
+    @views ws.vars.y_qm_bar .+= -ws.θ .* ws.vars.xy_q[ws.p.n+1:end, :]
 
-    if !krylov_operator_tilde_A # ie use B = A - I as krylov operator
+    if ws.krylov_operator == :B # ie use B = A - I as krylov operator
         @views temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
     end
     # NOTE: temp_m_mat[:, 2] now stores UPDATED q_m
     
-    # ASSIGN new y and q_m to Workspace variables
+    # ASSIGN new y and q_m to ws variables
     ws.vars.xy_q[ws.p.n+1:end, :] .= temp_m_mat
 
     # now we go to "bulk of" x and q_n update
@@ -77,10 +78,10 @@ function twocol_method_operator!(ws::Workspace,
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    apply_inv!(ws.cache[:W_inv], temp_n_mat1)
+    apply_inv!(ws.W_inv, temp_n_mat1)
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
-    if krylov_operator_tilde_A
+    if ws.krylov_operator == :tilde_A
         @views ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1
     else # ie use B = A - I as krylov operator
         @views ws.vars.xy_q[1:ws.p.n, 1] .-= temp_n_mat1[:, 1] # as above
@@ -102,7 +103,7 @@ squares problem following from the Krylov acceleration subproblem.
 Note that xy is the "current" iterate as a single vector in R^{n+m}.
 New iterate is written (in-place) into result_vec input vector.
 """
-function onecol_method_operator!(ws::Workspace,
+function onecol_method_operator!(ws::AbstractWorkspace,
     xy::AbstractVector{Float64},
     result_vec::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
@@ -118,11 +119,15 @@ function onecol_method_operator!(ws::Workspace,
     # now we go to "bulk of" x and q_n update
     @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
     temp_n_vec1 .+= ws.p.c # add linear part of objective to P * x
+
+    # TODO reduce allocations in this mul! call
+    # consider dedicated scratch storage for y_bar, akin to what
+    # we do in twocol_method_operator!
     @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
-    temp_n_vec1 .+= temp_n_vec2 # this is what is pre-multiplied by W^{-1}
+    temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    apply_inv!(ws.cache[:W_inv], temp_n_vec1)
+    apply_inv!(ws.W_inv, temp_n_vec1)
 
     # assign new iterates
     @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - temp_n_vec1
@@ -169,7 +174,7 @@ function iter_y!(y::AbstractVector{Float64},
 end
 
 # check for acceptance of a Krylov acceleration candidate.
-function accept_acc_candidate(ws::Workspace,
+function accept_acc_candidate(ws::KrylovWorkspace,
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
     temp_mn_vec1::AbstractVector{Float64},
@@ -213,7 +218,7 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     end
 end
 
-function preallocate_scratch(ws::Workspace, acceleration::Symbol)
+function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
     if acceleration == :krylov
         return (
             temp_n_mat1 = zeros(Float64, ws.p.n, 2),
@@ -247,7 +252,7 @@ function preallocate_scratch(ws::Workspace, acceleration::Symbol)
     end
 end
 
-function preallocate_record(ws::Workspace, run_fast::Bool,
+function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
     x_sol::Union{Nothing, AbstractVector{Float64}})
     if run_fast
         return nothing
@@ -275,7 +280,7 @@ function preallocate_record(ws::Workspace, run_fast::Bool,
     end
 end
 
-function push_to_record!(ws::Workspace, record::NamedTuple, run_fast::Bool,
+function push_to_record!(ws::AbstractWorkspace, record::NamedTuple, run_fast::Bool,
     k::Int, x_sol::Union{Nothing, AbstractVector{Float64}},
     curr_x_dist::Union{Nothing, Float64},
     curr_y_dist::Union{Nothing, Float64},
@@ -311,23 +316,12 @@ end
 
 """
 Run the optimiser for the initial inputs and solver options given.
-
-Note on krylov_operator_tilde_A: if this is true, we use the Krylov subproblem
-derived from considering tilde_A as the operator generating the Krylov
-subspace in the Arnoldi process. If it is false, we use the operator
-B := tilde_A - I instead (my first implementation used the latter, B approach).
-
 acceleration is a symbol in {:none, :krylov, :anderson}
-
-anderson_periods sets how often to attempt Anderson acceleration
 """
-function optimise!(ws::Workspace,
+function optimise!(ws::AbstractWorkspace,
     max_iter::Integer, print_modulo::Integer, run_fast::Bool,
     acceleration::Symbol;
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
-    acceleration_memory::Integer,
-    anderson_period::Integer,
-    krylov_operator_tilde_A::Bool,
     linesearch_period::Union{Real, Symbol},
     linesearch_α_max::Float64 = 100.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
     linesearch_β::Float64 = 0.7,
@@ -353,18 +347,18 @@ function optimise!(ws::Workspace,
     end
 
     # prepare the pre-gradient linear operator for the x update
-    ws.cache[:W] = W_operator(ws.variant, ws.p.P, ws.p.A, ws.cache[:A_gram], ws.τ, ws.ρ)
-    ws.cache[:W_inv] = prepare_inv(ws.cache[:W])
+    # ws.W = W_operator(ws.variant, ws.p.P, ws.p.A, ws.A_gram, ws.τ, ws.ρ)
+    # ws.W_inv = prepare_inv(ws.W)
 
     # if using acceleration, init krylov basis and Hessenberg arrays
-    if acceleration == :krylov
-        ws.cache[:krylov_basis] = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
-        ws.cache[:H] = init_upper_hessenberg(acceleration_memory)
-    elseif acceleration == :anderson
-        # default types:
-        # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
-        aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
-    end
+    # if acceleration == :krylov
+    #     ws.krylov_basis = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
+    #     ws.H = init_upper_hessenberg(acceleration_memory)
+    # elseif acceleration == :anderson
+    #     # default types:
+    #     # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
+    #     aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
+    # end
     
     # init acceleration trigger flag
     just_accelerated = true
@@ -385,9 +379,9 @@ function optimise!(ws::Workspace,
 
     # characteristic PPM preconditioner of the method
     if !run_fast
-        ws.cache[:char_norm_mat] = [(ws.cache[:W] - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
+        char_norm_mat = [(ws.W - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
         function char_norm(vector::AbstractArray{Float64})
-            return sqrt(dot(vector, ws.cache[:char_norm_mat] * vector))
+            return sqrt(dot(vector, char_norm_mat * vector))
         end
     end
 
@@ -418,14 +412,19 @@ function optimise!(ws::Workspace,
 
         # compute distance to real solution
         if !run_fast
-            curr_xy_chardist = !isnothing(x_sol) ? char_norm([view_x - x_sol; view_y + y_sol]) : nothing
-            curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
-            curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
+            scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
+            scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
+            curr_xy_chardist = char_norm(scratch.temp_mn_vec1)
+            
+            @views curr_x_dist = norm(scratch.temp_mn_vec1[1:ws.p.n])
+            @views curr_y_dist = norm(scratch.temp_mn_vec1[ws.p.n+1:end])
             curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
 
             # print info and save data if requested
             print_results(k, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist=curr_xy_dist)
             push_to_record!(ws, record, run_fast, k, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist, primal_obj, dual_obj, curr_pri_res_norm, curr_dual_res_norm)
+        elseif k % print_modulo == 0
+            println("Iter $k")
         end
 
         # krylov setup
@@ -434,8 +433,8 @@ function optimise!(ws::Workspace,
             @views prev_xy .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
-            if k % (acceleration_memory + 1) == 0 && k > 0
-                custom_acceleration_candidate!(ws, krylov_operator_tilde_A, acceleration_memory, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+            if k % (ws.mem + 1) == 0 && k > 0
+                custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     println("Accepted acceleration candidate at iteration $k.")
@@ -458,19 +457,19 @@ function optimise!(ws::Workspace,
                 end
 
                 # reset krylov acceleration data at each attempt regardless of success
-                ws.cache[:krylov_basis] .= 0.0
-                ws.cache[:H] .= 0.0
+                ws.krylov_basis .= 0.0
+                ws.H .= 0.0
 
                 just_accelerated = true
             # standard step in the krylov setup (two columns)
             else
                 # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-                twocol_method_operator!(ws, krylov_operator_tilde_A, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex)
+                twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex)
 
 
                 # record iteration data
                 if !run_fast
-                    curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
+                    @views curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
                     push!(record.xy_step_norms, norm(curr_xy_update))
                     push!(record.xy_step_char_norms, char_norm(curr_xy_update))
                     insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
@@ -483,11 +482,11 @@ function optimise!(ws::Workspace,
                     # normalise
                     @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
                     # store in Krylov basis
-                    @views ws.cache[:krylov_basis][:, 1] .= ws.vars.xy_q[:, 2]
+                    @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
                 else
                     # Arnoldi "step", orthogonalises the incoming basis vector
                     # and updates the Hessenberg matrix appropriately, all in-place
-                    @views arnoldi_step!(ws.cache[:krylov_basis], ws.vars.xy_q[:, 2], ws.cache[:H])
+                    @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H)
                 end
 
                 # reset krylov acceleration flag
@@ -496,7 +495,7 @@ function optimise!(ws::Workspace,
                 j_restart += 1
             end
         else # NOT krylov set-up, so working variable is one-column
-            if acceleration == :anderson && k % anderson_period == 0 && k > 0
+            if acceleration == :anderson && k % ws.attempt_period == 0 && k > 0
                 # ws.vars.xy might be overwritten, so we take note of it here
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
@@ -579,7 +578,7 @@ function optimise!(ws::Workspace,
     
     # END: Store metrics if requested.
     if !run_fast
-        curr_xy_chardist = !isnothing(x_sol) ? sqrt(dot([view_x - x_sol; view_y + y_sol], ws.cache[:char_norm_mat] * [view_x - x_sol; view_y + y_sol])) : nothing
+        curr_xy_chardist = !isnothing(x_sol) ? char_norm([view_x - x_sol; view_y + y_sol]) : nothing
         curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
         curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
 
