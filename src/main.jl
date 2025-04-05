@@ -22,7 +22,7 @@ using SCS
 using Random
 
 ###########################
-# 1. Initialization Block #
+# 1. Initialisation Block #
 ###########################
     
 function initialize_project()
@@ -93,7 +93,7 @@ end
 #########################################
 
 function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name)
-    # Choose the reference solver: :SCS or :Clarabel
+    # Choose the reference solver in {:SCS, :Clarabel}
     reference_solver = :SCS
 
     println()
@@ -120,8 +120,8 @@ function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name
     add_cone_constraints!(model, s_ref, K)
 
     if reference_solver === :SCS
-        set_optimizer_attribute(model, "eps_abs", 1e-14)
-        set_optimizer_attribute(model, "eps_rel", 1e-14)
+        set_optimizer_attribute(model, "eps_abs", 1e-10)
+        set_optimizer_attribute(model, "eps_rel", 1e-10)
     elseif reference_solver === :Clarabel
         set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
     end
@@ -161,7 +161,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     #acceleration
     ACCEL_MEMORY = 49
     ANDERSON_PERIOD = 10
-    ACCELERATION = :anderson # in {:none, :anderson, :krylov}
+    ACCELERATION = :krylov # in {:none, :anderson, :krylov}
     KRYLOV_OPERATOR_TILDE_A = true
     
     #line search
@@ -177,8 +177,6 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
         max_τ = 1 / dom_λ_power_method(take_away_op, 30)
         τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
     end
-    
-    
 
     println("RUNNING PROTOTYPE VARIANT $VARIANT...")
     println("Problem set/name: $problem_set/$problem_name")
@@ -205,7 +203,7 @@ function run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, pro
     for i in 1:1
         ws = deepcopy(ws_copy)
         
-        @time results = optimise!(ws,
+        @profview results = optimise!(ws,
         MAX_ITER,
         PRINT_MOD,
         run_fast,
@@ -380,7 +378,7 @@ function main()
 
     if !RUN_FAST
         println()
-        println("About to plot results...")    
+        println("About to plot results...")
         plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
                     ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
                     problem_set, problem_name, KRYLOV_OPERATOR_TILDE_A,
