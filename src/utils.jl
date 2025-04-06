@@ -399,17 +399,11 @@ function arnoldi_step!(V::AbstractMatrix{T},
 
     # Loop through previous basis vectors to orthogonalise v_new    
     for j in 1:k
-        
-        # GOOD way apparently:
         @views Hjk = dot(V[:, j], v_new)
         H[j, k] = Hjk
         
-        # subtract the projection from v_new
-        # do this in an explicit loop for better performance (broadcasting
-        # can have issues when v_new is a view)
-        for i in eachindex(v_new)
-            @inbounds v_new[i] -= Hjk * V[i, j]
-        end
+        # Use BLAS.axpy! for efficient in-place subtraction:
+        BLAS.axpy!(-Hjk, view(V, :, j), v_new)
 
         # BAD way apparently:
         # Vj = view(V, :, j)
