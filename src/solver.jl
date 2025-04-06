@@ -34,12 +34,12 @@ temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
 function twocol_method_operator!(ws::KrylovWorkspace,
-    temp_n_mat1::AbstractMatrix{Float64},
-    temp_n_mat2::AbstractMatrix{Float64},
-    temp_m_mat::AbstractMatrix{Float64},
-    temp_n_vec_complex1::AbstractVector{ComplexF64},
-    temp_n_vec_complex2::AbstractVector{ComplexF64},
-    temp_m_vec_complex::AbstractVector{ComplexF64})
+    temp_n_mat1::Matrix{Float64},
+    temp_n_mat2::Matrix{Float64},
+    temp_m_mat::Matrix{Float64},
+    temp_n_vec_complex1::Vector{ComplexF64},
+    temp_n_vec_complex2::Vector{ComplexF64},
+    temp_m_vec_complex::Vector{ComplexF64})
     
     # working variable is ws.vars.xy_q, with two columns
     
