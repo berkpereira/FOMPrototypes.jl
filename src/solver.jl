@@ -127,7 +127,9 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
+    # println("in solver.jl, about to apply factorisation of size $(size(ws.W_inv.F))")
     apply_inv!(ws.W_inv, temp_n_vec1)
+    # println("in solver.jl, just after apply_inv!. now have factor size $(size(ws.W_inv.F))")
 
     # assign new iterates
     @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - temp_n_vec1
@@ -357,7 +359,7 @@ function optimise!(ws::AbstractWorkspace,
     # elseif acceleration == :anderson
     #     # default types:
     #     # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
-    #     aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
+    #     ws.accelerator = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
     # end
     
     # init acceleration trigger flag
@@ -501,7 +503,7 @@ function optimise!(ws::AbstractWorkspace,
 
                 # attempt acceleration step. if successful, this
                 # overwites ws.vars.xy
-                COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, aa, k_anderson)
+                COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, ws.accelerator, k_anderson)
 
                 if !run_fast
                     # record step (might be zero if acceleration failed)
@@ -532,7 +534,7 @@ function optimise!(ws::AbstractWorkspace,
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
                 if acceleration == :anderson
-                    COSMOAccelerators.update!(aa, ws.vars.xy, scratch.temp_mn_vec1, k_anderson)
+                    COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, k_anderson)
                     
                     # note that we do NOT increment the COSMOAccelerators iteration
                     # on acceleration attempts --- only on standard ones
@@ -568,8 +570,10 @@ function optimise!(ws::AbstractWorkspace,
 
     # TERMINATION: Compute residuals, their norms, and objective values
     # TODO: make this stuff modular as opposed to copied from the main loop
-    primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-    dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+    if !run_fast
+        primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
+        dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+    end
     curr_pri_res_norm = norm(pri_res, residual_norm)
     curr_dual_res_norm = norm(dual_res, residual_norm)
     primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
