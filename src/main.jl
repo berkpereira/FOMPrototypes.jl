@@ -50,9 +50,9 @@ function choose_problem(problem_option::Symbol)
 
     if problem_option === :LASSO
         problem_set = "sslsq"
-        problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
+        # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
         # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        # problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
+        problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -100,9 +100,22 @@ function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name
     if reference_solver === :SCS
         println("RUNNING SCS...")
         model = Model(SCS.Optimizer)
+        set_optimizer_attribute(model, "eps_abs", 1e-10)
+        set_optimizer_attribute(model, "eps_rel", 1e-10)
+
+        # set acceleration_lookback to 0 to disable Anderson acceleration
+        set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
+        # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10
+        set_optimizer_attribute(model, "max_iters", 150) # default 1e5
+        # set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
+        set_optimizer_attribute(model, "scale", 1) # initial dual scale factor, default 0.1
+        set_optimizer_attribute(model, "adaptive_scale", 0) # whether to heuristically adapt dual scale, default 1
+        set_optimizer_attribute(model, "rho_x", 1) # primal scale factor, default 1e-6
+        set_optimizer_attribute(model, "alpha", 1) # relaxation parameter, default 1.5
     elseif reference_solver === :Clarabel
         println("RUNNING CLARABEL...")
         model = Model(Clarabel.Optimizer)
+        set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
     end
     println("Problem set/name: $problem_set/$problem_name")
 
@@ -118,13 +131,6 @@ function solve_reference(problem, A, b, P, c, m, n, K, problem_set, problem_name
 
     # Add cone constraints.
     add_cone_constraints!(model, s_ref, K)
-
-    if reference_solver === :SCS
-        set_optimizer_attribute(model, "eps_abs", 1e-10)
-        set_optimizer_attribute(model, "eps_rel", 1e-10)
-    elseif reference_solver === :Clarabel
-        set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
-    end
 
     # Define the quadratic objective.
     @objective(model, Min, 0.5 * dot(x_ref, P * x_ref) + dot(c, x_ref))
@@ -149,9 +155,9 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
 #basic params
     ρ = 1.0
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
-    VARIANT = 1  #in {-1, 0, 1, 2, 3, 4}
+    VARIANT = :ADMM  #in {:ADMM, :PDHG, 1, 2, 3, 4}
     
-    MAX_ITER = 1000
+    MAX_ITER = 150
     PRINT_MOD = 50
     RES_NORM = Inf
     
@@ -159,9 +165,9 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
     RESTART_PERIOD = Inf
     
     #acceleration
-    ACCEL_MEMORY = 49
-    ANDERSON_PERIOD = 10
-    ACCELERATION = :krylov # in {:none, :anderson, :krylov}
+    ACCEL_MEMORY = 10
+    ANDERSON_PERIOD = 3
+    ACCELERATION = :none # in {:none, :anderson, :krylov}
     KRYLOV_OPERATOR = :tilde_A # in {:tilde_A, :B}
     
     #line search
@@ -176,6 +182,8 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
         Random.seed!(42)  # seed for reproducibility
         max_τ = 1 / dom_λ_power_method(take_away_op, 30)
         τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
+    else # ADMM does not use τ step size
+        τ = nothing
     end
 
     println("RUNNING PROTOTYPE VARIANT $VARIANT...")
@@ -194,25 +202,18 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
         ws = NoneWorkspace(problem, VARIANT, A_gram, τ, ρ, θ)
     end
 
-    ws_copy = deepcopy(ws)
-
     # Run the solver (time or profile execution)
-    results = nothing
-    for i in 1:1
-        ws = deepcopy(ws_copy)
-        
-        results = optimise!(ws,
-        MAX_ITER,
-        PRINT_MOD,
-        run_fast,
-        ACCELERATION,
-        restart_period = RESTART_PERIOD,
-        residual_norm = RES_NORM,
-        linesearch_period = LINESEARCH_PERIOD,
-        linesearch_ϵ = LINESEARCH_ϵ,
-        x_sol = x_ref, y_sol = y_ref,
-        explicit_affine_operator = false)
-    end
+    results = optimise!(ws,
+    MAX_ITER,
+    PRINT_MOD,
+    run_fast,
+    ACCELERATION,
+    restart_period = RESTART_PERIOD,
+    residual_norm = RES_NORM,
+    linesearch_period = LINESEARCH_PERIOD,
+    linesearch_ϵ = LINESEARCH_ϵ,
+    x_sol = x_ref, y_sol = y_ref,
+    explicit_affine_operator = false)
 
     return ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR
 end
@@ -366,21 +367,17 @@ function main()
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
-    @profview ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR = run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
-    
+    @time ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR = run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
 
-    # if !RUN_FAST
-    #     println()
-    #     println("About to plot results...")
-    #     plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
-    #                 ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
-    #                 problem_set, problem_name, KRYLOV_OPERATOR,
-    #                 show_vlines = true)
-    # end
+    if !RUN_FAST
+        println()
+        println("About to plot results...")
+        plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+                    ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
+                    problem_set, problem_name, KRYLOV_OPERATOR,
+                    show_vlines = true)
+    end
     
     #return data of interest to inspect
     return ws, results, x_ref, y_ref
 end
-
-# call main(), if using Infiltrator macros
-# ws, results, x_ref, y_ref = main();
