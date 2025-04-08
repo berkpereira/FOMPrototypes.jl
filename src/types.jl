@@ -5,6 +5,7 @@ using LinearAlgebra
 using LinearAlgebra.LAPACK
 import SparseArrays
 using LinearMaps
+using Infiltrator
 
 const DefaultFloat = Float64
 
@@ -68,13 +69,13 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
-    τ::T
+    τ::Union{T, Nothing}
     ρ::T
     θ::T
     proj_flags::AbstractVector{Bool}
 
     # constructor where initial iterates are passed in
-    function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -83,7 +84,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -93,7 +94,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -110,7 +111,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
-    τ::T
+    τ::Union{T, Nothing}
     ρ::T
     θ::T
     proj_flags::AbstractVector{Bool}
@@ -125,7 +126,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     # $ A Q_k = Q_{k+1} \tilde{H}_k $
 
     # constructor where initial iterates are passed in
-    function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -134,7 +135,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -144,7 +145,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -160,7 +161,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
-    τ::T
+    τ::Union{T, Nothing}
     ρ::T
     θ::T
     proj_flags::AbstractVector{Bool}
@@ -171,7 +172,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     accelerator::COSMOAccelerators.AndersonAccelerator
 
     # constructor where initial iterates are passed in
-    function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -185,7 +186,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -200,7 +201,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::T, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -245,32 +246,23 @@ struct DiagInvOp{T} <: AbstractInvOp
 end
 
 # Concrete type for a symmetric matrix's Cholesky-based inverse operator
-struct CholeskyInvOp{T} <: AbstractInvOp
-    F::SparseArrays.CHOLMOD.Factor  # Store the Cholesky factorization
+struct CholeskyInvOp{T, I} <: AbstractInvOp
+    F::SparseArrays.CHOLMOD.Factor{T, I}  # Store the Cholesky factorization
 end
 
-# A function that prepares an inverse operator based on the type of M
-function prepare_inv(M::Diagonal{T}) where T <: Real
+# A function that prepares an inverse operator based on the type of W
+function prepare_inv(W::Diagonal{T}) where T <: Real
     # For a Diagonal matrix, simply compute the reciprocal of the diagonal entries.
-    return DiagInvOp(1 ./ Vector(diag(M)))
+    return DiagInvOp(1 ./ Vector(diag(W)))
 end
 
-function prepare_inv(M::Symmetric{T}) where T <: Real
+function prepare_inv(W::Symmetric{T}) where T <: Real
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
-    F = LinearAlgebra.cholesky(M)
+    F = SparseArrays.cholesky(W)
+
+    # @infiltrate
+
     return CholeskyInvOp(F)
-end
-
-# Define how to apply the inverse operator to a vector
-function (op::DiagInvOp)(x::AbstractVector)
-    # element-wise multiplication by the precomputed entry-wise reciprocal
-    return op.inv_diag .* x
-end
-
-function (op::CholeskyInvOp)(x::AbstractVector)
-    # Use the Cholesky factorization to compute the inverse-vector product.
-    # This computes F \ x, which is equivalent to inv(M)*x.
-    return op.F \ x
 end
 
 # we also define in-place operators of these preconditioners
@@ -281,19 +273,25 @@ function apply_inv!(op::DiagInvOp, x::AbstractArray)
     return nothing
 end
 
-# we also define in-place operators of these preconditioners
+# would like in-place version of non-diagonal operator, but this is
+# not trivial to do currently.
+# standard option is to use op.F \ x, but I want an in-place alternative.
+# this has been implemented for a sparse Cholesky factorisation recently,
+# (https://github.com/JuliaSparse/SparseArrays.jl/pull/547)
+# and will be available in Julia v1.12.
+# for the moment we use a standard \ solve which unfortunately allocates
+# memory. this is the same as is done
+# in COSMO.jl/src/linear_solver/kkt_solver.jl
 function apply_inv!(op::CholeskyInvOp, x::AbstractArray{T}) where T <: Real
-    # NB this does very well, and seems to be apply the inverse Cholesky 
-    # factors in-place with next to no memory allocations.
-    # IT CAN also do it for a two-column input in the same time as for a single
-    # vector!! 
-    ldiv!(op.F, x)
+    # TODO: use ldiv! for sparse Cholesky solve when using Julia v1.12.
+    
+    # println("inside apply_inv! just before: factorisation has dimension $(size(op.F))")
+    # temp = (op.F \ x)
+    # println("inside apply_inv! just after: factorisation has dimension $(size(op.F))")
+    # x .= temp
+
+    # should also just be able to do this:
+    x .= op.F \ x
+
     return nothing
 end
-
-# mutable struct States
-# 	IS_ASSEMBLED::Bool # The workspace has been assembled with problem data.
-# 	IS_OPTIMISED::Bool # The optimisation function has been CALLED on the model.
-# 	# IS_SCALED::Bool # The problem data has been scaled.
-# 	States() = new(false, false, false, false, false)
-# end
