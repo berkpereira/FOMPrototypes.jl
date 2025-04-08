@@ -83,12 +83,19 @@ end
 
 Constructs a LinearMap for one of the following operators (assuming P is n×n):
 
+  PDHG. ρ AᵀA               - Augmented Lagrangian penalty is difference between PDHG and ADMM
   1. R(P + ρ AᵀA)          — Off-diagonal part of P + ρ AᵀA
   2. P + ρ AᵀA             — The full matrix
   3. P + R(ρ AᵀA)          — P plus the off-diagonal part of ρ AᵀA
   4. R(P) + ρ AᵀA          — Off-diagonal part of P plus ρ AᵀA
 
 The operator R(B) is defined as B with its diagonal set to zero.
+
+This linear operators is required, in each variant, in order to determine
+the maximum step size τ associated with the algorithm for standard convergence
+guarantees (see AD-PMM in Shefi and Teboulle 2014 paper). Namely,
+the theoretical (1 / τ_max) given by the reciprocal of the largest eigenvalue
+of the operator returned by this function.
 """
 function build_operator(variant::Union{Integer, Symbol}, P::Symmetric{Float64},
     A::SparseMatrixCSC{Float64, Int64}, A_gram::LinearMap{Float64},
@@ -101,7 +108,11 @@ function build_operator(variant::Union{Integer, Symbol}, P::Symmetric{Float64},
     dA = ρ * vec(sum(abs2, A; dims=1))
     
     op = nothing  # will hold our operator function
-    if variant == 1
+    
+    if variant == :PDHG
+        # PDHG operator
+        op = x -> ρ * (A_gram * x)
+    elseif variant == 1
         # R(P + ρ AᵀA) = (P + ρ AᵀA) - diag(P + ρ AᵀA)
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
@@ -178,16 +189,17 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
-function W_operator(variant::Union{Integer, Symbol}, P::Symmetric, A::AbstractMatrix,
-    A_gram::LinearMap, τ::Float64, ρ::Float64)
+function W_operator(variant::Union{Integer, Symbol}, P::Symmetric, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
     n = size(A_gram, 1)
+    
+    ################## NON-DIAGONAL  pre-gradient operators ####################
     
     if variant == :PDHG
         pre_operator = Symmetric(sparse(I(n)) / τ + P)
     elseif variant == :ADMM
         # note: I think in this case I am forced to form the 
         # matrix P + ρ * A' * A explicitly, in order to then compute
-        # its Cholesky factors.
+        # its Cholesky factors for inverse-vec products
         pre_operator = Symmetric(P + ρ * A' * A)
     
     ################ DIAGONAL pre-gradient operators ################
@@ -403,6 +415,7 @@ function arnoldi_step!(V::AbstractMatrix{T},
         H[j, k] = Hjk
         
         # Use BLAS.axpy! for efficient in-place subtraction:
+        # this does v_new = v_new - Hjk * V[:, j]
         BLAS.axpy!(-Hjk, view(V, :, j), v_new)
 
         # BAD way apparently:
