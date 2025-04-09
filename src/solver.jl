@@ -44,7 +44,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     # working variable is ws.vars.xy_q, with two columns
     
     @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_m_vec_complex) # compute A * [x, q_n]
-    temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
+    @views temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
     temp_m_mat .*= ws.ρ
     @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
     @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
@@ -55,7 +55,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
 
     # can now compute the bit of q corresponding to the y iterate
-    temp_m_mat[:, 2] .*= ws.proj_flags
+    @views temp_m_mat[:, 2] .*= ws.proj_flags
 
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line...
@@ -73,7 +73,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_n_vec_complex2) # compute P * [x, q_n]
-    temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective to P * x (but NOT to P * q_n)
+    @views temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective to P * x (but NOT to P * q_n)
     @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_m_vec_complex, temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
@@ -438,7 +438,8 @@ function optimise!(ws::AbstractWorkspace,
             if k % (ws.mem + 1) == 0 && k > 0
                 custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
-                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                # @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                if k >= 300
                     println("Accepted acceleration candidate at iteration $k.")
                     
                     # assign actually

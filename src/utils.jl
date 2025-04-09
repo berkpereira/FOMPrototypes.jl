@@ -37,8 +37,8 @@ temp_m_vec is m-vector.
     mul!(temp_m_vec, A, temp_n_vec)
 
     # unpack the complex result into the two columns of Y
-    @views Y[:, 1] .= real(temp_m_vec)
-    @views Y[:, 2] .= imag(temp_m_vec)
+    @views Y[:, 1] .= real.(temp_m_vec)
+    @views Y[:, 2] .= imag.(temp_m_vec)
 
     return nothing
 end
