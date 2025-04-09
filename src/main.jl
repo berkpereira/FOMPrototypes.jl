@@ -50,9 +50,9 @@ function choose_problem(problem_option::Symbol)
 
     if problem_option === :LASSO
         problem_set = "sslsq"
-        # problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
+        problem_name = "NYPA_Maragal_5_lasso"; # large, challenging
         # problem_name = "HB_abb313_lasso"  # (m, n) = (665, 665)
-        problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
+        # problem_name = "HB_ash219_lasso" # (m, n) = (389, 389)
     elseif problem_option === :HUBER
         problem_set = "sslsq"
         problem_name = "HB_ash958_huber"  # (m, n) = (3419, 3099)
@@ -155,7 +155,7 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
 #basic params
     ρ = 1.0
     θ = 1.0 # NB this ought to be fixed = 1.0 until we change many other things
-    VARIANT = :ADMM  #in {:ADMM, :PDHG, 1, 2, 3, 4}
+    VARIANT = :ADMM #in {:ADMM, :PDHG, 1, 2, 3, 4}
     
     MAX_ITER = 150
     PRINT_MOD = 50
@@ -165,8 +165,8 @@ function run_prototype(problem::ProblemData, A::SparseMatrixCSC{Float64, Int64},
     RESTART_PERIOD = Inf
     
     #acceleration
-    ACCEL_MEMORY = 10
-    ANDERSON_PERIOD = 3
+    ACCEL_MEMORY = 20
+    ANDERSON_PERIOD = 2
     ACCELERATION = :none # in {:none, :anderson, :krylov}
     KRYLOV_OPERATOR = :tilde_A # in {:tilde_A, :B}
     
@@ -349,7 +349,7 @@ end
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
     PROBLEM_OPTION = :LASSO
-    RUN_FAST = false
+    RUN_FAST = true
 
     newline_char = initialize_project()
 
@@ -369,14 +369,14 @@ function main()
     println("About to run prototype solver...")
     @time ws, results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION, ACCEL_MEMORY, LINESEARCH_PERIOD, LINESEARCH_ϵ, KRYLOV_OPERATOR = run_prototype(problem, A, P, c, b, m, n, x_ref, y_ref, problem_set, problem_name, RUN_FAST)
 
-    if !RUN_FAST
-        println()
-        println("About to plot results...")
-        plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
-                    ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
-                    problem_set, problem_name, KRYLOV_OPERATOR,
-                    show_vlines = true)
-    end
+    # if !RUN_FAST
+    #     println()
+    #     println("About to plot results...")
+    #     plot_results(results, VARIANT, MAX_ITER, RESTART_PERIOD, ACCELERATION,
+    #                 ACCEL_MEMORY, LINESEARCH_PERIOD, newline_char,
+    #                 problem_set, problem_name, KRYLOV_OPERATOR,
+    #                 show_vlines = false)
+    # end
     
     #return data of interest to inspect
     return ws, results, x_ref, y_ref
