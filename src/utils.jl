@@ -10,6 +10,7 @@ using Clarabel
 using FFTW
 include("types.jl")
 
+
 """
 This function multiplies in-place a matrix by another matrix with two columns.
 To make it fast, it exploits complex vectors, storing the two columns of the
@@ -42,7 +43,6 @@ temp_m_vec is m-vector.
 
     return nothing
 end
-
 
 function primal_obj_val(P::AbstractMatrix{Float64}, c::AbstractVector{Float64}, x::AbstractVector{Float64})
     return 0.5 * dot(x, P * x) + dot(c, x)
@@ -372,118 +372,6 @@ function plot_eigenvec_alignment_vs_phase(vector::AbstractVector{Float64}, eigen
         xlabel="Phase of Eigenvalues", ylabel="Abs Inner Product",
         title="Alignment of Input Vector with Eigenvectors, k = $k",
         legend=false, marker=:x, msw = 2))
-end
-    
-
-"""
-Initialises an UpperHessenberg view of a n by (n - 1) matrix filled with zeros.
-"""
-function init_upper_hessenberg(n::Int)
-    # H = spzeros(n + 1, n)
-    H = zeros(n, n - 1)
-    return UpperHessenberg(H)
-end
-
-"""
-Perform one Modified Gram-Schmidt orthogonalisation step for Krylov methods.
-Orthogonalises the new vector IN-PLACE.
-
-Inputs:
-- V::Matrix{T}: Existing tall matrix of orthonormal vectors (pre-allocated, may contain zero columns).
-- v_new::Vector{T}: New vector to orthonormalise in-place.
-- H::Matrix{T}: Upper Hessenberg matrix (to be updated in-place).
-
-Assumptions:
-- V is pre-allocated (with zeros); the leftmost zero column determines where to place the new orthonormal vector.
-- H has been pre-allocated with the correct size (e.g. mem+1 by mem).
-- Orthogonalisation uses modified Gram-Schmidt (numerically stable).
-"""
-function arnoldi_step!(V::AbstractMatrix{T},
-    v_new::AbstractVector{T},
-    H::AbstractMatrix{T}) where T <: AbstractFloat
-    # Determine the current column of interest.
-    k = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
-    if isnothing(k)
-        k = size(V, 2) - 1
-    else
-        k -= 1
-    end
-
-    # Loop through previous basis vectors to orthogonalise v_new    
-    for j in 1:k
-        @views Hjk = dot(V[:, j], v_new)
-        H[j, k] = Hjk
-        
-        # Use BLAS.axpy! for efficient in-place subtraction:
-        # this does v_new = v_new - Hjk * V[:, j]
-        BLAS.axpy!(-Hjk, view(V, :, j), v_new)
-
-        # BAD way apparently:
-        # Vj = view(V, :, j)
-        # Hjk = dot(Vj, v_new)
-        # H[j, k] = Hjk
-        
-        # @. v_new = v_new - Hjk * Vj
-    end
-
-    # Compute the norm of the orthogonalised vector.
-    H[k + 1, k] = norm(v_new)
-
-    # Check for breakdown
-    if H[k + 1, k] == 0.0
-        error("(Happy?) breakdown: orthogonalized vector has zero norm.")
-    end
-
-    # Normalize v_new to make it unit length
-    v_new ./= H[k + 1, k]
-
-    # Place the orthonormalized vector into the basis matrix V
-    V[:, k + 1] .= v_new
-
-    return nothing
-end
-
-"""
-    krylov_least_squares!(H, rhs_res)
-
-Solve the least-squares problem `min_y ||H * y + rhs_res||^2`
-arising in Krylov subspace methods.
-
-Inputs:
-- `H`: Upper Hessenberg matrix of size (k+1) × k (modified in-place).
-- `rhs_res`: Vector of size (k+1) (modified in-place).
-
-Outputs:
-- `y`: Solution vector of size k.
-"""
-function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T}) where T
-    k = size(H, 2)  # Number of columns in H
-
-    # Givens rotation application to reduce H to upper triangular form
-    for i in 1:k
-        # Generate Givens rotation for element (i, i) and (i+1, i)
-        # givensAlgorithm generates a plane rotation so that
-        # [  c  s  ]  .  [ f ]  =  [ r ]
-        # [ -s  c  ]     [ g ]     [ 0 ]
-        # (note that this interprets positive rotations as clockwise!)
-        c, s, r = givensAlgorithm(H[i, i], H[i+1, i])
-
-        # Apply Givens rotation to the jth and (i+1)th rows of H
-        for j in i:k
-            temp = c * H[i, j] + s * H[i+1, j]
-            H[i+1, j] = -s * H[i, j] + c * H[i+1, j]
-            H[i, j] = temp
-        end
-
-        # Apply Givens rotation to the RHS vector
-        temp = c * rhs_res[i] + s * rhs_res[i+1]
-        rhs_res[i+1] = -s * rhs_res[i] + c * rhs_res[i+1]
-        rhs_res[i] = temp
-    end
-
-    # The Givens rotations reduce the problem to a k by k linear system.
-    # Now solve the upper triangular system H[1:k, 1:k] * y = -rhs_res[1:k]
-    return H[1:k, 1:k] \ (- rhs_res[1:k])
 end
 
 ################################################################################
