@@ -6,6 +6,7 @@ using LinearAlgebra.LAPACK
 import SparseArrays
 using LinearMaps
 using Infiltrator
+include("custom_nla.jl")
 
 const DefaultFloat = Float64
 
@@ -248,21 +249,31 @@ end
 # Concrete type for a symmetric matrix's Cholesky-based inverse operator
 struct CholeskyInvOp{T, I} <: AbstractInvOp
     F::SparseArrays.CHOLMOD.Factor{T, I}  # Store the Cholesky factorization
+    Lsp::SparseMatrixCSC{T, I} # Store the lower triangular factor
+    perm::Vector{I}
+    inv_perm::Vector{I}
 end
 
 # A function that prepares an inverse operator based on the type of W
-function prepare_inv(W::Diagonal{T}) where T <: Real
+function prepare_inv(W::Diagonal{T}) where T <: AbstractFloat
     # For a Diagonal matrix, simply compute the reciprocal of the diagonal entries.
     return DiagInvOp(1 ./ Vector(diag(W)))
 end
 
-function prepare_inv(W::Symmetric{T}) where T <: Real
+function prepare_inv(W::Symmetric{T}) where T <: AbstractFloat
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
     F = SparseArrays.cholesky(W)
+    Lmat = sparse(F.L)
+    
+    # perm describes permutation matrix P used for pivoting and reduction
+    # of fill-in in the sparse Cholesky factors
+    # we apply this permutation to a vector v using v[perm]
+    perm = F.p
+    # need inverse permutation to compute solution to pivoted Cholesky
+    # linear system. 
+    inv_perm = invperm(perm)
 
-    # @infiltrate
-
-    return CholeskyInvOp(F)
+    return CholeskyInvOp(F, Lmat, perm, inv_perm)
 end
 
 # we also define in-place operators of these preconditioners
@@ -282,16 +293,26 @@ end
 # for the moment we use a standard \ solve which unfortunately allocates
 # memory. this is the same as is done
 # in COSMO.jl/src/linear_solver/kkt_solver.jl
-function apply_inv!(op::CholeskyInvOp, x::AbstractArray{T}) where T <: Real
-    # TODO: use ldiv! for sparse Cholesky solve when using Julia v1.12.
-    
-    # println("inside apply_inv! just before: factorisation has dimension $(size(op.F))")
-    # temp = (op.F \ x)
-    # println("inside apply_inv! just after: factorisation has dimension $(size(op.F))")
-    # x .= temp
+function apply_inv!(op::CholeskyInvOp, x::Vector{T}) where T <: AbstractFloat
+    # implementation using custom routines
+    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x)
 
-    # should also just be able to do this:
-    x .= op.F \ x
+    # CF naive code:
+    # x .= op.F \ x
 
     return nothing
 end
+
+"""
+In addition to the method apply_inv!(op::CholeskyInvOp, x::Vector{T}) where T <: AbstractFloat,
+intended for when x is a Vector, we also have a method for when x is a Matrix
+with two columns.
+"""
+function apply_inv!(op::CholeskyInvOp, x::Matrix{T}, temp_n_vec::Vector{Complex{T}}) where T <: AbstractFloat
+    # implementation using custom routines
+    # note that x in this method should have exactly two columns
+    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x, temp_n_vec)
+    
+    return nothing
+end
+    

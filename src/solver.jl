@@ -78,7 +78,14 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    apply_inv!(ws.W_inv, temp_n_mat1)
+    if typeof(ws.W_inv) == CholeskyInvOp # eg in ADMM, PDHG
+        # need a working complex vector for efficient Cholesky inversion
+        # of two columns simultaneously
+        apply_inv!(ws.W_inv, temp_n_mat1, temp_n_vec_complex1)
+    else
+        # diagonal inversion is simpler
+        apply_inv!(ws.W_inv, temp_n_mat1)
+    end
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
     if ws.krylov_operator == :tilde_A
@@ -126,10 +133,8 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
     temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
     
-    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    # println("in solver.jl, about to apply factorisation of size $(size(ws.W_inv.F))")
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_vec1
     apply_inv!(ws.W_inv, temp_n_vec1)
-    # println("in solver.jl, just after apply_inv!. now have factor size $(size(ws.W_inv.F))")
 
     # assign new iterates
     @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - temp_n_vec1
