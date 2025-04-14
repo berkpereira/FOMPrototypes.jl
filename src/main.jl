@@ -349,7 +349,7 @@ end
 function main()
     # Initialize the project (includes files, packages, and plotting settings).
     PROBLEM_OPTION = :LASSO
-    RUN_FAST = true
+    RUN_FAST = false
 
     newline_char = initialize_project()
 
