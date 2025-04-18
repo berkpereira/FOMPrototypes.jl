@@ -97,7 +97,7 @@ guarantees (see AD-PMM in Shefi and Teboulle 2014 paper). Namely,
 the theoretical (1 / τ_max) given by the reciprocal of the largest eigenvalue
 of the operator returned by this function.
 """
-function build_operator(variant::Union{Integer, Symbol}, P::Symmetric{Float64},
+function build_operator(variant::Symbol, P::Symmetric{Float64},
     A::SparseMatrixCSC{Float64, Int64}, A_gram::LinearMap{Float64},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
@@ -112,25 +112,25 @@ function build_operator(variant::Union{Integer, Symbol}, P::Symmetric{Float64},
     if variant == :PDHG
         # PDHG operator
         op = x -> ρ * (A_gram * x)
-    elseif variant == 1
+    elseif variant == Symbol(1)
         # R(P + ρ AᵀA) = (P + ρ AᵀA) - diag(P + ρ AᵀA)
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
             y .-= (dP + dA) .* x
             y
         end
-    elseif variant == 2
+    elseif variant == Symbol(2)
         # P + ρ AᵀA (full matrix)
         # TODO: consider reducing mem allocations with in-place computations here?
         op = x -> P * x + ρ * (A_gram * x)
-    elseif variant == 3
+    elseif variant == Symbol(3)
         # P + R(ρ AᵀA) = P + [ρ AᵀA - diag(ρ AᵀA)]
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
             y .-= dA .* x
             y
         end
-    elseif variant == 4
+    elseif variant == Symbol(4)
         # R(P) + ρ AᵀA = [P - diag(P)] + ρ AᵀA
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
@@ -189,7 +189,7 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
-function W_operator(variant::Union{Integer, Symbol}, P::Symmetric, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
+function W_operator(variant::Symbol, P::Symmetric, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
     n = size(A_gram, 1)
     
     ################## NON-DIAGONAL  pre-gradient operators ####################
@@ -204,16 +204,16 @@ function W_operator(variant::Union{Integer, Symbol}, P::Symmetric, A::AbstractMa
     
     ################ DIAGONAL pre-gradient operators ################
 
-    elseif variant == 1
+    elseif variant == Symbol(1)
         dP = diag(P)
         dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
         pre_operator = Diagonal(sparse(ones(n)) / τ + dP + dA)
-    elseif variant == 2
+    elseif variant == Symbol(2)
         pre_operator = Diagonal(sparse(ones(n)) / τ)
-    elseif variant == 3
+    elseif variant == Symbol(3)
         dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
         pre_operator = Diagonal(sparse(ones(n)) / τ + dA)
-    elseif variant == 4
+    elseif variant == Symbol(4)
         dP = diag(P)
         pre_operator = Diagonal(sparse(ones(n)) / τ + dP)
     else

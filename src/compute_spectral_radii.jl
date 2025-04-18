@@ -24,13 +24,13 @@ function process_problem(problem_set, problem_name; ρ::Float64)
     eig_diffs = zeros(4)
     for variant in 1:4
         # Compute take_away_mat based on variant
-        take_away_mat = if variant == 1
+        take_away_mat = if variant == Symbol(1)
             off_diag_part(P + ρ * A_gram)
-        elseif variant == 2
+        elseif variant == Symbol(2)
             P + ρ * A_gram
-        elseif variant == 3
+        elseif variant == Symbol(3)
             P + off_diag_part(ρ * A_gram)
-        else # variant == 4
+        else # variant == Symbol(4)
             off_diag_part(P) + ρ * A_gram
         end
         
