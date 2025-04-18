@@ -9,26 +9,30 @@ using Infiltrator
 include("custom_nla.jl")
 
 const DefaultFloat = Float64
+const DefaultInt = Int64
 
 # Define an abstract type for an inverse linear operator
 abstract type AbstractInvOp end
 
-@with_kw struct ProblemData{T}
-    P::AbstractMatrix{T}
-    c::AbstractVector{T}
-    A::AbstractMatrix{T}
+@with_kw struct ProblemData{T, I}
+    problem_set::String
+    problem_name::String
+    P::Symmetric{T}
+    c::Vector{T}
+    A::SparseMatrixCSC{T, I}
     m::Int
     n::Int
-    b::AbstractVector{T}
+    b::Vector{T}
     K::Vector{Clarabel.SupportedCone}
-    K_star::Vector{Clarabel.SupportedCone}
 
-    function ProblemData{T}(P::AbstractMatrix{T}, c::AbstractVector{T}, A::AbstractMatrix{T}, b::AbstractVector{T}, K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat}
+    function ProblemData{T, I}(problem_set::String, problem_name::String,
+        P::Symmetric{T}, c::Vector{T}, A::SparseMatrixCSC{T, I}, b::Vector{T},
+        K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat, I <: Integer}
         m, n = size(A)
-        new(P, c, A, m, n, b, K)
+        new(problem_set, problem_name, P, c, A, m, n, b, K)
     end
 end
-ProblemData(args...) = ProblemData{DefaultFloat}(args...)
+ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
 
 abstract type AbstractVariables{T<:AbstractFloat} end
 
@@ -66,7 +70,7 @@ abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
 struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
     p::ProblemData{T}
     vars::OnecolVariables{T}
-    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
+    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
@@ -76,7 +80,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     proj_flags::AbstractVector{Bool}
 
     # constructor where initial iterates are passed in
-    function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -85,7 +89,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -95,7 +99,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function NoneWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
+    function NoneWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -108,7 +112,7 @@ NoneWorkspace(args...) = NoneWorkspace{DefaultFloat}(args...)
 struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     p::ProblemData{T}
     vars::Variables{T}
-    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
+    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
@@ -127,7 +131,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     # $ A Q_k = Q_{k+1} \tilde{H}_k $
 
     # constructor where initial iterates are passed in
-    function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -136,7 +140,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -146,7 +150,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
+    function KrylovWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -158,7 +162,7 @@ end
 struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
     p::ProblemData{T}
     vars::OnecolVariables{T}
-    variant::Union{Int, Symbol} # In {:PDHG, :ADMM, 1, 2, 3, 4}.
+    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
@@ -173,7 +177,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     accelerator::COSMOAccelerators.AndersonAccelerator
 
     # constructor where initial iterates are passed in
-    function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -187,7 +191,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     end
 
     # constructor where initial iterates are not passed (default set to zero)
-    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -202,7 +206,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
-    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Union{Int, Symbol}, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
+    function AndersonWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
