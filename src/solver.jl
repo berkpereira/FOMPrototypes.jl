@@ -78,7 +78,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    if typeof(ws.W_inv) == CholeskyInvOp # eg in ADMM, PDHG
+    if ws.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
         # need a working complex vector for efficient Cholesky inversion
         # of two columns simultaneously
         apply_inv!(ws.W_inv, temp_n_mat1, temp_n_vec_complex1)
@@ -443,9 +443,9 @@ function optimise!(ws::AbstractWorkspace,
             if k % (ws.mem + 1) == 0 && k > 0
                 custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
-                # @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
-                if k >= 300
-                    println("Accepted acceleration candidate at iteration $k.")
+                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                # if k >= 300
+                    println("Accepted Krylov acceleration candidate at iteration $k.")
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -516,7 +516,8 @@ function optimise!(ws::AbstractWorkspace,
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
                     # account for records as appropriate
-                    if any(x -> x != 0.0, curr_xy_update)
+                    if any(x -> x != 0.0, curr_xy_update) # ie if acceleration was successful
+                        println("Accepted TEST CHANGES acceleration candidate at iteration $k.")
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
