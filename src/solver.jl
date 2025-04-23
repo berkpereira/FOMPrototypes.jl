@@ -4,12 +4,6 @@ using Random
 using Printf
 using Infiltrator
 import COSMOAccelerators
-include("types.jl")
-include("utils.jl")
-include("residuals.jl")
-include("krylov_acceleration.jl")
-include("linesearch.jl")
-include("printing.jl")
 
 """
 In our framing of the FOM as an affine operator with generally varying
@@ -517,7 +511,7 @@ function optimise!(ws::AbstractWorkspace,
 
                     # account for records as appropriate
                     if any(x -> x != 0.0, curr_xy_update) # ie if acceleration was successful
-                        println("Accepted TEST CHANGES acceleration candidate at iteration $k.")
+                        println("Accepted Anderson acceleration candidate at iteration $k.")
                         push!(record.acc_step_iters, k)
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1

@@ -1,7 +1,4 @@
 using LinearAlgebra, Printf, Infiltrator
-include("utils.jl")
-include("krylov_acceleration.jl")
-include("types.jl")
 
 """
 From a given current iterate (x, v)_k, the main steps to the approach in

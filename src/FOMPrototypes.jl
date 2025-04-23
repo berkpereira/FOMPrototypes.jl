@@ -1,25 +1,24 @@
 module FOMPrototypes
 
-export main
+export main, run_cli
 
-# Imports
 # Include all project source files.
+include(joinpath(@__DIR__, "custom_nla.jl"))
 include(joinpath(@__DIR__, "types.jl"))
-include(joinpath(@__DIR__, "solver.jl"))
 include(joinpath(@__DIR__, "utils.jl"))
-include(joinpath(@__DIR__, "problem_data.jl"))
-include(joinpath(@__DIR__, "printing.jl"))
-include(joinpath(@__DIR__, "plotting.jl"))
+include(joinpath(@__DIR__, "residuals.jl"))
 include(joinpath(@__DIR__, "krylov_acceleration.jl"))
+include(joinpath(@__DIR__, "linesearch.jl"))
+include(joinpath(@__DIR__, "printing.jl"))
+include(joinpath(@__DIR__, "solver.jl"))
+include(joinpath(@__DIR__, "problem_data.jl"))
 
 # Import packages.
 using ArgParse
-using Revise
 using LinearMaps
 using Infiltrator
 using Profile
 using BenchmarkTools
-using Printf
 using Plots
 using SparseArrays
 using SCS
@@ -57,7 +56,7 @@ function parse_command_line()
         arg_type = Symbol
         required = true
 
-        "--variant"
+        "--variant", "-v"
         help = "Variant to use: ADMM, PDHG, 1, 2, 3, or 4."
         arg_type = Symbol
         required = true
@@ -97,7 +96,7 @@ function parse_command_line()
         arg_type = Float64
         default = 1.0
 
-        "--acceleration"
+        "--acceleration", "-a"
         help = "Acceleration type: none, anderson, or krylov."
         arg_type = Symbol
         default = :none
@@ -119,6 +118,11 @@ function parse_command_line()
 
         "--run-fast"
         help = "Run fast mode (no plotting, less data recording during run)."
+        arg_type = Bool
+        default = false
+
+        "--show-vlines"
+        help = "Show relevant vertical dashed lines in plots."
         arg_type = Bool
         default = false
 
@@ -429,7 +433,24 @@ function plot_results(results, variant, max_iter, restart_period, acceleration,
     display(xy_update_cosines_plot)
 end
 
-###########################
+##########################
+# Command line interface #
+##########################
+"""
+    run_cli()
+
+Parse `ARGS`, call `parse_command_line`, then `main`, and exit.
+"""
+function run_cli()
+    config = parse_command_line()
+    ws, results, x_ref, y_ref = main(config)
+
+    # maybe print a summary, write outputs, etc.
+    return
+end
+
+
+##########################
 # Main Execution Block #
 ###########################
 
@@ -458,7 +479,7 @@ function main(config::Dict{String, Any})
         plot_results(results, config["variant"], config["max-iter"], config["restart-period"], config["acceleration"],
                     config["accel-memory"], config["linesearch-period"], newline_char,
                     config["problem-set"], config["problem-name"], config["krylov-operator"],
-                    show_vlines = false)
+                    show_vlines = config["show-vlines"])
     end
     
     #return data of interest to inspect

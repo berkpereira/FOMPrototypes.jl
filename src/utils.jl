@@ -8,8 +8,6 @@ using SCS
 using Statistics
 using Clarabel
 using FFTW
-include("types.jl")
-
 
 """
 This function multiplies in-place a matrix by another matrix with two columns.

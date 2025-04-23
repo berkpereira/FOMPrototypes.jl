@@ -6,7 +6,6 @@ using LinearAlgebra.LAPACK
 import SparseArrays
 using LinearMaps
 using Infiltrator
-include("custom_nla.jl")
 
 const DefaultFloat = Float64
 const DefaultInt = Int64
