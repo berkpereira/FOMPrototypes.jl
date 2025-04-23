@@ -85,10 +85,10 @@ function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vecto
 
     @views temp_n_vec .= complex.(x[:, 1], x[:, 2])
     
-    permute!(x, perm)
-    forward_solve!(Lsp, x)
-    backward_solve!(Lsp, x)
-    permute!(x, inv_perm)
+    permute!(temp_n_vec, perm)
+    forward_solve!(Lsp, temp_n_vec)
+    backward_solve!(Lsp, temp_n_vec)
+    permute!(temp_n_vec, inv_perm)
 
     @views x[:, 1] .= real.(temp_n_vec)
     @views x[:, 2] .= imag.(temp_n_vec)
