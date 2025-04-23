@@ -1,18 +1,16 @@
-module RunSolvers
+module FOMPrototypes
 
-export main, parse_command_line, initialise_misc, choose_problem,
-    fetch_data, solve_reference, run_prototype, plot_results
+export main
 
 # Imports
 # Include all project source files.
-include("types.jl")
-include("solver.jl")
-include("utils.jl")
-include("problem_data.jl")
-include("solver.jl")
-include("printing.jl")
-include("plotting.jl")
-include("krylov_acceleration.jl")
+include(joinpath(@__DIR__, "types.jl"))
+include(joinpath(@__DIR__, "solver.jl"))
+include(joinpath(@__DIR__, "utils.jl"))
+include(joinpath(@__DIR__, "problem_data.jl"))
+include(joinpath(@__DIR__, "printing.jl"))
+include(joinpath(@__DIR__, "plotting.jl"))
+include(joinpath(@__DIR__, "krylov_acceleration.jl"))
 
 # Import packages.
 using ArgParse
@@ -467,4 +465,4 @@ function main(config::Dict{String, Any})
     return ws, results, x_ref, y_ref
 end
 
-end # module RunSolvers
+end # module FOMPrototypes
