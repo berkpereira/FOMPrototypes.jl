@@ -23,6 +23,8 @@ should be applying some of the operator's action to both the vectors of
 interest. Mainly for this reason, it makes sense to encapsulate both of these
 tasks within this single function.
 
+Depending on arguments given, function can also recycle A * x, A' * y, and
+
 temp_n_mat1 should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
@@ -33,12 +35,31 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     temp_m_mat::Matrix{Float64},
     temp_n_vec_complex1::Vector{ComplexF64},
     temp_n_vec_complex2::Vector{ComplexF64},
-    temp_m_vec_complex::Vector{ComplexF64})
+    temp_m_vec_complex::Vector{ComplexF64},
+    update_residuals::Bool = false)
     
     # working variable is ws.vars.xy_q, with two columns
     
     @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_m_vec_complex) # compute A * [x, q_n]
+
+    if update_residuals
+        @views Ax_norm = norm(temp_m_mat[:, 1], Inf)
+    end
+
     @views temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
+
+    # if updating primal residual
+    if update_residuals
+        @views ws.res.r_primal .= temp_m_mat[:, 1] # assign A * x - b
+        project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
+
+        # at this point the primal residual vector is updated
+
+        # update primal residual metrics
+        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
+        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
+    end
+
     temp_m_mat .*= ws.ρ
     @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
     @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
@@ -67,9 +88,42 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_n_vec_complex2) # compute P * [x, q_n]
-    @views temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective to P * x (but NOT to P * q_n)
+
+    if update_residuals
+        @views Px_norm = norm(temp_n_mat1[:, 1], Inf)
+        
+        @views xTPx = dot(ws.vars.xy_q[1:ws.p.n, 1], temp_n_mat1[:, 1]) # x^T P x
+        @views cTx  = dot(ws.p.c, ws.vars.xy_q[1:ws.p.n, 1]) # c^T x
+        @views bTy  = dot(ws.p.b, ws.vars.xy_q[ws.p.n+1:end, 1]) # b^T y
+
+        # can now update gap and objective metrics
+        ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
+        ws.res.gap_rel = ws.res.gap_abs / (1 + max(0.5xTPx + cTx, 0.5xTPx + bTy)) # relative gap
+        ws.res.obj_primal = 0.5xTPX + cTx
+        ws.res.obj_dual = - 0.5xTPx - bTy
+    end
+
+    @views temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective, c, to P * x (but NOT to P * q_n)
+
     @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_m_vec_complex, temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
+
+    if update_residuals
+        @views ATybar_norm = norm(temp_n_mat2[:, 1], Inf)
+    end
+
+    # now compute P x + A^T y_bar
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
+
+    # if updating dual residual (NOTE use of y_bar)
+    if update_residuals
+        @views ws.res.r_dual .= temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
+
+        # at this point the dual residual vector is updated
+
+        # update dual residual metrics
+        ws.res.rd_abs = norm(ws.res.r_dual, Inf)
+        ws.res.rd_rel = ws.res.rd_abs / (1 + max(Px_norm, ATybar_norm, ws.p.c_norm_inf)) # update relative dual residual metric
+    end
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
     if ws.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
@@ -109,23 +163,72 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     result_vec::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64})
+    temp_m_vec::AbstractVector{Float64},
+    update_residuals::Bool = false)
 
     @views mul!(temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
+
+    if update_residuals
+        @views Ax_norm = norm(temp_m_vec, Inf)
+    end
+
     temp_m_vec .-= ws.p.b # subtract b from A * x
+
+    # if updating primal residual
+    if update_residuals
+        @views ws.res.r_primal .= temp_m_vec # assign A * x - b
+        project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
+
+        # at this point the primal residual is updated
+        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
+        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
+    end
+
     temp_m_vec .*= ws.ρ
     @views temp_m_vec .+= xy[ws.p.n+1:end] # add current
     @views project_to_dual_K!(temp_m_vec, ws.p.K) # temp_m_vec now stores y_{k+1}
 
     # now we go to "bulk of" x and q_n update
     @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
-    temp_n_vec1 .+= ws.p.c # add linear part of objective to P * x
 
-    # TODO reduce allocations in this mul! call
+    if update_residuals
+        Px_norm = norm(temp_n_vec1, Inf)
+
+        @views xTPx = dot(xy[1:ws.p.n], temp_n_vec1) # x^T P x
+        @views cTx  = dot(ws.p.c, xy[1:ws.p.n]) # c^T x
+        @views bTy  = dot(ws.p.b, xy[ws.p.n+1:end]) # b^T y
+
+        # can now update gap and objective metrics
+        ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
+        ws.res.gap_rel = ws.res.gap_abs / (1 + max(0.5xTPx + cTx, 0.5xTPx + bTy)) # relative gap
+        ws.res.obj_primal = 0.5xTPX + cTx
+        ws.res.obj_dual = - 0.5xTPx - bTy
+    end
+
+    temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
+
+    # TODO reduce allocations in this mul! call: pass another temp vector?
     # consider dedicated scratch storage for y_bar, akin to what
     # we do in twocol_method_operator!
     @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
+
+    if update_residuals
+        ATybar_norm = norm(temp_n_vec2, Inf)
+    end
+
+    # now compute P x + A^T y_bar
     temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
+
+    # if updating dual residual (NOTE use of y_bar)
+    if update_residuals
+        @views ws.res.r_dual .= temp_n_vec1 # assign P * x + A' * y_bar + c
+
+        # at this point the dual residual vector is updated
+
+        # update dual residual metrics
+        ws.res.rd_abs = norm(ws.res.r_dual, Inf)
+        ws.res.rd_rel = ws.res.rd_abs / (1 + max(Px_norm, ATybar_norm, ws.p.c_norm_inf)) # update relative dual residual metric
+    end
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_vec1
     apply_inv!(ws.W_inv, temp_n_vec1)
@@ -403,13 +506,13 @@ function optimise!(ws::AbstractWorkspace,
         end
 
         # Compute residuals, their norms, and objective values.
-        primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-        dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
-        curr_pri_res_norm = norm(pri_res, residual_norm)
-        curr_dual_res_norm = norm(dual_res, residual_norm)
-        primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
-        dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
-        gap = duality_gap(primal_obj, dual_obj)
+        # primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
+        # dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+        # curr_pri_res_norm = norm(pri_res, residual_norm)
+        # curr_dual_res_norm = norm(dual_res, residual_norm)
+        # primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
+        # dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
+        # gap = duality_gap(primal_obj, dual_obj)
 
         # compute distance to real solution
         if !run_fast
@@ -466,7 +569,7 @@ function optimise!(ws::AbstractWorkspace,
             # standard step in the krylov setup (two columns)
             else
                 # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-                twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex)
+                twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
 
 
                 # record iteration data
@@ -525,7 +628,7 @@ function optimise!(ws::AbstractWorkspace,
                 # copy older iterate before iterating
                 prev_xy .= ws.vars.xy
 
-                onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
 
                 # swap contents of ws.vars.xy and scratch.temp_mn_vec1
                 custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
@@ -571,15 +674,17 @@ function optimise!(ws::AbstractWorkspace,
 
     # TERMINATION: Compute residuals, their norms, and objective values
     # TODO: make this stuff modular as opposed to copied from the main loop
-    if !run_fast
-        primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-        dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
-    end
-    curr_pri_res_norm = norm(pri_res, residual_norm)
-    curr_dual_res_norm = norm(dual_res, residual_norm)
-    primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
-    dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
-    gap = duality_gap(primal_obj, dual_obj)
+    
+    # if !run_fast
+    #     primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
+    #     dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
+    # end
+
+    # curr_pri_res_norm = norm(pri_res, residual_norm)
+    # curr_dual_res_norm = norm(dual_res, residual_norm)
+    # primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
+    # dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
+    # gap = duality_gap(primal_obj, dual_obj)
     
     # END: Store metrics if requested.
     if !run_fast
