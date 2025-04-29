@@ -24,11 +24,19 @@ abstract type AbstractInvOp end
     b::Vector{T}
     K::Vector{Clarabel.SupportedCone}
 
+    # misc vector norms useful for relative KKT error
+    b_norm_inf::T
+    c_norm_inf::T
+
     function ProblemData{T, I}(problem_set::String, problem_name::String,
         P::Symmetric{T}, c::Vector{T}, A::SparseMatrixCSC{T, I}, b::Vector{T},
         K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat, I <: Integer}
         m, n = size(A)
-        new(problem_set, problem_name, P, c, A, m, n, b, K)
+        
+        b_norm_inf = norm(b, Inf)
+        c_norm_inf = norm(c, Inf)
+
+        new(problem_set, problem_name, P, c, A, m, n, b, K, b_norm_inf, c_norm_inf)
     end
 end
 ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
@@ -63,12 +71,35 @@ struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
 end
 OnecolVariables(args...) = OnecolVariables{DefaultFloat}(args...)
 
+# Type for storing residuals in the workspace
+mutable struct ProgressMetrics{T <: AbstractFloat}
+    r_primal::Vector{T}
+    r_dual::Vector{T}
+
+    obj_primal::T # primal objective value
+    obj_dual::T # dual objective value
+
+    rp_abs::T # absolute primal residual metric
+    rd_abs::T # absolute dual residual metric
+    gap_abs::T # absolute duality gap metric
+
+    rp_rel::T # relative primal residual metric
+    rd_rel::T # relative dual residual metric
+    gap_rel::T # relative duality gap metric
+
+    # simple NaN constructor for all residual quantities
+    function ProgressMetrics{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(fill(NaN, m), fill(NaN, n), NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN)
+    end
+end
+
 abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
 struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
     p::ProblemData{T}
     vars::OnecolVariables{T}
+    res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
@@ -81,28 +112,31 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     # constructor where initial iterates are passed in
     function NoneWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     function NoneWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
     function NoneWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 end
 NoneWorkspace(args...) = NoneWorkspace{DefaultFloat}(args...)
@@ -111,6 +145,7 @@ NoneWorkspace(args...) = NoneWorkspace{DefaultFloat}(args...)
 struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     p::ProblemData{T}
     vars::Variables{T}
+    res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
@@ -132,28 +167,31 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     # constructor where initial iterates are passed in
     function KrylovWorkspace{T}(p::ProblemData{T}, vars::Variables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     function KrylovWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, Variables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
     function KrylovWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, Variables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 end
 
@@ -161,6 +199,7 @@ end
 struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
     p::ProblemData{T}
     vars::OnecolVariables{T}
+    res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
     W_inv::AbstractInvOp
@@ -178,6 +217,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
     # constructor where initial iterates are passed in
     function AndersonWorkspace{T}(p::ProblemData{T}, vars::OnecolVariables{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -186,12 +226,13 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, vars, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     function AndersonWorkspace{T}(p::ProblemData{T}, variant::Symbol, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
@@ -200,13 +241,14 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
     # constructor where initial iterates are not passed (default set to zero)
     # but A_gram is
     function AndersonWorkspace{T}(p::ProblemData{T}, variant::Symbol, A_gram::LinearMap{T}, τ::Union{T, Nothing}, ρ::T, θ::T, mem::Int, attempt_period::Int) where {T <: AbstractFloat}
         m, n = p.m, p.n
+        res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
 
@@ -214,7 +256,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, OnecolVariables(m, n), variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
 end
