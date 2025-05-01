@@ -99,7 +99,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
         ws.res.gap_rel = ws.res.gap_abs / (1 + max(0.5xTPx + cTx, 0.5xTPx + bTy)) # relative gap
-        ws.res.obj_primal = 0.5xTPX + cTx
+        ws.res.obj_primal = 0.5xTPx + cTx
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
 
@@ -201,7 +201,7 @@ function onecol_method_operator!(ws::AbstractWorkspace,
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
         ws.res.gap_rel = ws.res.gap_abs / (1 + max(0.5xTPx + cTx, 0.5xTPx + bTy)) # relative gap
-        ws.res.obj_primal = 0.5xTPX + cTx
+        ws.res.obj_primal = 0.5xTPx + cTx
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
 
@@ -385,37 +385,45 @@ function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
 end
 
 function push_to_record!(ws::AbstractWorkspace, record::NamedTuple, run_fast::Bool,
-    k::Int, x_sol::Union{Nothing, AbstractVector{Float64}},
+    x_sol::Union{Nothing, AbstractVector{Float64}},
     curr_x_dist::Union{Nothing, Float64},
     curr_y_dist::Union{Nothing, Float64},
-    curr_xy_chardist::Union{Nothing, Float64},
-    primal_obj::Float64,
-    dual_obj::Float64,
-    curr_pri_res_norm::Float64,
-    curr_dual_res_norm::Float64)
+    curr_xy_chardist::Union{Nothing, Float64})
+    
     if run_fast
         return nothing
     else
-        if k > 0
+        if ws.k[] > 0
             # NB: effective rank counts number of normalised singular values
             # larger than a specified small tolerance (eg 1e-8).
             # curr_effective_rank, curr_singval_ratio = effective_rank(record.updates_matrix, 1e-8)
             # push!(record.update_mat_ranks, curr_effective_rank)
             # push!(record.update_mat_singval_ratios, curr_singval_ratio)
-            # push!(record.update_mat_iters, k)
-            
-            nothing
+            # push!(record.update_mat_iters, ws.k[])
+
+            push!(record.pri_res_norms, ws.res.rp_abs)
+            push!(record.dual_res_norms, ws.res.rd_abs)
+            push!(record.primal_obj_vals, ws.res.obj_primal)
+            push!(record.dual_obj_vals, ws.res.obj_dual)
         end
         if !isnothing(x_sol)
             push!(record.x_dist_to_sol, curr_x_dist)
             push!(record.y_dist_to_sol, curr_y_dist)
             push!(record.xy_chardist, curr_xy_chardist)
         end
-        push!(record.primal_obj_vals, primal_obj)
-        push!(record.dual_obj_vals, dual_obj)
-        push!(record.pri_res_norms, curr_pri_res_norm)
-        push!(record.dual_res_norms, curr_dual_res_norm)
     end
+end
+
+"""
+This function returns a Boolean indicating whether the KKT relative error
+has gone below the require tolerance, a common termination criterion.
+
+For instance, PDQP preprint uses tol = 1e-3 for low accuracy and 1e-6 for high
+accuracy solutions.
+"""
+function kkt_criterion(ws::AbstractWorkspace, kkt_tol::Float64)
+    max_err = max(ws.res.rp_rel, ws.res.rd_rel, ws.res.gap_rel)
+    return max_err <= kkt_tol
 end
 
 """
@@ -423,15 +431,16 @@ Run the optimiser for the initial inputs and solver options given.
 acceleration is a symbol in {:none, :krylov, :anderson}
 """
 function optimise!(ws::AbstractWorkspace,
-    max_iter::Integer, print_modulo::Integer, run_fast::Bool,
-    acceleration::Symbol;
+    max_iter::Integer, print_modulo::Integer,
+    residuals_relative::Bool, run_fast::Bool,
+    acceleration::Symbol, rel_kkt_tol::Float64;
     restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
     linesearch_period::Union{Real, Symbol},
     linesearch_α_max::Float64 = 100.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
     linesearch_β::Float64 = 0.7,
     linesearch_ϵ::Float64 = 0.03,
-    x_sol::AbstractVector{Float64} = nothing,
-    y_sol::AbstractVector{Float64} = nothing,
+    x_sol::Union{Nothing, Vector{Float64}} = nothing,
+    y_sol::Union{Nothing, Vector{Float64}} = nothing,
     explicit_affine_operator::Bool = false,
     spectrum_plot_period::Int = 17,)
 
@@ -495,10 +504,10 @@ function optimise!(ws::AbstractWorkspace,
     # notion of iteration for COSMOAccelerators may differ!
     # we shall increment it manually only when appropriate, for use
     # with functions from COSMOAccelerators
-    k_anderson = 0
 
     # start main loop
-    for k in 0:max_iter
+    termination = false
+    while !termination
         # Update average iterates
         if restart_period != Inf
             x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
@@ -516,19 +525,27 @@ function optimise!(ws::AbstractWorkspace,
 
         # compute distance to real solution
         if !run_fast
-            scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
-            scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
-            curr_xy_chardist = char_norm(scratch.temp_mn_vec1)
-            
-            @views curr_x_dist = norm(scratch.temp_mn_vec1[1:ws.p.n])
-            @views curr_y_dist = norm(scratch.temp_mn_vec1[ws.p.n+1:end])
-            curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
+            if x_sol !== nothing
+                scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
+                scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
+                curr_xy_chardist = char_norm(scratch.temp_mn_vec1)
+                
+                @views curr_x_dist = norm(scratch.temp_mn_vec1[1:ws.p.n])
+                @views curr_y_dist = norm(scratch.temp_mn_vec1[ws.p.n+1:end])
+                curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
+            else
+                curr_x_dist = NaN
+                curr_y_dist = NaN
+                curr_xy_dist = NaN
+                curr_xy_chardist = NaN
+            end
 
             # print info and save data if requested
-            print_results(k, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist=curr_xy_dist)
-            push_to_record!(ws, record, run_fast, k, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist, primal_obj, dual_obj, curr_pri_res_norm, curr_dual_res_norm)
-        elseif k % print_modulo == 0
-            println("Iter $k")
+            print_results(ws, print_modulo, curr_xy_dist=curr_xy_dist, relative = residuals_relative)
+            push_to_record!(ws, record, run_fast, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist)
+
+        else
+            print_results(ws, print_modulo, relative = residuals_relative)
         end
 
         # krylov setup
@@ -537,12 +554,15 @@ function optimise!(ws::AbstractWorkspace,
             @views prev_xy .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
-            if k % (ws.mem + 1) == 0 && k > 0
+            if ws.k[] % (ws.mem + 1) == 0 && ws.k[] > 0
                 custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
-                # if k >= 300
-                    println("Accepted Krylov acceleration candidate at iteration $k.")
+                    
+                    # increment effective iter counter (ie excluding unsuccessful acc attempts)
+                    ws.k_eff[] += 1
+                    
+                    println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -550,7 +570,7 @@ function optimise!(ws::AbstractWorkspace,
                     # record stuff
                     if !run_fast
                         @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
-                        push!(record.acc_step_iters, k)
+                        push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
                     end
@@ -568,6 +588,9 @@ function optimise!(ws::AbstractWorkspace,
                 just_accelerated = true
             # standard step in the krylov setup (two columns)
             else
+                # increment effective iter counter (ie excluding unsuccessful acc attempts)
+                ws.k_eff[] += 1
+                
                 # apply method operator (to both (x, y) and Arnoldi (q) vectors)
                 twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
 
@@ -600,22 +623,24 @@ function optimise!(ws::AbstractWorkspace,
                 j_restart += 1
             end
         else # NOT krylov set-up, so working variable is one-column
-            if acceleration == :anderson && k % ws.attempt_period == 0 && k > 0
+            # Anderson acceleration attempt
+            if acceleration == :anderson && ws.k[] % ws.attempt_period == 0 && ws.k[] > 0
                 # ws.vars.xy might be overwritten, so we take note of it here
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
                 # attempt acceleration step. if successful, this
                 # overwites ws.vars.xy
-                COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, ws.accelerator, k_anderson)
+                COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, ws.accelerator, ws.k_vanilla[])
 
                 if !run_fast
                     # record step (might be zero if acceleration failed)
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
                     # account for records as appropriate
-                    if any(x -> x != 0.0, curr_xy_update) # ie if acceleration was successful
-                        println("Accepted Anderson acceleration candidate at iteration $k.")
-                        push!(record.acc_step_iters, k)
+                    if any(curr_xy_update .!= 0.0) # ie if acceleration was successful
+                        ws.k_eff[] += 1
+                        println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                        push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
                     end
@@ -623,7 +648,11 @@ function optimise!(ws::AbstractWorkspace,
                     # prevent recording large or zero update norm
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
+                elseif any(ws.vars.xy .!= scratch.temp_mn_vec1) # ie if acceleration was successful
+                    ws.k_eff[] += 1
+                    println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                 end
+            
             else # standard onecol iteration
                 # copy older iterate before iterating
                 prev_xy .= ws.vars.xy
@@ -638,11 +667,13 @@ function optimise!(ws::AbstractWorkspace,
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
                 if acceleration == :anderson
-                    COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, k_anderson)
+                    COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, ws.k_vanilla[])
                     
-                    # note that we do NOT increment the COSMOAccelerators iteration
-                    # on acceleration attempts --- only on standard ones
-                    k_anderson += 1
+                    # note COSMOAccelerators functions expect just vanilla
+                    # iteration count (excluding all acceleration attempts)
+                    ws.k_vanilla[] += 1
+                    
+                    ws.k_eff[] += 1
                 end
 
                 if !run_fast
@@ -658,7 +689,7 @@ function optimise!(ws::AbstractWorkspace,
         
         if !run_fast
             # store cosine between last two iterate updates
-            if k >= 1
+            if ws.k[] >= 1
                 xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
                 push!(record.xy_update_cosines, xy_prev_updates_cos)
             end
@@ -670,21 +701,16 @@ function optimise!(ws::AbstractWorkspace,
 
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
+
+        # increment iter counter
+        ws.k[] += 1
+
+        if ws.k[] > max_iter || kkt_criterion(ws, rel_kkt_tol)
+            termination = true
+        end
     end
 
     # TERMINATION: Compute residuals, their norms, and objective values
-    # TODO: make this stuff modular as opposed to copied from the main loop
-    
-    # if !run_fast
-    #     primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-    #     dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
-    # end
-
-    # curr_pri_res_norm = norm(pri_res, residual_norm)
-    # curr_dual_res_norm = norm(dual_res, residual_norm)
-    # primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
-    # dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
-    # gap = duality_gap(primal_obj, dual_obj)
     
     # END: Store metrics if requested.
     if !run_fast
@@ -692,19 +718,18 @@ function optimise!(ws::AbstractWorkspace,
         curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
         curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
 
-        push!(record.primal_obj_vals, primal_obj)
-        push!(record.dual_obj_vals, dual_obj)
-        push!(record.pri_res_norms, curr_pri_res_norm)
-        push!(record.dual_res_norms, curr_dual_res_norm)
+        push!(record.primal_obj_vals, ws.res.obj_primal)
+        push!(record.dual_obj_vals, ws.res.obj_dual)
+        push!(record.pri_res_norms, ws.res.rp_abs)
+        push!(record.dual_res_norms, ws.res.rd_abs)
         if !isnothing(x_sol)
             push!(record.x_dist_to_sol, curr_x_dist)
             push!(record.y_dist_to_sol, curr_y_dist)
             push!(record.xy_chardist, curr_xy_chardist)
+            curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
         end
-
-        # END: print iteration info
-        curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
-        print_results(max_iter, print_modulo, primal_obj, curr_pri_res_norm, curr_dual_res_norm, abs(gap), curr_xy_dist = curr_xy_dist, terminated = true)
+        
+        print_results(ws, print_modulo, curr_xy_dist=curr_xy_dist, relative = residuals_relative, terminated = true)
 
         # assign results as appropriate
         results.data = Dict(
@@ -725,6 +750,8 @@ function optimise!(ws::AbstractWorkspace,
             :xy_step_char_norms => record.xy_step_char_norms,
             :xy_update_cosines => record.xy_update_cosines
         )
+    else
+        print_results(ws, print_modulo, relative = residuals_relative, terminated = true)
     end
 
     return results
