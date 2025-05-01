@@ -97,6 +97,7 @@ abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
 struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
+    k::Base.RefValue{Int} # iter counter
     p::ProblemData{T}
     vars::OnecolVariables{T}
     res::ProgressMetrics{T}
@@ -116,7 +117,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -126,7 +127,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(Ref(0), p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -136,13 +137,15 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T}(Ref(0), p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end
 end
 NoneWorkspace(args...) = NoneWorkspace{DefaultFloat}(args...)
 
 # workspace type for when Krylov acceleration is used
 struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
+    k::Base.RefValue{Int} # iter counter
+    k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     p::ProblemData{T}
     vars::Variables{T}
     res::ProgressMetrics{T}
@@ -171,7 +174,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -181,7 +184,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(Ref(0), Ref(0), p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -191,12 +194,15 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         W_inv = prepare_inv(W)
-        new{T}(p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(Ref(0), Ref(0), p, Variables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 end
 
 # workspace type for when Anderson acceleration is used
 struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
+    k::Base.RefValue{Int} # iter counter
+    k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul (Anderson) acceleration attempts
+    k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- used in COSMOAccelerators functions
     p::ProblemData{T}
     vars::OnecolVariables{T}
     res::ProgressMetrics{T}
@@ -226,7 +232,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -241,7 +247,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(Ref(0), Ref(0), Ref(0), p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
     # constructor where initial iterates are not passed (default set to zero)
@@ -256,7 +262,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
 
         aa = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(m + n, mem = mem)
-        new{T}(p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(Ref(0), Ref(0), Ref(0), p, OnecolVariables(m, n), res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
 end
@@ -342,7 +348,7 @@ function apply_inv!(op::CholeskyInvOp, x::Vector{T}) where T <: AbstractFloat
     # implementation using custom routines
     sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x)
 
-    # CF naive code:
+    # cf naive code:
     # x .= op.F \ x
 
     return nothing

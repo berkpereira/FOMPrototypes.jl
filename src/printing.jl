@@ -3,21 +3,19 @@ using Printf
 # Function below prints in the format given
 
 function print_results(
-    k::Int, print_modulo::Int,
-    curr_obj::Float64,
-    primal_res_norm::Float64,
-    dual_res_norm::Float64,
-    curr_duality_gap::Float64;
+    ws::AbstractWorkspace,
+    print_modulo::Int;
     curr_xy_dist::Union{Float64, Nothing} = nothing,
     obj_sol::Union{Float64, Nothing} = nothing,
     x_sol::Union{Vector{Float64}, Nothing} = nothing,
     y_sol::Union{Vector{Float64}, Nothing} = nothing,
     x::Union{Vector{Float64}, Nothing} = nothing,
     y::Union{Vector{Float64}, Nothing} = nothing,
-    terminated::Bool = false
-)
-    # if not at print_modulo, do nothing
-    if k % print_modulo != 0
+    relative::Bool = false,
+    terminated::Bool = false)
+
+    # if not at print_modulo nor termination, do nothing
+    if !terminated && ws.k[] % print_modulo != 0
         return
     end
 
@@ -28,37 +26,38 @@ function print_results(
     end
 
     # Start with iteration, objective, and primal/dual residuals
-    print_output = @sprintf("Iter %4.1d | obj: %12.5e", k, curr_obj)
+    print_output = @sprintf("k %4.1d | k effective %4.1d | obj: %12.5e", ws.k[], ws.k_eff[], ws.res.obj_primal)
 
-    # Include objective error if obj_sol is provided
+    # objective error if obj_sol is provided
     if obj_sol !== nothing
-        print_output *= @sprintf(" (err: %12.5e)", curr_obj - obj_sol)
+        print_output *= @sprintf(" (err: %12.5e)", ws.res.obj_primal - obj_sol)
     end
 
-    # Include x error if both x and x_sol are provided
+    # x error if both x and x_sol are provided
     if x !== nothing && x_sol !== nothing
-        print_output *= @sprintf(" | x err: %12.5e", norm(x - x_sol))
+        print_output *= @sprintf(" | x l2 err: %12.5e", norm(x - x_sol))
     end
 
-    # Include y error if both y and y_sol are provided
+    # y error if both y and y_sol are provided
     if y !== nothing && y_sol !== nothing
-        print_output *= @sprintf(" | y err: %12.5e", norm(y - (-y_sol)))
+        print_output *= @sprintf(" | y l2 err: %12.5e", norm(y - (-y_sol)))
     end
 
-    # Include primal residual
-    print_output *= @sprintf(" | pri res: %12.5e", primal_res_norm)
-
-    # Include dual residual
-    print_output *= @sprintf(" | dua res: %12.5e", dual_res_norm)
-
-    # Include duality gap
-    print_output *= @sprintf(" | gap: %12.5e", curr_duality_gap)
+    # primal and dual residual, gap
+    if relative
+        print_output *= @sprintf(" | rp rel: %12.5e", ws.res.rp_rel)
+        print_output *= @sprintf(" | rd rel: %12.5e", ws.res.rd_rel)
+        print_output *= @sprintf(" | gap rel: %12.5e", ws.res.gap_rel)
+    else
+        print_output *= @sprintf(" | rp abs: %12.5e", ws.res.rp_abs)
+        print_output *= @sprintf(" | rd abs: %12.5e", ws.res.rd_abs)
+        print_output *= @sprintf(" | gap abs: %12.5e", ws.res.gap_abs)
+    end
 
     # (x, y) distance to solution
-    if !isnothing(curr_xy_dist)
+    if !isnothing(curr_xy_dist) && curr_xy_dist !== NaN
         print_output *= @sprintf(" | (x, y) dist: %12.5e", curr_xy_dist)
     end
-        
 
     # Print the final output
     println(print_output)
