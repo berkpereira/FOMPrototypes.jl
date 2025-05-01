@@ -1,6 +1,6 @@
 module FOMPrototypes
 
-export main, run_cli
+export main, run_cli, run_prototype, solve_reference, fetch_data
 
 # Include all project source files.
 include(joinpath(@__DIR__, "custom_nla.jl"))
@@ -120,6 +120,11 @@ function parse_command_line()
         help = "Run fast mode (no plotting, less data recording during run)."
         arg_type = Bool
         default = false
+
+        "--residuals-relative"
+        help = "Use relative metrics when printing iter info."
+        arg_type = Bool
+        default = true
 
         "--show-vlines"
         help = "Show relevant vertical dashed lines in plots."
@@ -261,8 +266,8 @@ end
 # Run the Prototype Optimization      #
 #######################################
 
-function run_prototype(problem::ProblemData, args::Dict{String, Any},
-    x_ref::Vector{Float64}, y_ref::Vector{Float64})
+function run_prototype(problem::ProblemData, args::Dict{String, Any};
+    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing)
 
     # NB we do not compute A' * A, just store its specification as a linear map
     A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
@@ -296,8 +301,10 @@ function run_prototype(problem::ProblemData, args::Dict{String, Any},
     results = optimise!(ws,
     args["max-iter"],
     args["print-mod"],
+    args["residuals-relative"],
     args["run-fast"],
     args["acceleration"],
+    args["rel-kkt-tol"],
     restart_period = args["restart-period"],
     residual_norm = args["res-norm"],
     linesearch_period = args["linesearch-period"],
@@ -471,7 +478,7 @@ function main(config::Dict{String, Any})
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
-    @time ws, results = run_prototype(problem, config, x_ref, y_ref)
+    @time ws, results = run_prototype(problem, config, x_ref = x_ref, y_ref = y_ref)
 
     if !config["run-fast"]
         println()
