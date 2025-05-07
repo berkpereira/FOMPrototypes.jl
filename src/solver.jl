@@ -36,20 +36,20 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     temp_n_vec_complex1::Vector{ComplexF64},
     temp_n_vec_complex2::Vector{ComplexF64},
     temp_m_vec_complex::Vector{ComplexF64},
-    update_residuals::Bool = false)
+    update_res_flags::Bool = false)
     
     # working variable is ws.vars.xy_q, with two columns
     
     @views two_col_mul!(temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_m_vec_complex) # compute A * [x, q_n]
 
-    if update_residuals
+    if update_res_flags
         @views Ax_norm = norm(temp_m_mat[:, 1], Inf)
     end
 
     @views temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
 
     # if updating primal residual
-    if update_residuals
+    if update_res_flags
         @views ws.res.r_primal .= temp_m_mat[:, 1] # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -61,13 +61,15 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     end
 
     temp_m_mat .*= ws.ρ
-    @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current
+    @views temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_y .= temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(temp_m_mat[:, 1], ws.p.K) # temp_m_mat[:, 1] now stores y_{k+1}
     
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes handwritten notes
-    @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
+    if update_res_flags
+        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_mat[:, 1])
+    end
 
     # can now compute the bit of q corresponding to the y iterate
     @views temp_m_mat[:, 2] .*= ws.proj_flags
@@ -89,7 +91,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], temp_n_vec_complex1, temp_n_vec_complex2) # compute P * [x, q_n]
 
-    if update_residuals
+    if update_res_flags
         @views Px_norm = norm(temp_n_mat1[:, 1], Inf)
         
         @views xTPx = dot(ws.vars.xy_q[1:ws.p.n, 1], temp_n_mat1[:, 1]) # x^T P x
@@ -107,7 +109,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     @views two_col_mul!(temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, temp_m_vec_complex, temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
-    if update_residuals
+    if update_res_flags
         @views ATybar_norm = norm(temp_n_mat2[:, 1], Inf)
     end
 
@@ -115,7 +117,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     temp_n_mat1 .+= temp_n_mat2 # this is what is pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
-    if update_residuals
+    if update_res_flags
         @views ws.res.r_dual .= temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
@@ -164,18 +166,18 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
     temp_m_vec::AbstractVector{Float64},
-    update_residuals::Bool = false)
+    update_res_flags::Bool = false)
 
     @views mul!(temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
 
-    if update_residuals
+    if update_res_flags
         @views Ax_norm = norm(temp_m_vec, Inf)
     end
 
     temp_m_vec .-= ws.p.b # subtract b from A * x
 
     # if updating primal residual
-    if update_residuals
+    if update_res_flags
         @views ws.res.r_primal .= temp_m_vec # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -186,12 +188,21 @@ function onecol_method_operator!(ws::AbstractWorkspace,
 
     temp_m_vec .*= ws.ρ
     @views temp_m_vec .+= xy[ws.p.n+1:end] # add current
+    if update_res_flags
+        @views ws.vars.preproj_y .= temp_m_vec # this is what's fed into dual cone projection operator
+    end
     @views project_to_dual_K!(temp_m_vec, ws.p.K) # temp_m_vec now stores y_{k+1}
+
+    if update_res_flags
+        # update in-place flags switching affine dynamics based on projection action
+        # ws.proj_flags = D_k in Goodnotes handwritten notes
+        update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_vec)
+    end
 
     # now we go to "bulk of" x and q_n update
     @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
 
-    if update_residuals
+    if update_res_flags
         Px_norm = norm(temp_n_vec1, Inf)
 
         @views xTPx = dot(xy[1:ws.p.n], temp_n_vec1) # x^T P x
@@ -212,7 +223,7 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     # we do in twocol_method_operator!
     @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
 
-    if update_residuals
+    if update_res_flags
         ATybar_norm = norm(temp_n_vec2, Inf)
     end
 
@@ -220,7 +231,7 @@ function onecol_method_operator!(ws::AbstractWorkspace,
     temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
-    if update_residuals
+    if update_res_flags
         @views ws.res.r_dual .= temp_n_vec1 # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
