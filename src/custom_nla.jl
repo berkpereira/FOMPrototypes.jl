@@ -9,12 +9,14 @@ function forward_solve!(L::SparseMatrixCSC{Float64,Int64}, x::Union{Vector{Float
     @inbounds for j in 1:n
         # only thing left to do to x[j] is to divide by L[j, j],
         # which is the first entry in column j:
-        x[j] /= L.nzval[L.colptr[j]]
+        @inbounds x[j] /= L.nzval[L.colptr[j]]
 
         # inner loop: subtract contributions from the just-computed x[j]
         # from other rows
+        @inbounds xj = x[j] # accumulator to reduce array access
         @inbounds for i in L.colptr[j]+1:L.colptr[j+1]-1
-            x[L.rowval[i]] -= L.nzval[i] * x[j]
+            @inbounds x[L.rowval[i]] -= L.nzval[i] * xj
+            # @inbounds x[L.rowval[i]] -= L.nzval[i] * x[j] # without using accumulator
         end
     end
 
@@ -33,11 +35,15 @@ function backward_solve!(L::SparseMatrixCSC{Float64,Int64}, x::Union{Vector{Floa
     # by the diagonal entry AFTER the end of the inner loop, as opposed to
     # what we do in forward_solve!
     @inbounds for j in n:-1:1
+
         # inner loop, subtract contributions
+        a = 0. # accumulator to reduce array access
         @inbounds for i in L.colptr[j+1]-1:-1:L.colptr[j]+1
-            x[j] -= L.nzval[i] * x[L.rowval[i]]
+            @inbounds a += L.nzval[i] * x[L.rowval[i]]
+            # x[j] -= L.nzval[i] * x[L.rowval[i]] # without using accumulator
         end
-        x[j] /= L.nzval[L.colptr[j]]
+        @inbounds x[j] -= a
+        @inbounds x[j] /= L.nzval[L.colptr[j]]
     end
 
     return nothing
@@ -71,7 +77,7 @@ A x = b \\
 `L^T z = y`           -> backward solve for z in-place \\
 `x = P^T z`           -> inverse permute z in place
 """
-function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Vector{Float64})
+function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Union{Vector{Float64}, Vector{Complex{Float64}}})
     permute!(x, perm)
     forward_solve!(Lsp, x)
     backward_solve!(Lsp, x)
