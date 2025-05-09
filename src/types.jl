@@ -391,7 +391,7 @@ function prepare_inv(W::Symmetric{T},
     end
     
     if to !== nothing
-        @timeit to "Other Cholesky prep" begin
+        @timeit to "other Cholesky prep" begin
             Lmat = sparse(F.L)
             # perm describes permutation matrix P used for pivoting and reduction
             # of fill-in in the sparse Cholesky factors
