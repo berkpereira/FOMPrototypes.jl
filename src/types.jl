@@ -126,7 +126,11 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        
+        @timeit to "W operator" begin
+            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        end
+
         W_inv = prepare_inv(W, to)
         new{T}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end 
@@ -194,7 +198,10 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
 
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        @timeit to "W operator" begin
+            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        end
+
         W_inv = prepare_inv(W, to)
         new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, to, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
@@ -258,7 +265,11 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         attempt_period >= 2 || throw(ArgumentError("Anderson acceleration attempt period must be at least 2."))
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+
+        @timeit to "W operator" begin
+            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        end
+        
         W_inv = prepare_inv(W, to)
 
         if vars === nothing

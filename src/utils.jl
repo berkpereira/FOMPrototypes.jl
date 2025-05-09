@@ -4,6 +4,7 @@ using LinearAlgebra, LinearMaps
 import LinearAlgebra:givensAlgorithm
 using JuMP
 using Plots
+using TimerOutputs
 using SCS
 using Statistics
 using Clarabel
