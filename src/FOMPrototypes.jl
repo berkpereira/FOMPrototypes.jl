@@ -5,6 +5,7 @@ export main, run_cli, run_prototype, solve_reference, fetch_data
 # Import packages.
 using ArgParse
 using Infiltrator
+using TimerOutputs
 using LinearMaps
 using Infiltrator
 using Profile
@@ -286,50 +287,48 @@ function run_prototype(problem::ProblemData,
     args::Dict{String, T};
     x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
 
-    # NB we do not compute A' * A, just store its specification as a linear map
-    A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
+    # initialise timer object
+    to = TimerOutput()
 
-    if args["variant"] != :ADMM
-        take_away_op = build_operator(args["variant"], problem.P, problem.A, A_gram, args["rho"])
-        Random.seed!(42)  # seed for reproducibility
-        max_τ = 1 / dom_λ_power_method(take_away_op, 30)
-        τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
-    else # ADMM does not use τ step size
-        τ = nothing
+    @timeit to "setup" begin
+        # NB we do not compute A' * A, just store its specification as a linear map
+        A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
+
+        if args["variant"] != :ADMM
+            take_away_op = build_operator(args["variant"], problem.P, problem.A, A_gram, args["rho"])
+            Random.seed!(42)  # seed for reproducibility
+            max_τ = 1 / dom_λ_power_method(take_away_op, 30)
+            τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
+        else # ADMM does not use τ step size
+            τ = nothing
+        end
+
+        println("RUNNING PROTOTYPE VARIANT $(args["variant"])...")
+        println("Problem set/name: $(problem_name)/$(problem_name)")
+        println("Acceleration: $(args["acceleration"])")
+        if args["acceleration"] in [:krylov, :anderson]
+            println("Acceleration memory: $(args["accel-memory"])")
+        end
+
+        # initialise the workspace
+        if args["acceleration"] == :krylov
+            ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-operator"], A_gram = A_gram, to = to)
+        elseif args["acceleration"] == :anderson
+            ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], to = to)
+        else
+            ws = NoneWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram, to = to)
+        end
     end
 
-    println("RUNNING PROTOTYPE VARIANT $(args["variant"])...")
-    println("Problem set/name: $(problem_name)/$(problem_name)")
-    println("Acceleration: $(args["acceleration"])")
-    if args["acceleration"] in [:krylov, :anderson]
-        println("Acceleration memory: $(args["accel-memory"])")
+    @timeit to "solver" begin
+        # Run the solver
+        results = optimise!(ws,
+        args,
+        x_sol = x_ref, y_sol = y_ref,
+        explicit_affine_operator = false)
     end
 
-    # initialise the workspace
-    if args["acceleration"] == :krylov
-        ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-operator"], A_gram = A_gram)
-    elseif args["acceleration"] == :anderson
-        ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"])
-    else
-        ws = NoneWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram)
-    end
-
-    # Run the solver (time or profile execution)
-    results = optimise!(ws,
-    args["max-iter"],
-    args["print-mod"],
-    args["residuals-relative"],
-    args["run-fast"],
-    args["acceleration"],
-    args["rel-kkt-tol"],
-    restart_period = args["restart-period"],
-    residual_norm = args["res-norm"],
-    linesearch_period = args["linesearch-period"],
-    linesearch_ϵ = args["linesearch-eps"],
-    x_sol = x_ref, y_sol = y_ref,
-    explicit_affine_operator = false)
-
-    return ws, results
+    return ws, results, to
 end
 
 #############################
@@ -505,7 +504,7 @@ function main(config::Dict{String, Any})
     println()
     println("About to run prototype solver...")
     
-    @time ws, results = run_prototype(problem,
+    ws, results, to = run_prototype(problem,
     config["problem-set"], config["problem-name"],
     config, x_ref = x_ref, y_ref = y_ref)
 
@@ -518,7 +517,7 @@ function main(config::Dict{String, Any})
     end
     
     #return data of interest to inspect
-    return ws, results, x_ref, y_ref
+    return ws, results, to, x_ref, y_ref
 end
 
 end # module FOMPrototypes

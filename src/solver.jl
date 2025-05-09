@@ -442,18 +442,11 @@ Run the optimiser for the initial inputs and solver options given.
 acceleration is a symbol in {:none, :krylov, :anderson}
 """
 function optimise!(ws::AbstractWorkspace,
-    max_iter::Integer, print_modulo::Integer,
-    residuals_relative::Bool, run_fast::Bool,
-    acceleration::Symbol, rel_kkt_tol::Float64;
-    restart_period::Union{Real, Symbol} = Inf, residual_norm::Real = Inf,
-    linesearch_period::Union{Real, Symbol},
-    linesearch_α_max::Float64 = 100.0, # NB: default linesearch params inspired by Giselsson et al. 2016 paper.
-    linesearch_β::Float64 = 0.7,
-    linesearch_ϵ::Float64 = 0.03,
+    args::Dict{String, T};
     x_sol::Union{Nothing, Vector{Float64}} = nothing,
     y_sol::Union{Nothing, Vector{Float64}} = nothing,
     explicit_affine_operator::Bool = false,
-    spectrum_plot_period::Int = 17,)
+    spectrum_plot_period::Int = 17,) where T
 
     # initialise dict to store results
     results = Results{Float64}()
@@ -475,10 +468,10 @@ function optimise!(ws::AbstractWorkspace,
     # ws.W_inv = prepare_inv(ws.W)
 
     # if using acceleration, init krylov basis and Hessenberg arrays
-    # if acceleration == :krylov
+    # if args["acceleration"] == :krylov
     #     ws.krylov_basis = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
     #     ws.H = init_upper_hessenberg(acceleration_memory)
-    # elseif acceleration == :anderson
+    # elseif args["acceleration"] == :anderson
     #     # default types:
     #     # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
     #     ws.accelerator = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
@@ -496,13 +489,13 @@ function optimise!(ws::AbstractWorkspace,
     acc_dual_res = zeros(Float64, ws.p.n)
 
     # pre-allocate vectors for intermediate results in in-place computations
-    scratch = preallocate_scratch(ws, acceleration) # scratch is a named tuple
+    scratch = preallocate_scratch(ws, args["acceleration"]) # scratch is a named tuple
     prev_xy = zeros(Float64, ws.p.n + ws.p.m)
     curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
     prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
 
     # characteristic PPM preconditioner of the method
-    if !run_fast
+    if !args["run-fast"]
         char_norm_mat = [(ws.W - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
         function char_norm(vector::AbstractArray{Float64})
             return sqrt(dot(vector, char_norm_mat * vector))
@@ -510,7 +503,7 @@ function optimise!(ws::AbstractWorkspace,
     end
 
     # data containers for metrics (if return_run_data == true).
-    record = preallocate_record(ws, run_fast, x_sol)
+    record = preallocate_record(ws, args["run-fast"], x_sol)
 
     # notion of iteration for COSMOAccelerators may differ!
     # we shall increment it manually only when appropriate, for use
@@ -520,7 +513,7 @@ function optimise!(ws::AbstractWorkspace,
     termination = false
     while !termination
         # Update average iterates
-        if restart_period != Inf
+        if args["restart-period"] != Inf
             x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
             y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
         end
@@ -535,7 +528,7 @@ function optimise!(ws::AbstractWorkspace,
         # gap = duality_gap(primal_obj, dual_obj)
 
         # compute distance to real solution
-        if !run_fast
+        if !args["run-fast"]
             if x_sol !== nothing
                 scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
                 scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
@@ -552,15 +545,15 @@ function optimise!(ws::AbstractWorkspace,
             end
 
             # print info and save data if requested
-            print_results(ws, print_modulo, curr_xy_dist=curr_xy_dist, relative = residuals_relative)
-            push_to_record!(ws, record, run_fast, x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist)
+            print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["residuals-relative"])
+            push_to_record!(ws, record, args["run-fast"], x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist)
 
         else
-            print_results(ws, print_modulo, relative = residuals_relative)
+            print_results(ws, args["print-mod"], relative = args["residuals-relative"])
         end
 
         # krylov setup
-        if acceleration == :krylov
+        if args["acceleration"] == :krylov
             # copy older iterate
             @views prev_xy .= ws.vars.xy_q[:, 1]
             
@@ -579,7 +572,7 @@ function optimise!(ws::AbstractWorkspace,
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
 
                     # record stuff
-                    if !run_fast
+                    if !args["run-fast"]
                         @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
@@ -587,7 +580,7 @@ function optimise!(ws::AbstractWorkspace,
                     end
                 end
                 # prevent recording 0 or very large update norm
-                if !run_fast
+                if !args["run-fast"]
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
                 end
@@ -607,7 +600,7 @@ function optimise!(ws::AbstractWorkspace,
 
 
                 # record iteration data
-                if !run_fast
+                if !args["run-fast"]
                     @views curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
                     push!(record.xy_step_norms, norm(curr_xy_update))
                     push!(record.xy_step_char_norms, char_norm(curr_xy_update))
@@ -635,7 +628,7 @@ function optimise!(ws::AbstractWorkspace,
             end
         else # NOT krylov set-up, so working variable is one-column
             # Anderson acceleration attempt
-            if acceleration == :anderson && ws.k[] % ws.attempt_period == 0 && ws.k[] > 0
+            if args["acceleration"] == :anderson && ws.k[] % ws.attempt_period == 0 && ws.k[] > 0
                 # ws.vars.xy might be overwritten, so we take note of it here
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
@@ -643,7 +636,7 @@ function optimise!(ws::AbstractWorkspace,
                 # overwites ws.vars.xy
                 COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, ws.accelerator, ws.k_vanilla[])
 
-                if !run_fast
+                if !args["run-fast"]
                     # record step (might be zero if acceleration failed)
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
@@ -677,7 +670,7 @@ function optimise!(ws::AbstractWorkspace,
 
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
-                if acceleration == :anderson
+                if args["acceleration"] == :anderson
                     COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, ws.k_vanilla[])
                     
                     # note COSMOAccelerators functions expect just vanilla
@@ -687,7 +680,7 @@ function optimise!(ws::AbstractWorkspace,
                     ws.k_eff[] += 1
                 end
 
-                if !run_fast
+                if !args["run-fast"]
                     # record step (might be zero if acceleration failed)
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
@@ -698,7 +691,7 @@ function optimise!(ws::AbstractWorkspace,
             end
         end
         
-        if !run_fast
+        if !args["run-fast"]
             # store cosine between last two iterate updates
             if ws.k[] >= 1
                 xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
@@ -716,7 +709,7 @@ function optimise!(ws::AbstractWorkspace,
         # increment iter counter
         ws.k[] += 1
 
-        if ws.k[] > max_iter || kkt_criterion(ws, rel_kkt_tol)
+        if ws.k[] > args["max-iter"] || kkt_criterion(ws, args["rel-kkt-tol"])
             termination = true
         end
     end
@@ -724,7 +717,7 @@ function optimise!(ws::AbstractWorkspace,
     # TERMINATION: Compute residuals, their norms, and objective values
     
     # END: Store metrics if requested.
-    if !run_fast
+    if !args["run-fast"]
         curr_xy_chardist = !isnothing(x_sol) ? char_norm([view_x - x_sol; view_y + y_sol]) : nothing
         curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
         curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
@@ -740,7 +733,7 @@ function optimise!(ws::AbstractWorkspace,
             curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
         end
         
-        print_results(ws, print_modulo, curr_xy_dist=curr_xy_dist, relative = residuals_relative, terminated = true)
+        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["residuals-relative"], terminated = true)
 
         # assign results as appropriate
         results.data = Dict(
@@ -762,7 +755,7 @@ function optimise!(ws::AbstractWorkspace,
             :xy_update_cosines => record.xy_update_cosines
         )
     else
-        print_results(ws, print_modulo, relative = residuals_relative, terminated = true)
+        print_results(ws, args["print-mod"], relative = args["residuals-relative"], terminated = true)
     end
 
     return results

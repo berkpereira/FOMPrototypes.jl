@@ -116,7 +116,8 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
         ρ::T,
-        θ::T) where {T <: AbstractFloat}
+        θ::T,
+        to::Union{TimerOutput, Nothing}) where {T <: AbstractFloat}
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
@@ -126,7 +127,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        W_inv = prepare_inv(W)
+        W_inv = prepare_inv(W, to)
         new{T}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end 
 end
@@ -139,10 +140,11 @@ function NoneWorkspace(
     ρ::T,
     θ::T;
     vars::Union{OnecolVariables{T}, Nothing} = nothing,
-    A_gram::Union{LinearMap{T}, Nothing} = nothing) where {T <: AbstractFloat}
+    A_gram::Union{LinearMap{T}, Nothing} = nothing,
+    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
     # delegate to the inner constructor
-    return NoneWorkspace(p, vars, variant, A_gram, τ, ρ, θ)
+    return NoneWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to)
 end
 
 NoneWorkspace(args...; kwargs...) = NoneWorkspace{DefaultFloat}(args...; kwargs...)
@@ -180,6 +182,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         τ::Union{T, Nothing},
         ρ::T,
         θ::T,
+        to::Union{TimerOutput, Nothing},
         mem::Int,
         krylov_operator::Symbol) where {T <: AbstractFloat}
         m, n = p.m, p.n
@@ -192,8 +195,8 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         end
 
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        W_inv = prepare_inv(W)
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        W_inv = prepare_inv(W, to)
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, to, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 end
 
@@ -207,10 +210,11 @@ function KrylovWorkspace(
     mem::Int,
     krylov_operator::Symbol;
     vars::Union{Variables{T}, Nothing} = nothing,
-    A_gram::Union{LinearMap{T}, Nothing} = nothing) where {T <: AbstractFloat}
+    A_gram::Union{LinearMap{T}, Nothing} = nothing,
+    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
     # delegate to the inner constructor
-    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, mem, krylov_operator)
+    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, krylov_operator)
 end
 
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat}(args...; kwargs...)
@@ -245,6 +249,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         τ::Union{T, Nothing},
         ρ::T,
         θ::T,
+        to::Union{TimerOutput, Nothing},
         mem::Int,
         attempt_period::Int,
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
@@ -254,7 +259,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        W_inv = prepare_inv(W)
+        W_inv = prepare_inv(W, to)
 
         if vars === nothing
             vars = OnecolVariables(m, n)
@@ -286,7 +291,8 @@ function AndersonWorkspace(
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     broyden_type::Symbol = :normal2,
     memory_type::Symbol = :rolling,
-    regulariser_type::Symbol = :none) where {T <: AbstractFloat}
+    regulariser_type::Symbol = :none,
+    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
 
     if broyden_type == :normal2
         broyden_type = Type2{NormalEquations}
@@ -317,7 +323,7 @@ function AndersonWorkspace(
     end
     
     # delegate to the inner constructor
-    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, mem, attempt_period, broyden_type, memory_type, regulariser_type)
+    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, attempt_period, broyden_type, memory_type, regulariser_type)
 end
 
 
@@ -358,23 +364,49 @@ struct CholeskyInvOp{T, I} <: AbstractInvOp
 end
 
 # A function that prepares an inverse operator based on the type of W
-function prepare_inv(W::Diagonal{T}) where T <: AbstractFloat
+function prepare_inv(W::Diagonal{T},
+    to::Union{TimerOutput, Nothing}=nothing) where T <: AbstractFloat
     # For a Diagonal matrix, simply compute the reciprocal of the diagonal entries.
-    return DiagInvOp(1 ./ Vector(diag(W)))
+    if to !== nothing
+        @timeit to "Diagonal inverse" begin 
+            inv_diag = 1 ./ Vector(diag(W))
+        end
+    else
+        inv_diag = 1 ./ Vector(diag(W))
+    end
+    
+    return DiagInvOp(inv_diag)
 end
 
-function prepare_inv(W::Symmetric{T}) where T <: AbstractFloat
+function prepare_inv(W::Symmetric{T},
+    to::Union{TimerOutput, Nothing}=nothing) where T <: AbstractFloat
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
-    F = SparseArrays.cholesky(W)
-    Lmat = sparse(F.L)
     
-    # perm describes permutation matrix P used for pivoting and reduction
-    # of fill-in in the sparse Cholesky factors
-    # we apply this permutation to a vector v using v[perm]
-    perm = F.p
-    # need inverse permutation to compute solution to pivoted Cholesky
-    # linear system. 
-    inv_perm = invperm(perm)
+    if to !== nothing
+        @timeit to "Cholesky factorisation" begin
+            F = SparseArrays.cholesky(W)
+        end
+    else
+        F = SparseArrays.cholesky(W)
+    end
+    
+    if to !== nothing
+        @timeit to "Other Cholesky prep" begin
+            Lmat = sparse(F.L)
+            # perm describes permutation matrix P used for pivoting and reduction
+            # of fill-in in the sparse Cholesky factors
+            # we apply this permutation to a vector v using v[perm]
+            perm = F.p
+
+            # need inverse permutation to compute solution to pivoted Cholesky
+            # linear system. 
+            inv_perm = invperm(perm)
+        end
+    else
+        Lmat = sparse(F.L)
+        perm = F.p
+        inv_perm = invperm(perm)
+    end
 
     return CholeskyInvOp(F, Lmat, perm, inv_perm)
 end
