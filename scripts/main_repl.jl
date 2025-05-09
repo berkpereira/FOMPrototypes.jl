@@ -37,9 +37,9 @@ config = Dict(
 ws, results, x_ref, y_ref = FOMPrototypes.main(config);
 
 # for just reference solver:
-# ws_ref, results_ref, x_ref, y_ref = FOMPrototypes.solve_reference(problem, config);
+# ws_ref, results_ref, x_ref, y_ref = FOMPrototypes.solve_reference(problem, config["problem-set"], config["problem-name"], config);
 
 # for just prototype:
-# problem = FOMPrototypes.fetch_data(config);
+# problem = FOMPrototypes.fetch_data(config["problem-set"], config["problem-name"]);
 # ws, results = FOMPrototypes.run_prototype(problem, config);
 ;

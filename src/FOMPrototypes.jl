@@ -198,10 +198,7 @@ function choose_problem(problem_option::Symbol)
     return problem_option, problem_set, problem_name
 end
 
-function fetch_data(args)
-    problem_set = args["problem-set"]
-    problem_name = args["problem-name"]
-    
+function fetch_data(problem_set::String, problem_name::String)
     if problem_name != "giselsson"
         data = load_clarabel_benchmark_prob_data(problem_set, problem_name)
     else
@@ -222,11 +219,12 @@ end
 # Solve the Reference (Clarabel/SCS) #
 ######################################
 
-function solve_reference(problem::ProblemData, args)
+function solve_reference(problem::ProblemData,
+    problem_set::String,
+    problem_name::String,
+    args::Dict{String, T}) where T
     # Choose the reference solver in {:SCS, :Clarabel}
     reference_solver = args["ref-solver"]
-    problem_set = args["problem-set"]
-    problem_name = args["problem-name"]
 
     println()
     if reference_solver == :SCS
@@ -282,8 +280,11 @@ end
 # Run the Prototype Optimization      #
 #######################################
 
-function run_prototype(problem::ProblemData, args::Dict{String, Any};
-    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing)
+function run_prototype(problem::ProblemData,
+    problem_set::String,
+    problem_name::String,
+    args::Dict{String, T};
+    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
 
     # NB we do not compute A' * A, just store its specification as a linear map
     A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
@@ -298,7 +299,7 @@ function run_prototype(problem::ProblemData, args::Dict{String, Any};
     end
 
     println("RUNNING PROTOTYPE VARIANT $(args["variant"])...")
-    println("Problem set/name: $(args["problem-set"])/$(args["problem-name"])")
+    println("Problem set/name: $(problem_name)/$(problem_name)")
     println("Acceleration: $(args["acceleration"])")
     if args["acceleration"] in [:krylov, :anderson]
         println("Acceleration memory: $(args["accel-memory"])")
@@ -335,7 +336,10 @@ end
 # Refactored Plotting Block #
 #############################
 
-function plot_results(results, args, newline_char)
+function plot_results(results,
+    problem_set::String,
+    problem_name::String,
+    args::Dict{String, T}, newline_char) where T
 
     k_final = length(results.data[:primal_obj_vals])
     
@@ -345,7 +349,7 @@ function plot_results(results, args, newline_char)
     ALPHA = 0.9
 
     # Common title components
-    title_common = "Problem: $(args["problem-set"]) $(args["problem-name"]).$newline_char Variant $(args["variant"]) $newline_char"
+    title_common = "Problem: $(problem_set) $(problem_name).$newline_char Variant $(args["variant"]) $newline_char"
     title_common *= "Restart period = $(args["restart-period"]).$newline_char Linesearch period = $(args["linesearch-period"])$newline_char"
     if args["acceleration"] == :none
         title_common *= "Acceleration: none.$newline_char"
@@ -488,25 +492,29 @@ function main(config::Dict{String, Any})
     # Choose the problem and fetch data.
     println()
     println("About to import problem data...")
-    problem = fetch_data(config)
+    problem = fetch_data(config["problem-set"], config["problem-name"])
 
     # Solve the reference problem (Clarabel/SCS).
     println()
     println("About to solve problem with reference solver...")
 
-    x_ref, s_ref, y_ref, obj_ref = solve_reference(problem, config)
+    x_ref, s_ref, y_ref, obj_ref = solve_reference(problem,
+    config["problem-set"], config["problem-name"], config)
 
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
-    @time ws, results = run_prototype(problem, config, x_ref = x_ref, y_ref = y_ref)
+    
+    @time ws, results = run_prototype(problem,
+    config["problem-set"], config["problem-name"],
+    config, x_ref = x_ref, y_ref = y_ref)
 
     if !config["run-fast"]
         newline_char = initialise_misc()
         println()
         println("About to plot results...")
         # plot_results(results, config["variant"], config["restart-period"], config["acceleration"], config["accel-memory"], config["linesearch-period"], newline_char, config["problem-set"], config["problem-name"], config["krylov-operator"], show_vlines = config["show-vlines"])
-        plot_results(results, config, newline_char)
+        plot_results(results, config["problem-set"], config["problem-name"], config, newline_char)
     end
     
     #return data of interest to inspect
