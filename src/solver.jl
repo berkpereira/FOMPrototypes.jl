@@ -5,6 +5,26 @@ using Printf
 using Infiltrator
 import COSMOAccelerators
 
+# data to store history of when a run uses args["run-fast"] == false
+const HISTORY_KEYS = [
+    :primal_obj_vals,
+    :dual_obj_vals,
+    :pri_res_norms,
+    :dual_res_norms,
+    :record_proj_flags,
+    :x_dist_to_sol,
+    :y_dist_to_sol,
+    :xy_chardist,
+    :update_mat_iters,
+    :update_mat_ranks,
+    :update_mat_singval_ratios,
+    :acc_step_iters,
+    :linesearch_iters,
+    :xy_step_norms,
+    :xy_step_char_norms,
+    :xy_update_cosines,
+]
+
 """
 In our framing of the FOM as an affine operator with generally varying
 dynamics, we want to apply the operator concurrently to two vectors.
@@ -729,26 +749,6 @@ function optimise!(ws::AbstractWorkspace,
         end
         
         print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"], terminated = true)
-
-        # keys whose history I want only when run-fast is false
-        const HISTORY_KEYS = [
-            :primal_obj_vals,
-            :dual_obj_vals,
-            :pri_res_norms,
-            :dual_res_norms,
-            :record_proj_flags,
-            :x_dist_to_sol,
-            :y_dist_to_sol,
-            :xy_chardist,
-            :update_mat_iters,
-            :update_mat_ranks,
-            :update_mat_singval_ratios,
-            :acc_step_iters,
-            :linesearch_iters,
-            :xy_step_norms,
-            :xy_step_char_norms,
-            :xy_update_cosines,
-        ]
 
         # assign results
         for key in HISTORY_KEYS
