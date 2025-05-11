@@ -462,20 +462,6 @@ function optimise!(ws::AbstractWorkspace,
     else
         error("Unknown variable type in workspace.")
     end
-
-    # prepare the pre-gradient linear operator for the x update
-    # ws.W = W_operator(ws.variant, ws.p.P, ws.p.A, ws.A_gram, ws.τ, ws.ρ)
-    # ws.W_inv = prepare_inv(ws.W)
-
-    # if using acceleration, init krylov basis and Hessenberg arrays
-    # if args["acceleration"] == :krylov
-    #     ws.krylov_basis = zeros(Float64, ws.p.n + ws.p.m, acceleration_memory)
-    #     ws.H = init_upper_hessenberg(acceleration_memory)
-    # elseif args["acceleration"] == :anderson
-    #     # default types:
-    #     # COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.QRDecomp}, COSMOAccelerators.RestartedMemory, COSMOAccelerators.NoRegularizer}
-    #     ws.accelerator = COSMOAccelerators.AndersonAccelerator{Float64, COSMOAccelerators.Type2{COSMOAccelerators.NormalEquations}, COSMOAccelerators.RollingMemory, COSMOAccelerators.NoRegularizer}(ws.p.n + ws.p.m, mem = acceleration_memory)
-    # end
     
     # init acceleration trigger flag
     just_accelerated = true
@@ -517,15 +503,6 @@ function optimise!(ws::AbstractWorkspace,
             x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
             y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
         end
-
-        # Compute residuals, their norms, and objective values.
-        # primal_residual!(ws, pri_res, ws.p.A, view_x, ws.p.b)
-        # dual_residual!(dual_res, scratch.temp_n_vec1, ws.p.P, ws.p.A, view_x, view_y, ws.p.c)
-        # curr_pri_res_norm = norm(pri_res, residual_norm)
-        # curr_dual_res_norm = norm(dual_res, residual_norm)
-        # primal_obj = primal_obj_val(ws.p.P, ws.p.c, view_x)
-        # dual_obj = dual_obj_val(ws.p.P, ws.p.b, view_x, view_y)
-        # gap = duality_gap(primal_obj, dual_obj)
 
         # compute distance to real solution
         if !args["run-fast"]
