@@ -326,6 +326,7 @@ function run_prototype(problem::ProblemData,
         # Run the solver
         results = optimise!(ws,
         args,
+        setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
         x_sol = x_ref, y_sol = y_ref,
         explicit_affine_operator = false)
     end
