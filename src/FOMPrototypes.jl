@@ -287,6 +287,14 @@ function run_prototype(problem::ProblemData,
     args::Dict{String, T};
     x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
 
+    # simple args consistency checks
+    if args["global-timeout"] < args["loop-timeout"]
+        error("Global timeout must be greater than loop timeout.")
+    end
+    if args["anderson-period"] <= 1
+        error("Anderson period must be 2 or more.")
+    end
+
     # initialise timer object
     to = TimerOutput()
 
@@ -294,7 +302,7 @@ function run_prototype(problem::ProblemData,
         # NB we do not compute A' * A, just store its specification as a linear map
         A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
 
-        if args["variant"] != :ADMM
+        @timeit to "build operator" if args["variant"] != :ADMM
             take_away_op = build_operator(args["variant"], problem.P, problem.A, A_gram, args["rho"])
             Random.seed!(42)  # seed for reproducibility
             max_τ = 1 / dom_λ_power_method(take_away_op, 30)
