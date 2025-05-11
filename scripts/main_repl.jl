@@ -28,7 +28,7 @@ config = Dict(
     "linesearch-eps"    => 0.001,
 
     "print-mod"          => 50,
-    "residuals-relative" => true,
+    "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
     "show-vlines"        => true,
     "run-fast"           => false,
 );

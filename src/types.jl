@@ -338,23 +338,11 @@ function AndersonWorkspace(
 end
 
 
-@with_kw mutable struct Results{T <: AbstractFloat}
-    data::Dict{Symbol, Any} = Dict{Symbol,Any}()
+mutable struct Results{T <: AbstractFloat}
+    metrics_history::Dict{Symbol, Any}
+    metrics_final::ProgressMetrics{T}
+    exit_status::Symbol
 end
-
-@with_kw mutable struct RunResults{T <: AbstractFloat}
-    # Primal and dual objective values.
-    primal_obj::AbstractVector{T} = T[]
-    dual_obj::AbstractVector{T} = T[]
-
-    # Duality gap.
-    gaps::AbstractVector{T} = T[]
-
-    # Primal and dual residuals.
-    pri_res::AbstractVector{T} = T[]
-    dual_res::AbstractVector{T} = T[]
-end
-RunResults(args...) = RunResults{DefaultFloat}(args...)
 
 # We now define some types to make the inversion of preconditioner + Hessian
 # matrices, required for the x update, abstract. Thus we can use diagonal ones

@@ -439,17 +439,15 @@ end
 
 """
 Run the optimiser for the initial inputs and solver options given.
-acceleration is a symbol in {:none, :krylov, :anderson}
+acceleration is a Symbol in {:none, :krylov, :anderson}
 """
 function optimise!(ws::AbstractWorkspace,
     args::Dict{String, T};
+    setup_time::Float64 = 0.0, # time spent in set-up (seconds)
     x_sol::Union{Nothing, Vector{Float64}} = nothing,
     y_sol::Union{Nothing, Vector{Float64}} = nothing,
     explicit_affine_operator::Bool = false,
     spectrum_plot_period::Int = 17,) where T
-
-    # initialise dict to store results
-    results = Results{Float64}()
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa Variables
@@ -497,6 +495,9 @@ function optimise!(ws::AbstractWorkspace,
 
     # start main loop
     termination = false
+
+    # record iter start time
+    loop_start_ns = time_ns()
     while !termination
         # Update average iterates
         if args["restart-period"] != Inf
@@ -522,11 +523,11 @@ function optimise!(ws::AbstractWorkspace,
             end
 
             # print info and save data if requested
-            print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["residuals-relative"])
+            print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"])
             push_to_record!(ws, record, args["run-fast"], x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist)
 
         else
-            print_results(ws, args["print-mod"], relative = args["residuals-relative"])
+            print_results(ws, args["print-mod"], relative = args["print-res-rel"])
         end
 
         # krylov setup
@@ -686,14 +687,31 @@ function optimise!(ws::AbstractWorkspace,
         # increment iter counter
         ws.k[] += 1
 
-        if ws.k[] > args["max-iter"] || kkt_criterion(ws, args["rel-kkt-tol"])
+        # update stopwatches
+        loop_time = (time_ns() - loop_start_ns) / 1e9
+        global_time = loop_time + setup_time
+
+        # check termination conditions
+        if ws.k[] > args["max-iter"]
             termination = true
+            exit_status = :max_iter
+        elseif kkt_criterion(ws, args["rel-kkt-tol"])
+            termination = true
+            exit_status = :kkt_solved
+        elseif loop_time > args["loop-timeout"]
+            termination = true
+            exit_status = :loop_timeout
+        elseif global_time > args["global-timeout"]
+            termination = true
+            exit_status = :global_timeout
         end
     end
 
-    # TERMINATION: Compute residuals, their norms, and objective values
-    
-    # END: Store metrics if requested.
+    # initialise results with common fields
+    # ie for both run-fast set to true and to false
+    results = Results(Dict{Symbol, Any}(), ws.res, exit_status)
+
+    # store final records if run-fast is set to true
     if !args["run-fast"]
         curr_xy_chardist = !isnothing(x_sol) ? char_norm([view_x - x_sol; view_y + y_sol]) : nothing
         curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
@@ -710,29 +728,35 @@ function optimise!(ws::AbstractWorkspace,
             curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
         end
         
-        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["residuals-relative"], terminated = true)
+        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"], terminated = true)
 
-        # assign results as appropriate
-        results.data = Dict(
-            :primal_obj_vals => record.primal_obj_vals,
-            :dual_obj_vals => record.dual_obj_vals,
-            :pri_res_norms => record.pri_res_norms,
-            :dual_res_norms => record.dual_res_norms,
-            :record_proj_flags => record.record_proj_flags,
-            :x_dist_to_sol => record.x_dist_to_sol,
-            :y_dist_to_sol => record.y_dist_to_sol,
-            :xy_chardist => record.xy_chardist,
-            :update_mat_iters => record.update_mat_iters,
-            :update_mat_ranks => record.update_mat_ranks,
-            :update_mat_singval_ratios => record.update_mat_singval_ratios,
-            :acc_step_iters => record.acc_step_iters,
-            :linesearch_iters => record.linesearch_iters,
-            :xy_step_norms => record.xy_step_norms,
-            :xy_step_char_norms => record.xy_step_char_norms,
-            :xy_update_cosines => record.xy_update_cosines
-        )
+        # keys whose history I want only when run-fast is false
+        const HISTORY_KEYS = [
+            :primal_obj_vals,
+            :dual_obj_vals,
+            :pri_res_norms,
+            :dual_res_norms,
+            :record_proj_flags,
+            :x_dist_to_sol,
+            :y_dist_to_sol,
+            :xy_chardist,
+            :update_mat_iters,
+            :update_mat_ranks,
+            :update_mat_singval_ratios,
+            :acc_step_iters,
+            :linesearch_iters,
+            :xy_step_norms,
+            :xy_step_char_norms,
+            :xy_update_cosines,
+        ]
+
+        # assign results
+        for key in HISTORY_KEYS
+            # pull record.key via getfield since key is a symbol
+            results.data[key] = getfield(record, key)
+        end
     else
-        print_results(ws, args["print-mod"], relative = args["residuals-relative"], terminated = true)
+        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true)
     end
 
     return results
