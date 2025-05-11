@@ -31,6 +31,8 @@ config = Dict(
     "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
     "show-vlines"        => true,
     "run-fast"           => false,
+    "global-timeout"     => 60.0, # seconds, including set-up time
+    "loop-timeout"       => 30.0, # seconds, loop excluding set-up time
 );
 
 # run everything with a single call:

@@ -342,7 +342,7 @@ function plot_results(results,
     problem_name::String,
     args::Dict{String, T}, newline_char) where T
 
-    k_final = length(results.data[:primal_obj_vals])
+    k_final = length(results.metrics_history[:primal_obj_vals])
     
     # plotting constants
     LINEWIDTH = 2.5
@@ -365,55 +365,55 @@ function plot_results(results,
     # Add Krylov operator string if acceleration is :krylov
     
     
-    constraint_lines = constraint_changes(results.data[:record_proj_flags])
+    constraint_lines = constraint_changes(results.metrics_history[:record_proj_flags])
 
     # Helper function to add common vertical lines, only if show_vlines is true.
     function add_vlines!(plt; constraint_style=(:dash, ALPHA, :green, VERT_LINEWIDTH))
         if args["show-vlines"]
-            vline!(plt, results.data[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH), label="Accelerated Steps")
-            vline!(plt, results.data[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
+            vline!(plt, results.metrics_history[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH), label="Accelerated Steps")
+            vline!(plt, results.metrics_history[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
             vline!(plt, constraint_lines, line = constraint_style, label="Active set changes")
         end
         return plt
     end
 
     # Primal objective plot.
-    primal_obj_plot = plot(0:k_final-1, results.data[:primal_obj_vals], linewidth=LINEWIDTH,
+    primal_obj_plot = plot(0:k_final-1, results.metrics_history[:primal_obj_vals], linewidth=LINEWIDTH,
     label="Prototype Objective", xlabel="Iteration", ylabel="Objective Value",
     title="$title_common Objective")
     add_vlines!(primal_obj_plot)
     display(primal_obj_plot)
 
     # Dual objective plot.
-    dual_obj_plot = plot(0:k_final-1, results.data[:dual_obj_vals], linewidth=LINEWIDTH,
+    dual_obj_plot = plot(0:k_final-1, results.metrics_history[:dual_obj_vals], linewidth=LINEWIDTH,
     label="Prototype Dual Objective", xlabel="Iteration", ylabel="Dual Objective Value",
     title="$title_common Dual Objective")
     add_vlines!(dual_obj_plot)
     display(dual_obj_plot)
 
     # Duality gap plot.
-    gap_plot = plot(0:k_final-1, results.data[:primal_obj_vals] - results.data[:dual_obj_vals], linewidth=LINEWIDTH,
+    gap_plot = plot(0:k_final-1, results.metrics_history[:primal_obj_vals] - results.metrics_history[:dual_obj_vals], linewidth=LINEWIDTH,
     label="Prototype Dual Objective", xlabel="Iteration", ylabel="Duality Gap",
     title="$title_common Duality Gap")
     add_vlines!(gap_plot)
     display(gap_plot)
 
     # Primal residual plot.
-    pres_plot = plot(0:k_final-1, results.data[:pri_res_norms], linewidth=LINEWIDTH,
+    pres_plot = plot(0:k_final-1, results.metrics_history[:pri_res_norms], linewidth=LINEWIDTH,
     label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual",
     title="$title_common Primal Residual Norm", yaxis=:log)
     add_vlines!(pres_plot)
     display(pres_plot)
 
     # Dual residual plot.
-    dres_plot = plot(0:k_final-1, results.data[:dual_res_norms], linewidth=LINEWIDTH,
+    dres_plot = plot(0:k_final-1, results.metrics_history[:dual_res_norms], linewidth=LINEWIDTH,
     label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual",
     title="$title_common Dual Residual Norm", yaxis=:log)
     add_vlines!(dres_plot)
     display(dres_plot)
 
     # (x, y) distance to solution plot.
-    xy_dist_to_sol = sqrt.(results.data[:x_dist_to_sol] .^ 2 .+ results.data[:y_dist_to_sol] .^ 2)
+    xy_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
     xy_dist_plot = plot(0:k_final, xy_dist_to_sol, linewidth=LINEWIDTH,
         label="Prototype (x, y) Distance", xlabel="Iteration", ylabel="Distance to Solution",
         title="$title_common (x, y) Distance to Solution", yaxis=:log)
@@ -421,28 +421,28 @@ function plot_results(results,
     display(xy_dist_plot)
 
     # (x, y) characteristic norm distance to solution plot.
-    seminorm_plot = plot(0:k_final, results.data[:xy_chardist], linewidth=LINEWIDTH,
+    seminorm_plot = plot(0:k_final, results.metrics_history[:xy_chardist], linewidth=LINEWIDTH,
     label="(x, y) Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
     title="$title_common (x, y) Characteristic Norm Distance to Solution", yaxis=:log)
     add_vlines!(seminorm_plot)
     display(seminorm_plot)
 
     # (x, y) step norms plot.
-    xy_step_norms_plot = plot(0:k_final-1, results.data[:xy_step_norms], linewidth=LINEWIDTH,
+    xy_step_norms_plot = plot(0:k_final-1, results.metrics_history[:xy_step_norms], linewidth=LINEWIDTH,
         label="(x, y) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm",
         title="$title_common (x, y) l2 Step Norm", yaxis=:log)
     add_vlines!(xy_step_norms_plot)
     display(xy_step_norms_plot)
 
     # (x, y) step CHAR norms plot.
-    xy_step_char_norms_plot = plot(0:k_final-1, results.data[:xy_step_char_norms], linewidth=LINEWIDTH,
+    xy_step_char_norms_plot = plot(0:k_final-1, results.metrics_history[:xy_step_char_norms], linewidth=LINEWIDTH,
         label="(x, y) Step Char Norm", xlabel="Iteration", ylabel="Step CHAR Norm",
         title="$title_common (x, y) CHAR Step Norm", yaxis=:log)
     add_vlines!(xy_step_char_norms_plot)
     display(xy_step_char_norms_plot)
 
     # # Singular values ratio plot.
-    # sing_vals_ratio_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_singval_ratios], linewidth=LINEWIDTH,
+    # sing_vals_ratio_plot = plot(results.metrics_history[:update_mat_iters], results.metrics_history[:update_mat_singval_ratios], linewidth=LINEWIDTH,
     # label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio",
     # title="$title_beginning Update Matrix Singular Value Ratio  $title_end",
     # yaxis=:log, marker=:circle)
@@ -450,7 +450,7 @@ function plot_results(results,
     # display(sing_vals_ratio_plot)
 
     # # Update matrix rank plot.
-    # update_ranks_plot = plot(results.data[:update_mat_iters], results.data[:update_mat_ranks],
+    # update_ranks_plot = plot(results.metrics_history[:update_mat_iters], results.metrics_history[:update_mat_ranks],
     # label="Prototype Update Matrix", xlabel="Iteration", ylabel="Rank",
     # title="$title_beginning Update Matrix Rank  $title_end",
     # linewidth=LINEWIDTH, xticks=0:100:MAX_ITER)
@@ -458,10 +458,10 @@ function plot_results(results,
     # display(update_ranks_plot)
 
     # Projection flags plot (often intensive)
-    # enforced_constraints_plot(results.data[:record_proj_flags])
+    # enforced_constraints_plot(results.metrics_history[:record_proj_flags])
 
     # Consecutive update (x, y) cosines plot.
-    xy_update_cosines_plot = plot(1:k_final-1, results.data[:xy_update_cosines], linewidth=LINEWIDTH,
+    xy_update_cosines_plot = plot(1:k_final-1, results.metrics_history[:xy_update_cosines], linewidth=LINEWIDTH,
         label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates",
         title="$title_common Consecutive (x, y) Update Cosines")
     add_vlines!(xy_update_cosines_plot, constraint_style = (:dashdot, ALPHA, :green, VERT_LINEWIDTH))

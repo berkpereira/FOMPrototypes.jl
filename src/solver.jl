@@ -486,12 +486,6 @@ function optimise!(ws::AbstractWorkspace,
     # set restart counter
     j_restart = 0
 
-    # pre-allocate vectors to store residuals
-    pri_res = zeros(Float64, ws.p.m)
-    dual_res = zeros(Float64, ws.p.n)
-    acc_pri_res = zeros(Float64, ws.p.m)
-    acc_dual_res = zeros(Float64, ws.p.n)
-
     # pre-allocate vectors for intermediate results in in-place computations
     scratch = preallocate_scratch(ws, args["acceleration"]) # scratch is a named tuple
     prev_xy = zeros(Float64, ws.p.n + ws.p.m)
@@ -515,9 +509,10 @@ function optimise!(ws::AbstractWorkspace,
 
     # start main loop
     termination = false
-
+    exit_status = :unknown
     # record iter start time
     loop_start_ns = time_ns()
+
     while !termination
         # Update average iterates
         if args["restart-period"] != Inf
@@ -753,7 +748,7 @@ function optimise!(ws::AbstractWorkspace,
         # assign results
         for key in HISTORY_KEYS
             # pull record.key via getfield since key is a symbol
-            results.data[key] = getfield(record, key)
+            results.metrics_history[key] = getfield(record, key)
         end
     else
         print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true)
