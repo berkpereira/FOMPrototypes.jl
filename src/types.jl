@@ -203,7 +203,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         end
 
         W_inv = prepare_inv(W, to)
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, to, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 end
 
