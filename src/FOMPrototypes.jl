@@ -287,10 +287,7 @@ function run_prototype(problem::ProblemData,
     args::Dict{String, T};
     x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
 
-    # simple args consistency checks
-    if args["global-timeout"] < args["loop-timeout"]
-        error("Global timeout must be greater than loop timeout.")
-    end
+    # simple args consistency check
     if args["anderson-period"] <= 1
         error("Anderson period must be 2 or more.")
     end
