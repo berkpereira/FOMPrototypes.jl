@@ -331,7 +331,7 @@ function accept_acc_candidate(ws::KrylovWorkspace,
     fp_res_accel = norm(temp_mn_vec1 - accelerated_xy)
 
     # accept candidate if it reduces fixed-point residual
-    println("Accel FP residual over standard FP residual: $(fp_res_accel / fp_res_standard)")
+    # println("Accel FP residual over standard FP residual: $(fp_res_accel / fp_res_standard)")
     
     return fp_res_accel < fp_res_standard
 end
@@ -559,7 +559,7 @@ function optimise!(ws::AbstractWorkspace,
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
-                    println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
+                    # println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -636,7 +636,7 @@ function optimise!(ws::AbstractWorkspace,
                     # account for records as appropriate
                     if any(curr_xy_update .!= 0.0) # ie if acceleration was successful
                         ws.k_eff[] += 1
-                        println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                        # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
@@ -647,7 +647,7 @@ function optimise!(ws::AbstractWorkspace,
                     push!(record.xy_step_char_norms, NaN)
                 elseif any(ws.vars.xy .!= scratch.temp_mn_vec1) # ie if acceleration was successful
                     ws.k_eff[] += 1
-                    println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                    # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                 end
             
             else # standard onecol iteration
