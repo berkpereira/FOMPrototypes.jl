@@ -1,18 +1,18 @@
 include("problem_data.jl")
 
-search_problem_set = "opf_lp" # in {"sslsq", "maros", "opf_lp"}
+search_problem_set = "maros" # in keys(ClarabelBenchmarks.PROBLEMS)
 
 # Define search criteria
 MIN_M = 1
-MAX_M = 3000
-MIN_N = 10
-MAX_N = 3000
+MAX_M = nothing
+MIN_N = 1
+MAX_N = nothing
 
 suitable_problems = filter_clarabel_problems(search_problem_set,
     min_m = MIN_M, max_m = MAX_M, min_n = MIN_N, max_n = MAX_N)
 
 # Write results to a text file including an info header line.
-names_file = "./search_results_$search_problem_set.txt"
+names_file = "./problem_search_results/search_results_$search_problem_set.txt"
 open(names_file, "w") do f
     # Write header with search criteria
     header = "#SEARCH{set:$search_problem_set,min_m:$MIN_M,max_m:$MAX_M,min_n:$MIN_N,max_n:$MAX_N}"
