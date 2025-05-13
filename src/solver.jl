@@ -724,7 +724,8 @@ function optimise!(ws::AbstractWorkspace,
 
     # initialise results with common fields
     # ie for both run-fast set to true and to false
-    results = Results(Dict{Symbol, Any}(), ws.res, exit_status)
+    metrics_final = ReturnMetrics(ws.res)
+    results = Results(Dict{Symbol, Any}(), metrics_final, exit_status)
 
     # store final records if run-fast is set to true
     if !args["run-fast"]

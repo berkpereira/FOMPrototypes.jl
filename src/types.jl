@@ -93,6 +93,36 @@ mutable struct ProgressMetrics{T <: AbstractFloat}
     end
 end
 
+# this struct is a simpler version of ProgressMetrics, not
+# storing the residual vectors --- this is for further
+# processing purposes
+mutable struct ReturnMetrics{T <: AbstractFloat}
+    obj_primal::T # primal objective value
+    obj_dual::T # dual objective value
+
+    rp_abs::T # absolute primal residual metric
+    rd_abs::T # absolute dual residual metric
+    gap_abs::T # absolute duality gap metric
+
+    rp_rel::T # relative primal residual metric
+    rd_rel::T # relative dual residual metric
+    gap_rel::T # relative duality gap metric
+end
+
+# outer constructor to create a ReturnMetrics object
+# from an existing ProgressMetrics object
+ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} = 
+    ReturnMetrics(
+        pm.obj_primal,
+        pm.obj_dual,
+        pm.rp_abs,
+        pm.rd_abs,
+        pm.gap_abs,
+        pm.rp_rel,
+        pm.rd_rel,
+        pm.gap_rel,
+       )
+
 abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
@@ -340,7 +370,7 @@ end
 
 mutable struct Results{T <: AbstractFloat}
     metrics_history::Dict{Symbol, Any}
-    metrics_final::ProgressMetrics{T}
+    metrics_final::ReturnMetrics{T}
     exit_status::Symbol
 end
 
