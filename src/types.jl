@@ -378,15 +378,43 @@ function prepare_inv(W::Diagonal{T},
 end
 
 function prepare_inv(W::Symmetric{T},
-    to::Union{TimerOutput, Nothing}=nothing) where T <: AbstractFloat
+    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10) where T <: AbstractFloat
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
     
     if to !== nothing
         @timeit to "Cholesky factorisation" begin
-            F = SparseArrays.cholesky(W)
+            try
+                F = SparseArrays.cholesky(W)
+            catch e
+                @warn "Cholesky failed; retrying with δ = $δ" exception=e
+            end
+
+            # try Cholesky with shift
+            try
+                F = SparseArrays.cholesky(W; shift=δ)
+            catch e
+                @warn "Cholesky failed even with shift δ=$δ. Retrying with shift 10δ"
+            end
+
+            δ *= 10.;
+            F = SparseArrays.cholesky(W; shift=δ)
         end
     else
-        F = SparseArrays.cholesky(W)
+        try
+            F = SparseArrays.cholesky(W)
+        catch e
+            @warn "Cholesky failed; retrying with δ = $δ" exception=e
+        end
+
+        # try Cholesky with shift
+        try
+            F = SparseArrays.cholesky(W; shift=δ)
+        catch e
+            @warn "Cholesky failed even with shift δ=$δ. Retrying with shift 10δ"
+        end
+
+        δ *= 10.;
+        F = SparseArrays.cholesky(W; shift=δ)
     end
     
     if to !== nothing
