@@ -7,3 +7,15 @@ conda-meta/
 
 # For external solver results
 external_solvers/
+
+# custom system images...
+bin/
+
+# misc analysis results in .csv
+*.csv
+
+# testing custom linalg functions informally
+test_custom_linalg/
+
+# misc jupyter notebooks
+*.ipynb
