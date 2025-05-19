@@ -315,7 +315,7 @@ function run_prototype(problem::ProblemData,
         A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
 
         @timeit to "build operator" if args["variant"] != :ADMM
-            take_away_op = build_operator(args["variant"], problem.P, problem.A, A_gram, args["rho"])
+            take_away_op = build_takeaway_op(args["variant"], problem.P, problem.A, A_gram, args["rho"])
             Random.seed!(42)  # seed for reproducibility
             max_τ = 1 / dom_λ_power_method(take_away_op, 30)
             τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance

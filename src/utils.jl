@@ -78,7 +78,7 @@ function off_diag_part(A::AbstractMatrix{Float64})
 end
 
 """
-    build_operator(variant, P, A, A_gram, ρ)
+    build_takeaway_op(variant, P, A, A_gram, ρ)
 
 Constructs a LinearMap for one of the following operators (assuming P is n×n):
 
@@ -96,7 +96,7 @@ guarantees (see AD-PMM in Shefi and Teboulle 2014 paper). Namely,
 the theoretical (1 / τ_max) given by the reciprocal of the largest eigenvalue
 of the operator returned by this function.
 """
-function build_operator(variant::Symbol, P::Symmetric{Float64},
+function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
     A::SparseMatrixCSC{Float64, Int64}, A_gram::LinearMap{Float64},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
