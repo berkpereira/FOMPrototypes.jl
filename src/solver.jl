@@ -316,7 +316,11 @@ function accept_acc_candidate(ws::KrylovWorkspace,
     temp_mn_vec2::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64})
+    temp_m_vec::AbstractVector{Float64};
+    char_norm_func::Union{Function, Nothing} = nothing,)
+
+    # TODO sort this fixed-point residual norm checking out
+    res_norm_func = char_norm_func === nothing ? norm : char_norm_func
 
     # compute fixed-point residual at standard next iterate
     onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from current_xy
@@ -324,11 +328,11 @@ function accept_acc_candidate(ws::KrylovWorkspace,
 
     # this computes fixed point residual OF THE standard iterate from
     # the current iterate
-    fp_res_standard = norm(temp_mn_vec2 - temp_mn_vec1)
+    fp_res_standard = res_norm_func(temp_mn_vec2 - temp_mn_vec1)
 
     # now compute fixed-point residual at accelerated iterate
     onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
-    fp_res_accel = norm(temp_mn_vec1 - accelerated_xy)
+    fp_res_accel = res_norm_func(temp_mn_vec1 - accelerated_xy)
 
     # accept candidate if it reduces fixed-point residual
     # println("Accel FP residual over standard FP residual: $(fp_res_accel / fp_res_standard)")
@@ -495,9 +499,12 @@ function optimise!(ws::AbstractWorkspace,
     # characteristic PPM preconditioner of the method
     if !args["run-fast"]
         char_norm_mat = [(ws.W - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
-        function char_norm(vector::AbstractArray{Float64})
+        function char_norm_func(vector::AbstractArray{Float64})
             return sqrt(dot(vector, char_norm_mat * vector))
         end
+        # char_norm_func = norm
+    else
+        char_norm_func = nothing
     end
 
     # data containers for metrics (if return_run_data == true).
@@ -525,7 +532,7 @@ function optimise!(ws::AbstractWorkspace,
             if x_sol !== nothing
                 scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
                 scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
-                curr_xy_chardist = char_norm(scratch.temp_mn_vec1)
+                curr_xy_chardist = char_norm_func(scratch.temp_mn_vec1)
                 
                 @views curr_x_dist = norm(scratch.temp_mn_vec1[1:ws.p.n])
                 @views curr_y_dist = norm(scratch.temp_mn_vec1[ws.p.n+1:end])
@@ -554,8 +561,10 @@ function optimise!(ws::AbstractWorkspace,
             if ws.k[] % (ws.mem + 1) == 0 && ws.k[] > 0
                 custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
-                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
-                    
+                # TODO: sort out norm to use in fixed-point residual safeguard
+                # step --- this is superfluous kwarg to accept_acc_candidate
+                # at the moment
+                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, char_norm_func=char_norm_func)
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
@@ -596,7 +605,7 @@ function optimise!(ws::AbstractWorkspace,
                 if !args["run-fast"]
                     @views curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
                     push!(record.xy_step_norms, norm(curr_xy_update))
-                    push!(record.xy_step_char_norms, char_norm(curr_xy_update))
+                    push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
                     insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
                 end
 
@@ -679,7 +688,7 @@ function optimise!(ws::AbstractWorkspace,
 
                     # record iteration data here
                     push!(record.xy_step_norms, norm(curr_xy_update))
-                    push!(record.xy_step_char_norms, char_norm(curr_xy_update))
+                    push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
                 end
             end
         end
@@ -729,7 +738,7 @@ function optimise!(ws::AbstractWorkspace,
 
     # store final records if run-fast is set to true
     if !args["run-fast"]
-        curr_xy_chardist = !isnothing(x_sol) ? char_norm([view_x - x_sol; view_y + y_sol]) : nothing
+        curr_xy_chardist = !isnothing(x_sol) ? char_norm_func([view_x - x_sol; view_y + y_sol]) : nothing
         curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
         curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
 
