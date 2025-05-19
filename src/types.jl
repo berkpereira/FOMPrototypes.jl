@@ -58,20 +58,24 @@ struct TwocolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     # to the working optimisation variable xy_q[:, 1] in the next iteration
     xy_recycled::Vector{T}
 
+    # to store "previous" working iterate for misc purposes
+    xy_prev::Vector{T}
+
     # default (zeros) initialisation of variables
     function TwocolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m))
+        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m), zeros(n + m))
     end
 end
 TwocolVariables(args...) = TwocolVariables{DefaultFloat}(args...)
 
 struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy::Vector{T}
+    xy_prev::Vector{T}
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
     function OnecolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m), zeros(m))
+        new(zeros(n + m), zeros(n + m), zeros(m))
     end
 end
 OnecolVariables(args...) = OnecolVariables{DefaultFloat}(args...)
@@ -153,6 +157,11 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         ρ::T,
         θ::T,
         to::Union{TimerOutput, Nothing}) where {T <: AbstractFloat}
+        
+        if θ != 1.0
+            throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
+        end
+
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
@@ -228,6 +237,11 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
         to::Union{TimerOutput, Nothing},
         mem::Int,
         krylov_operator::Symbol) where {T <: AbstractFloat}
+
+        if θ != 1.0
+            throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
+        end
+
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
@@ -241,14 +255,17 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
             dP = Vector(diag(p.P))
         end
         @timeit to "dA prep" begin
-            dA = vec(sum(abs2, A; dims=1))
+            dA = vec(sum(abs2, p.A; dims=1))
         end
         @timeit to "W op prep" begin
             W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         end
 
         W_inv = prepare_inv(W, to)
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), dP, dA)
+
+        println(typeof(dP))
+
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
     end
 end
 
@@ -308,6 +325,11 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
         regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer}) where {T <: AbstractFloat}
         attempt_period >= 2 || throw(ArgumentError("Anderson acceleration attempt period must be at least 2."))
+
+        if θ != 1.0
+            throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
+        end
+
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
 

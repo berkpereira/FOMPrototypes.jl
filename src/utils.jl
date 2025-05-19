@@ -83,14 +83,14 @@ obtained from P by setting the diagonal to zero. Done in place.
 Assumes ws has a field dP storing diag(P), and ws.p.P storing Hessian P.
 """
 function mul_P_nodiag!(in_vec::AbstractVector{Float64},
-    out_vec::AbstractVector{Float64},
+    result_vec::AbstractVector{Float64},
     ws::AbstractWorkspace,)
     # compute P * x
-    mul!(out_vec, ws.p.P, in_vec)
+    mul!(result_vec, ws.p.P, in_vec)
 
     # subtract ws.dP * x
-    @inbounds for i in eachindex(out_vec)
-        out_vec[i] -= ws.dP[i] * in_vec[i]
+    @inbounds for i in eachindex(result_vec)
+        result_vec[i] -= ws.dP[i] * in_vec[i]
     end
     return nothing
 end
@@ -176,57 +176,63 @@ function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
 end
 
 """
-This function computes M1 matrix-vector products efficiently and in place.
+This function computes M1 matrix-vector products with x efficiently.
+Result is stored in result_vec, while x is left unchanged.
 """
-function M1_op!(x::AbstractVector{Float64}, ws::KrylovWorkspace,
+function M1_op!(x::AbstractVector{Float64}, result_vec::AbstractVector{Float64},
+    ws::KrylovWorkspace,
     variant::Symbol,
     A_gram::LinearMap{Float64},
-    temp_n_vec1::Vector{Float64}, temp_n_vec2::Vector{Float64})
+    temp_n_vec::Vector{Float64})
+
+    result_vec .= x
 
     if variant == :PDHG # M1 = 1/τ * I
-        x ./= ws.τ
+        result_vec ./= ws.τ
     elseif variant == :ADMM # M1 = ρ * A' * A
-        x .*= A_gram
-        x .*= ws.ρ
+        result_vec .*= A_gram
+        result_vec .*= ws.ρ
     elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
-        temp_n_vec1 .= x
-        temp_n_vec2 .= x
+        mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
+        result_vec .*= -1.0 # result_vec = -R(P) * x
         
-        temp_n_vec1 ./= ws.τ
-        x .*= ws.ρ * ws.dA
-        x .+= temp_n_vec1 # now stores (1/τ * I + ρ * D(A' * A)) * x
-        
-        temp_n_vec1 .*= ws.τ # recover original input vector again
-        mul_P_nodiag!(temp_n_vec1, temp_n_vec2, ws) # temp_n_vec2 = R(P) * original input
-        x .+= temp_n_vec2
+        broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
+        temp_n_vec .*= ws.ρ # temp_n_vec = ρ * D(A' * A) * x
+
+        result_vec .+= temp_n_vec # result_vec = -R(P) * x + ρ * D(A' * A) * x
+
+        temp_n_vec .= x
+        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+
+        result_vec .+= temp_n_vec
     elseif variant == Symbol(2) # M1 = 1/τ * I - P
-        temp_n_vec1 .= x
-        temp_n_vec1 ./= ws.τ
-        x .*= ws.p.P
-        x .*= -1.0
-        x .+= temp_n_vec1
-    elseif variant == Symbol(3) # M1 = 1/τ * I - P + ρ * D(A' * A)
-        temp_n_vec1 .= x
-        temp_n_vec2 .= x
+        mul!(result_vec, ws.p.P, x)
+        result_vec .*= -1.0 # result_vec = -P * x
 
-        temp_n_vec1 ./= ws.τ
-        temp_n_vec2 .*= ws.ρ * ws.dA
-
-        x .*= ws.p.P
-        x .*= -1.0
-
-        x .+= temp_n_vec1
-        x .+= temp_n_vec2
-    elseif variant == Symbol(4) # M1 = 1/τ * I - R(P)
-        temp_n_vec1 .= x
-        temp_n_vec2 .= x
-
-        temp_n_vec1 ./= ws.τ
+        temp_n_vec .= x
+        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
         
-        mul_P_nodiag!(temp_n_vec2, x, ws)
-        x .*= -1.0
+        result_vec .+= temp_n_vec # result_vec = -P * x + 1/τ * I * x
+    elseif variant == Symbol(3) # M1 = 1/τ * I - P + ρ * D(A' * A)
+        mul!(result_vec, ws.p.P, x)
+        result_vec .*= -1.0 # result_vec = -P * x
 
-        x .+= temp_n_vec1
+        broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
+        temp_n_vec .*= ws.ρ # temp_n_vec = ρ * D(A' * A) * x
+        result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x
+
+        temp_n_vec .= x
+        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+
+        result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x + 1/τ * I * x
+    elseif variant == Symbol(4) # M1 = 1/τ * I - R(P)
+        mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
+        result_vec .*= -1.0 # result_vec = -R(P) * x
+
+        temp_n_vec .= x
+        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+
+        result_vec .+= temp_n_vec # result_vec = -R(P) * x + 1/τ * I * x
     else
         error("Variant not applicable: choose PDHG, ADMM, 1, 2, 3, or 4.")
     end

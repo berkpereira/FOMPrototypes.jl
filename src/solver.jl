@@ -169,6 +169,14 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 end
 
 """
+Efficiently computes FOM iteration at point xy, and stores it in result_vec.
+Vector xy is left unchanged.
+
+Set update_res_flags to true iff the method is being used for a bona fide
+vanilla FOM iteration, where the active set flags and working residual metrics
+should be updated by recycling the computational work (mostly mat-vec
+products involving A, A', and P) which is carried out here regardless.
+
 This function is somewhat analogous to twocol_method_operator!, but it is
 concerned only with applying the iteration to some actual iterate, ie
 it does not consider any sort of concurrent Arnoldi-like process.
@@ -308,43 +316,89 @@ function iter_y!(y::AbstractVector{Float64},
     return
 end
 
-# check for acceptance of a Krylov acceleration candidate.
-function accept_acc_candidate(ws::KrylovWorkspace,
+"""
+Check for acceptance of a Krylov acceleration candidate.
+Recycles work done in matrix-vector products involving A, A', and P.
+
+Assigns to TwocolVariables.xy_recycled.
+Returns Boolean indicating acceleration success/failure.
+
+Source code has similarities to that of onecol_method_operator!
+"""
+function krylov_accel_check!(ws::KrylovWorkspace,
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
     temp_mn_vec1::AbstractVector{Float64},
     temp_mn_vec2::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64};
-    char_norm_func::Union{Function, Nothing} = nothing,)
-
-    # TODO sort this fixed-point residual norm checking out
-    res_norm_func = char_norm_func === nothing ? norm : char_norm_func
-
-    # compute fixed-point residual at standard next iterate
-    onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from current_xy
-    onecol_method_operator!(ws, temp_mn_vec1, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec) # iterate from temp_mn_vec1, which follows from current_xy
-
-    # this computes fixed point residual OF THE standard iterate from
-    # the current iterate
-    fp_res_standard = res_norm_func(temp_mn_vec2 - temp_mn_vec1)
-
-    # now compute fixed-point residual at accelerated iterate
-    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
-    fp_res_accel = res_norm_func(temp_mn_vec1 - accelerated_xy)
-
-    # accept candidate if it reduces fixed-point residual
-    # println("Accel FP residual over standard FP residual: $(fp_res_accel / fp_res_standard)")
+    temp_m_vec::AbstractVector{Float64})
     
-    return fp_res_accel < fp_res_standard
+    fp_metric_vanilla = 0.0
+    fp_metric_acc = 0.0
+
+    # store FOM(current_xy) in temp_mn_vec1
+    onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
+
+    # (temporarily) store FOM(current_xy) --- vanilla iterate --- in xy_recycled
+    # this is overwritten later in this function if the acceleration
+    # is successful, namely with xy_recycled .= FOM(accelerated_xy)
+    ws.vars.xy_recycled .= temp_mn_vec1
+    ws.vars.xy_prev .= current_xy
+
+    # store fixed-point residual of current_xy in temp_mn_vec2
+    temp_mn_vec2 .= temp_mn_vec1 - current_xy
+
+    # store M1 * FOM_x(current x) in temp_n_vec1
+    @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+
+    # increment fp_metric_vanilla with < M1 * fp_res_x(current x), fp_res_x(current x) >
+    @views fp_metric_vanilla += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
+    # increment fp_metric_vanilla with < M2 * fp_res_y(current y), fp_res_y(current y) >
+    @views fp_metric_vanilla += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
+    # increment fp_metric_vanilla with 2 < A fp_res_x(current x), fp_res_y(current y) >
+    @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
+    @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+    
+    # fp_metric_vanilla is fully computed by now
+    # now we move on to fp_metric_acc
+    # all temporary/working vectors can be used cleanly again by now
+
+    # store FOM(accelerated_xy) in temp_mn_vec1
+    # NOTE: we must keep temp_mn_vec1 intact from now until we decide whether
+    # or not to overwrite ws.vars.xy_recycled with FOM(accelerated_xy)
+    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
+
+    # store fixed-point residual of accelerated_xy in temp_mn_vec2
+    temp_mn_vec2 .= temp_mn_vec1 - accelerated_xy
+
+    # store M1 * FOM_x(current_x) in temp_n_vec1
+    @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+
+    # increment fp_metric_acc with < M1 * fp_res_x(accelerated x), fp_res_x(accelerated x) >
+    @views fp_metric_acc += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
+    # increment fp_metric_acc with < M2 * fp_res_y(accelerated y), fp_res_y(accelerated y) >
+    @views fp_metric_acc += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
+    # increment fp_metric_acc with 2 < A fp_res_x(accelerated x), fp_res_y(accelerated y) >
+    @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
+    @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+
+    # fp_metric_acc is also fully computed by now
+
+    # report success/failure of Krylov acceleration attempt
+    acceleration_success = fp_metric_acc < fp_metric_vanilla
+
+    # if acceleration was a success, ws.vars.xy_recycled takes FOM(accelerated_xy)
+    # else, we leave it as it was assigned to above in this function, namely
+    # ws.vars.xy_recycled == FOM(current_xy)
+    if acceleration_success
+        ws.vars.xy_recycled .= temp_mn_vec1
+        ws.vars.xy_prev .= accelerated_xy
+    end
+
+    return acceleration_success
 end
 
-"""
-When solver is run with (prototype) adaptive restart mechanism, this function 
-determines whether it is time for a restart or not, based on the cumulative
-angle data for each iterate sequence.
-"""
 function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     cumsum_angles::Float64...)
     if restart_period == Inf
@@ -371,7 +425,6 @@ function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
             temp_n_vec_complex1 = zeros(ComplexF64, ws.p.n),
             temp_n_vec_complex2 = zeros(ComplexF64, ws.p.n),
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-            prev_xy = zeros(Float64, ws.p.n + ws.p.m),
             accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
         )
     elseif acceleration == :none || acceleration == :anderson
@@ -386,7 +439,6 @@ function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
             temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
             temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-            prev_xy = zeros(Float64, ws.p.n + ws.p.m),
         )
     end
 end
@@ -486,13 +538,12 @@ function optimise!(ws::AbstractWorkspace,
     end
     
     # init acceleration trigger flag
-    just_accelerated = true
+    just_tried_acceleration = false
     # set restart counter
     j_restart = 0
 
     # pre-allocate vectors for intermediate results in in-place computations
     scratch = preallocate_scratch(ws, args["acceleration"]) # scratch is a named tuple
-    prev_xy = zeros(Float64, ws.p.n + ws.p.m)
     curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
     prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
 
@@ -555,16 +606,18 @@ function optimise!(ws::AbstractWorkspace,
         # krylov setup
         if args["acceleration"] == :krylov
             # copy older iterate
-            @views prev_xy .= ws.vars.xy_q[:, 1]
+            # if we have just tried krylov acceleration, this notion is handled
+            # differently and efficiently from within krylov_accel_check!
+            if !just_tried_acceleration
+                @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
+            end
             
             # acceleration attempt step
             if ws.k[] % (ws.mem + 1) == 0 && ws.k[] > 0
                 custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 # TODO: sort out norm to use in fixed-point residual safeguard
-                # step --- this is superfluous kwarg to accept_acc_candidate
-                # at the moment
-                @views if accept_acc_candidate(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, char_norm_func=char_norm_func)
+                @views if krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
@@ -591,41 +644,44 @@ function optimise!(ws::AbstractWorkspace,
                 ws.krylov_basis .= 0.0
                 ws.H .= 0.0
 
-                just_accelerated = true
+                just_tried_acceleration = true
             # standard step in the krylov setup (two columns)
             else
                 # increment effective iter counter (ie excluding unsuccessful acc attempts)
                 ws.k_eff[] += 1
                 
-                # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-                twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
+                # if we just had an accel attempt, we recycle work carried out
+                # during the acceleration acceptance criterion check
+                # we also reinit the Krylov orthogonal basis 
+                if ws.k[] == 0 # special case in initial iteration
+                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+                    @views ws.vars.xy_q[:, 1] .= scratch.temp_mn_vec1
 
+                    init_krylov_basis!(ws)
+                elseif just_tried_acceleration
+                    # recycle working (x, y) iterate
+                    ws.vars.xy_q[:, 1] .= ws.vars.xy_recycled
+                    
+                    init_krylov_basis!(ws)
+                else # the usual case
+                    # apply method operator (to both (x, y) and Arnoldi (q) vectors)
+                    twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
 
-                # record iteration data
-                if !args["run-fast"]
-                    @views curr_xy_update .= ws.vars.xy_q[:, 1] - prev_xy
-                    push!(record.xy_step_norms, norm(curr_xy_update))
-                    push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
-                    insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
-                end
-
-                if just_accelerated
-                    # assign initial vector in the Krylov basis as initial
-                    # fixed-point residual
-                    @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] - prev_xy
-                    # normalise
-                    @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
-                    # store in Krylov basis
-                    @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
-                else
                     # Arnoldi "step", orthogonalises the incoming basis vector
                     # and updates the Hessenberg matrix appropriately, all in-place
                     @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H)
                 end
 
-                # reset krylov acceleration flag
-                just_accelerated = false
+                # record iteration data if requested
+                if !args["run-fast"]
+                    @views curr_xy_update .= ws.vars.xy_q[:, 1] - ws.vars.xy_prev
+                    push!(record.xy_step_norms, norm(curr_xy_update))
+                    push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
+                    insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
+                end
 
+                # reset krylov acceleration flag
+                just_tried_acceleration = false
                 j_restart += 1
             end
         else # NOT krylov set-up, so working variable is one-column
@@ -636,7 +692,7 @@ function optimise!(ws::AbstractWorkspace,
 
                 # attempt acceleration step. if successful, this
                 # overwites ws.vars.xy
-                COSMOAccelerators.accelerate!(ws.vars.xy, prev_xy, ws.accelerator, ws.k_vanilla[])
+                COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, ws.k_vanilla[])
 
                 if !args["run-fast"]
                     # record step (might be zero if acceleration failed)
@@ -661,7 +717,7 @@ function optimise!(ws::AbstractWorkspace,
             
             else # standard onecol iteration
                 # copy older iterate before iterating
-                prev_xy .= ws.vars.xy
+                ws.vars.xy_prev .= ws.vars.xy
 
                 onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
 
