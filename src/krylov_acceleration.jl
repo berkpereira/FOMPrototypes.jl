@@ -14,6 +14,16 @@ function update_proj_flags!(proj_flags::BitVector,
     proj_flags .= (preproj_y .== postproj_y)
 end
 
+# helper to form and store the first Krylov basis vector
+function init_krylov_basis!(ws::KrylovWorkspace)
+    # form fixed‐point residual in slot 2
+    @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] .- ws.vars.xy_prev
+    # normalise
+    @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+    # store in krylov_basis[:,1]
+    @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
+end
+
 """
 This function implements a mat-mat free specification of the application of
 tilde_A to a vector, at some iteration.
