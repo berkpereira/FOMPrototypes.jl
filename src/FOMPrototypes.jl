@@ -133,12 +133,17 @@ function parse_command_line()
         arg_type = Symbol
         default = :none
 
+        "--rel-kkt-tol"
+        help = "Relative KKT tolerance for stopping criterion."
+        arg_type = Float64
+        default = 1e-6
+
         "--run-fast"
         help = "Run fast mode (no plotting, less data recording during run)."
         arg_type = Bool
-        default = false
+        default = true
 
-        "--residuals-relative"
+        "--print-res-rel"
         help = "Use relative metrics when printing iter info."
         arg_type = Bool
         default = true
@@ -147,6 +152,16 @@ function parse_command_line()
         help = "Show relevant vertical dashed lines in plots."
         arg_type = Bool
         default = false
+
+        "--global-timeout"
+        help = "Global timeout for the solver (in seconds)."
+        arg_type = Float64
+        default = 60.0
+
+        "--loop-timeout"
+        help = "Timeout for iterative loop (in seconds)."
+        arg_type = Float64
+        default = 30.0
 
         ### ignoring these at the moment... ###
 
@@ -246,7 +261,7 @@ function solve_reference(problem::ProblemData,
     elseif reference_solver == :Clarabel
         println("RUNNING CLARABEL...")
         model = Model(Clarabel.Optimizer)
-        set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
+        # set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
     else
         error("Invalid reference solver option. Choose between :SCS and :Clarabel.")
     end
@@ -309,7 +324,7 @@ function run_prototype(problem::ProblemData,
         end
 
         println("RUNNING PROTOTYPE VARIANT $(args["variant"])...")
-        println("Problem set/name: $(problem_name)/$(problem_name)")
+        println("Problem set/name: $(problem_set)/$(problem_name)")
         println("Acceleration: $(args["acceleration"])")
         if args["acceleration"] in [:krylov, :anderson]
             println("Acceleration memory: $(args["accel-memory"])")
