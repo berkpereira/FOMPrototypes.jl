@@ -180,7 +180,7 @@ function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T})
     k = size(H, 2)  # Number of columns in H
 
     # Givens rotation application to reduce H to upper triangular form
-    for i in 1:k
+    @inbounds for i in 1:k
         # Generate Givens rotation for element (i, i) and (i+1, i)
         # givensAlgorithm generates a plane rotation so that
         # [  c  s  ]  .  [ f ]  =  [ r ]
@@ -189,7 +189,7 @@ function krylov_least_squares!(H::AbstractMatrix{T}, rhs_res::AbstractVector{T})
         c, s, r = givensAlgorithm(H[i, i], H[i+1, i])
 
         # Apply Givens rotation to the jth and (i+1)th rows of H
-        for j in i:k
+        @inbounds for j in i:k
             temp = c * H[i, j] + s * H[i+1, j]
             H[i+1, j] = -s * H[i, j] + c * H[i+1, j]
             H[i, j] = temp
