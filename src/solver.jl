@@ -474,7 +474,7 @@ function optimise!(ws::AbstractWorkspace,
     spectrum_plot_period::Int = 17,) where T
 
     # create views into x and y variables, along with "Arnoldi vector" q
-    if ws.vars isa Variables
+    if ws.vars isa TwocolVariables
         @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
         @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
         @views view_q = ws.vars.xy_q[:, 2]

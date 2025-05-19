@@ -62,7 +62,7 @@ function solve_spectral_radius_sdp(S::AbstractMatrix{Float64}, max_τ::Float64;
     end
     # set_silent(model)
 
-    # Variables
+    # TwocolVariables
     @variable(model, λ)  # Objective variable
     @variable(model, d[1:n])  # Diagonal entries of D
 
