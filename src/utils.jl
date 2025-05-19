@@ -78,6 +78,24 @@ function off_diag_part(A::AbstractMatrix{Float64})
 end
 
 """
+This function efficiently computes R(P) * x, where R(P) denotes the matrix
+obtained from P by setting the diagonal to zero. Done in place.
+Assumes ws has a field dP storing diag(P), and ws.p.P storing Hessian P.
+"""
+function mul_P_nodiag!(in_vec::AbstractVector{Float64},
+    out_vec::AbstractVector{Float64},
+    ws::AbstractWorkspace,)
+    # compute P * x
+    mul!(out_vec, ws.p.P, in_vec)
+
+    # subtract ws.dP * x
+    @inbounds for i in eachindex(out_vec)
+        out_vec[i] -= ws.dP[i] * in_vec[i]
+    end
+    return nothing
+end
+
+"""
     build_takeaway_op(variant, P, A, A_gram, ρ)
 
 Constructs a LinearMap for one of the following operators (assuming P is n×n):
@@ -101,21 +119,25 @@ function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
     
-    # Precompute diagonals:
-    dP = diag(P)
-    # For A^T*A, the diagonal is the sum of squares of each column of A.
-    dA = ρ * vec(sum(abs2, A; dims=1))
-    
     op = nothing  # will hold our operator function
     
+    # TODO use mul_P_nodiag! wherever applicable here, instead of the 
+    # current R(P) * x operation implementation. Will require temp/working
+    # vectors
+
     if variant == :PDHG
         # PDHG operator
         op = x -> ρ * (A_gram * x)
     elseif variant == Symbol(1)
         # R(P + ρ AᵀA) = (P + ρ AᵀA) - diag(P + ρ AᵀA)
+        
+        # precompute diagonals
+        dP = Vector(diag(P))
+        dA = vec(sum(abs2, A; dims=1))
+        
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
-            y .-= (dP + dA) .* x
+            y .-= (dP + ρ * dA) .* x
             y
         end
     elseif variant == Symbol(2)
@@ -124,13 +146,22 @@ function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
         op = x -> P * x + ρ * (A_gram * x)
     elseif variant == Symbol(3)
         # P + R(ρ AᵀA) = P + [ρ AᵀA - diag(ρ AᵀA)]
+
+        # precompute diagonals
+        dP = Vector(diag(P))
+        dA = vec(sum(abs2, A; dims=1))
+
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
-            y .-= dA .* x
+            y .-= ρ * (dA .* x)
             y
         end
     elseif variant == Symbol(4)
         # R(P) + ρ AᵀA = [P - diag(P)] + ρ AᵀA
+
+        # precompute diagonals
+        dP = Vector(diag(P))
+
         op = x -> begin
             y = P * x + ρ * (A_gram * x)
             y .-= dP .* x
@@ -142,6 +173,65 @@ function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
     
     # In our use cases the resulting operator is symmetric.
     return LinearMap(op, n, n; issymmetric=true, ishermitian=true)
+end
+
+"""
+This function computes M1 matrix-vector products efficiently and in place.
+"""
+function M1_op!(x::AbstractVector{Float64}, ws::KrylovWorkspace,
+    variant::Symbol,
+    A_gram::LinearMap{Float64},
+    temp_n_vec1::Vector{Float64}, temp_n_vec2::Vector{Float64})
+
+    if variant == :PDHG # M1 = 1/τ * I
+        x ./= ws.τ
+    elseif variant == :ADMM # M1 = ρ * A' * A
+        x .*= A_gram
+        x .*= ws.ρ
+    elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
+        temp_n_vec1 .= x
+        temp_n_vec2 .= x
+        
+        temp_n_vec1 ./= ws.τ
+        x .*= ws.ρ * ws.dA
+        x .+= temp_n_vec1 # now stores (1/τ * I + ρ * D(A' * A)) * x
+        
+        temp_n_vec1 .*= ws.τ # recover original input vector again
+        mul_P_nodiag!(temp_n_vec1, temp_n_vec2, ws) # temp_n_vec2 = R(P) * original input
+        x .+= temp_n_vec2
+    elseif variant == Symbol(2) # M1 = 1/τ * I - P
+        temp_n_vec1 .= x
+        temp_n_vec1 ./= ws.τ
+        x .*= ws.p.P
+        x .*= -1.0
+        x .+= temp_n_vec1
+    elseif variant == Symbol(3) # M1 = 1/τ * I - P + ρ * D(A' * A)
+        temp_n_vec1 .= x
+        temp_n_vec2 .= x
+
+        temp_n_vec1 ./= ws.τ
+        temp_n_vec2 .*= ws.ρ * ws.dA
+
+        x .*= ws.p.P
+        x .*= -1.0
+
+        x .+= temp_n_vec1
+        x .+= temp_n_vec2
+    elseif variant == Symbol(4) # M1 = 1/τ * I - R(P)
+        temp_n_vec1 .= x
+        temp_n_vec2 .= x
+
+        temp_n_vec1 ./= ws.τ
+        
+        mul_P_nodiag!(temp_n_vec2, x, ws)
+        x .*= -1.0
+
+        x .+= temp_n_vec1
+    else
+        error("Variant not applicable: choose PDHG, ADMM, 1, 2, 3, or 4.")
+    end
+
+    return nothing
 end
 
 
@@ -204,17 +294,17 @@ function W_operator(variant::Symbol, P::Symmetric, A::AbstractMatrix, A_gram::Li
     ################ DIAGONAL pre-gradient operators ################
 
     elseif variant == Symbol(1)
-        dP = diag(P)
-        dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
-        pre_operator = Diagonal(sparse(ones(n)) / τ + dP + dA)
+        dP = Vector(diag(P))
+        dA = vec(sum(abs2, A; dims=1))
+        pre_operator = Diagonal(ones(n) / τ + dP + ρ * dA)
     elseif variant == Symbol(2)
-        pre_operator = Diagonal(sparse(ones(n)) / τ)
+        pre_operator = Diagonal(ones(n) / τ)
     elseif variant == Symbol(3)
-        dA = ρ * vec(sum(abs2, A; dims=1)) # note inclusion of ρ factor
-        pre_operator = Diagonal(sparse(ones(n)) / τ + dA)
+        dA = vec(sum(abs2, A; dims=1))
+        pre_operator = Diagonal(ones(n) / τ + ρ * dA)
     elseif variant == Symbol(4)
-        dP = diag(P)
-        pre_operator = Diagonal(sparse(ones(n)) / τ + dP)
+        dP = Vector(diag(P))
+        pre_operator = Diagonal(ones(n) / τ + dP)
     else
         error("Invalid variant: $variant.")
     end

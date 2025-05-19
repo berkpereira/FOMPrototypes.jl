@@ -42,7 +42,7 @@ ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
 
 abstract type AbstractVariables{T<:AbstractFloat} end
 
-struct Variables{T <: AbstractFloat} <: AbstractVariables{T}
+struct TwocolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     # Consolidated (x, y) vector and q vector (for Krylov basis building).
     # (x, y) is exactly as it sounds. q is for building a basis with an
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
@@ -53,12 +53,17 @@ struct Variables{T <: AbstractFloat} <: AbstractVariables{T}
     preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
     y_qm_bar::Matrix{T} # Extrapolated primal variable
 
+    # recycled iterate --- to recycle work done when computing fixed-point
+    # residuals for acceleration acceptance criteria, then assigned
+    # to the working optimisation variable xy_q[:, 1] in the next iteration
+    xy_recycled::Vector{T}
+
     # default (zeros) initialisation of variables
-    function Variables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m, 2), zeros(m), zeros(m, 2))
+    function TwocolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m))
     end
 end
-Variables(args...) = Variables{DefaultFloat}(args...)
+TwocolVariables(args...) = TwocolVariables{DefaultFloat}(args...)
 
 struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy::Vector{T}
@@ -157,7 +162,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
         
-        @timeit to "W operator" begin
+        @timeit to "W op prep" begin
             W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         end
 
@@ -184,11 +189,11 @@ end
 NoneWorkspace(args...; kwargs...) = NoneWorkspace{DefaultFloat}(args...; kwargs...)
 
 # workspace type for when Krylov acceleration is used
-struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
+struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     p::ProblemData{T}
-    vars::Variables{T}
+    vars::TwocolVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
@@ -198,6 +203,10 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
     ρ::T
     θ::T
     proj_flags::AbstractVector{Bool}
+
+    # precomputed diagonals
+    dP::Vector{T} # diagonal of P
+    dA::Vector{T} # diagonal of A' * A
 
     # additional Krylov-related fields
     mem::Int # memory for Krylov acceleration
@@ -210,7 +219,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
 
     # constructor where initial iterates are not passed (default set to zero)
     function KrylovWorkspace{T}(p::ProblemData{T},
-        vars::Union{Variables{T}, Nothing},
+        vars::Union{TwocolVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
@@ -222,18 +231,24 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, Variables{T}}
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
-            vars = Variables(m, n)
+            vars = TwocolVariables(m, n)
         end
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
 
-        @timeit to "W operator" begin
+        @timeit to "dP prep" begin
+            dP = Vector(diag(p.P))
+        end
+        @timeit to "dA prep" begin
+            dA = vec(sum(abs2, A; dims=1))
+        end
+        @timeit to "W op prep" begin
             W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         end
 
         W_inv = prepare_inv(W, to)
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), dP, dA)
     end
 end
 
@@ -246,7 +261,7 @@ function KrylovWorkspace(
     θ::T,
     mem::Int,
     krylov_operator::Symbol;
-    vars::Union{Variables{T}, Nothing} = nothing,
+    vars::Union{TwocolVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
@@ -296,7 +311,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
 
-        @timeit to "W operator" begin
+        @timeit to "W op prep" begin
             W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         end
         
