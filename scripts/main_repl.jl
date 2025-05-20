@@ -5,21 +5,23 @@ config = Dict(
     "ref-solver"   => :Clarabel,
     "variant"      => :PDHG, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
     "problem-set"  => "sslsq",
-    "problem-name" => "HB_abb313_lasso", # with PDHG, Krylov accelerated gets stuck even though unaccelerated works well...?
-    # "problem-name" => "NYPA_Maragal_7_huber",
+    # "problem-name" => "HB_abb313_lasso", # with PDHG, Krylov accelerated gets stuck even though unaccelerated works well...?
+    "problem-name" => "HB_ash219_lasso", # well with old Krylov
+    # "problem-name" => "NYPA_Maragal_1_lasso",
     
     "res-norm"     => Inf,
-    "max-iter"     => 50000,
+    "max-iter"     => 998,
     "rel-kkt-tol"  => 1e-12,
     
-    "acceleration"    => :none,
-    "accel-memory"    => 50,
-    "krylov-operator" => :tilde_A,
+    "acceleration"       => :krylov,
+    "accel-memory"       => 29,
+    "acc-attempt-period" => 30,
+
+    "krylov-operator"    => :tilde_A,
     
     "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
-    "anderson-period"       => 2,
 
     "rho"   => 1.0,
     "theta" => 1.0,
