@@ -68,11 +68,27 @@ function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
     end
 end
 
+
 """
-This implementation of the accelerated point computation relies on our custom
-implementations of the Arnoldi and Krylov procedures.
+Compute the Krylov accelerant candidate, write to result_vec.
+
+This function performs an accelerated update of the candidate solution vector by:
+    1. Evaluating the operator on an initial column vector from the workspace.
+    2. Computing the residual in the Krylov subspace from the difference between the evaluated result and the reference vector.
+    3. Solving a least squares problem based on a (possibly shifted) Hessenberg matrix derived from the workspace.
+    4. Constructing a full-dimensional approximate solution using the Krylov basis, and re-applying the operator it to obtain the acceleration candidate.
+
+# Parameters besides working vectors
+- ws::KrylovWorkspace: 
+        The workspace containing the Krylov subspace information, including the Hessenberg matrix, 
+        Krylov basis, and other variables required for the computation.
+- result_vec::Vector{Float64}: 
+        Vector where the computed accelerated candidate solution will be stored.
+
+# Returns
+- Nothing. The function updates `result_vec` with the computed acceleration candidate.
 """
-function custom_acceleration_candidate!(ws::KrylovWorkspace,
+function compute_krylov_accelerant!(ws::KrylovWorkspace,
     result_vec::Vector{Float64},
     temp_n_vec1::Vector{Float64},
     temp_n_vec2::Vector{Float64},
@@ -81,23 +97,34 @@ function custom_acceleration_candidate!(ws::KrylovWorkspace,
     # TODO pre-allocate working vectors in this function when acceleration
     # is used
 
-    # compute iterate from xy_q[:, 1], and store it in result_vec
+    # TODO slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
+
+
+    # compute FOM(xy_q[:, 1]) and store it in result_vec
     @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
-    rhs_res_custom = ws.krylov_basis' * (result_vec - ws.vars.xy_q[:, 1])
+    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.xy_q[:, 1])
+    
+    # ws.H is passed as triangular, so we now need to apply the
+    # Givens rotations to Q_{krylov + 1}^T * residual
+    # and solve the appropriate triangular system to obtain the LLS solution
     
     # compute Hessenber LLS solution, reduced dimension y
-    if ws.krylov_operator == :tilde_A
-        shifted_hessenberg = ws.H - [I(ws.mem - 1); zeros(1, ws.mem - 1)]
-        
-        y_krylov_sol = krylov_least_squares!(shifted_hessenberg, rhs_res_custom)
-    else # ie use B := tilde_A - I as the Arnoldi/Krylov operator.
-        y_krylov_sol = krylov_least_squares!(ws.H, rhs_res_custom)
-    end
+    # the difference between ws.krylov_operator == tilde_A
+    # and ws.krylov_operator == :B is accounted for in the ws.H matrix
+    # itself, which in the former case is shifted by -I at every step of the
+    # way leading up to here (see Obsidian 2024/wee51 notes)
+    y_krylov_sol = solve_current_least_squares!(
+        ws.H,
+        ws.givens_rotations,
+        ws.givens_count,
+        rhs_res_custom
+        )
 
     # compute full-dimension LLS solution
-    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:end-1] * y_krylov_sol
+    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * y_krylov_sol
 
-    # obtain actual acceleration candidate, write it to result_vec
+    # obtain actual acceleration candidate by applying FOM to
+    # this, and write candidate to result_vec
     onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
     return nothing

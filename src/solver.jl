@@ -613,15 +613,15 @@ function optimise!(ws::AbstractWorkspace,
             end
             
             # acceleration attempt step
-            if ws.k[] % (ws.mem + 1) == 0 && ws.k[] > 0
-                custom_acceleration_candidate!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+            if (ws.k[] + 1) % ws.attempt_period == 0
+                compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 # TODO: sort out norm to use in fixed-point residual safeguard
                 @views if krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
-                    # println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
+                    println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -640,9 +640,13 @@ function optimise!(ws::AbstractWorkspace,
                     push!(record.xy_step_char_norms, NaN)
                 end
 
-                # reset krylov acceleration data at each attempt regardless of success
-                ws.krylov_basis .= 0.0
-                ws.H .= 0.0
+                # reset krylov acceleration data when memory is fully
+                # populated, regardless of success/failure
+                if (ws.k[] + 1) % (ws.mem + 1) == 0
+                    ws.krylov_basis .= 0.0
+                    ws.H .= 0.0
+                    ws.givens_count[] = 0
+                end
 
                 just_tried_acceleration = true
             # standard step in the krylov setup (two columns)
@@ -657,19 +661,40 @@ function optimise!(ws::AbstractWorkspace,
                     @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
                     @views ws.vars.xy_q[:, 1] .= scratch.temp_mn_vec1
 
-                    init_krylov_basis!(ws)
+                    # fills in first column of ws.krylov_basis
+                    init_krylov_basis!(ws) # ws.H is zeros at this point still
                 elseif just_tried_acceleration
                     # recycle working (x, y) iterate
                     ws.vars.xy_q[:, 1] .= ws.vars.xy_recycled
                     
-                    init_krylov_basis!(ws)
+                    # fills in first column of ws.krylov_basis
+                    init_krylov_basis!(ws) # ws.H is zeros at this point still
                 else # the usual case
                     # apply method operator (to both (x, y) and Arnoldi (q) vectors)
                     twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
 
                     # Arnoldi "step", orthogonalises the incoming basis vector
                     # and updates the Hessenberg matrix appropriately, all in-place
-                    @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H)
+                    @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
+
+                    # if ws.krylov_operator == :tilde_A, the QR factorisation
+                    # we require for the Krylov LLS subproblem is that of
+                    # the Hessenberg matrix MINUS an identity matrix,
+                    # so we must apply this immediately
+                    if ws.krylov_operator == :tilde_A
+                        ws.H[ws.givens_count[]+1, ws.givens_count[]+1] -= 1.0
+                    end
+                    
+                    # apply previously existing Givens rotations to the brand new column
+                    # in H. if H has a single column here, then
+                    # ws.givens_count[] == 0 and this does nothing
+                    apply_existing_rotations_new_col!(ws.H, ws.givens_rotations, ws.givens_count)
+
+                    # generate new Givens rotation, store it in
+                    # ws.givens_rotations, and apply it in-place to the new
+                    # column of H
+                    # also increment ws.givens_count by 1
+                    generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
                 end
 
                 # record iteration data if requested

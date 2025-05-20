@@ -120,17 +120,31 @@ Assumptions:
 """
 function arnoldi_step!(V::AbstractMatrix{T},
     v_new::AbstractVector{T},
-    H::AbstractMatrix{T}) where T <: AbstractFloat
+    H::AbstractMatrix{T},
+    rot_count::Base.Ref{Int}) where T <: AbstractFloat
     # Determine the current column of interest.
-    k = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
-    if isnothing(k)
-        k = size(V, 2) - 1
-    else
-        k -= 1
-    end
+    k = rot_count[] + 1
+
+    # println()
+    # println("k is ", k)
+    # println("Size of V: ", size(V))
+    # println("Size of H: ", size(H))
+
+    # first_zero_col = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
+    # if first_zero_col === nothing
+    #     throw(ArgumentError("No zero column found in V."))
+    # end
+    # println("First zero column of V: ", first_zero_col)
+
+    # k = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
+    # if isnothing(k)
+    #     k = size(V, 2) - 1
+    # else
+    #     k -= 1
+    # end
 
     # Loop through previous basis vectors to orthogonalise v_new    
-    for j in 1:k
+    @inbounds for j in 1:k
         @views Hjk = dot(V[:, j], v_new)
         H[j, k] = Hjk
         
@@ -161,6 +175,91 @@ function arnoldi_step!(V::AbstractMatrix{T},
     V[:, k + 1] .= v_new
 
     return nothing
+end
+
+"""
+    apply_existing_rotations_new_col!(H, Gs, rot_count, col)
+
+Apply the first `rot_count` Givens rotations in `Gs` to column `col` of `H`.
+"""
+function apply_existing_rotations_new_col!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}) where T
+    # TODO consider iterator here to avoid pointer arithmetic at every
+    # iteration?
+    col = rot_count[] + 1
+    @inbounds for i in 1:col-1
+        G = Gs[i]
+        # apply rotation to rows i, i+1 of column rot_count[]
+        tmp =  G.c * H[i, col] + G.s * H[i+1, col]
+        H[i+1, col] = -G.s * H[i, col] + G.c * H[i+1, col]
+        H[i, col] = tmp
+    end
+end
+
+"""
+    generate_store_apply_rotation!(H, Gs, rot_count, col)
+
+Compute the Givens rotation that zeroes H[col+1, col], store it in Gs[rot_count+1],
+and apply it to rows (col, col+1) of H[:, col:end].
+Returns new rot_count = old rot_count + 1.
+"""
+function generate_store_apply_rotation!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}) where T
+    # compute rotation from H[col,col] and H[col+1,col]
+    col = rot_count[] + 1
+    c, s, r = givensAlgorithm(H[col, col], H[col+1, col])
+    Gs[col] = GivensRotation{T}(c, s) # store
+
+    # apply newest rotation to the NEW column only --- other rows/columns
+    # would lead to us operating on zeros
+    # NOTE that this requires us to carry out this rotation before we have
+    # populated with any new non-zero columns in the pre-allocated H matrix,
+    # ie do this EVERY ITERATION
+    @inbounds begin
+        tmp = c * H[col, col] + s * H[col+1, col]
+        H[col+1, col] = -s * H[col, col] + c * H[col+1, col]
+        H[col,   col] = tmp
+    end
+
+    # increment rotation counter after we have generated the new rotation
+    rot_count[] += 1
+    return nothing
+end
+
+"""
+    apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count)
+
+Re-apply the first `rot_count` Givens rotations to the vector `rhs_res`
+in place.
+
+rhs_res should be a vector of size rot_count[] + 1, to which the first
+rot_count[] rotations in Gs are applied.
+"""
+function apply_rotations_to_krylov_rhs!(rhs_res::AbstractVector{T}, Gs::Vector{GivensRotation{T}},
+    rot_count::Base.Ref{Int}) where T
+    @inbounds for i in 1:rot_count[]
+        G = Gs[i]
+        tmp =  G.c * rhs_res[i] + G.s * rhs_res[i+1]
+        rhs_res[i+1] = -G.s * rhs_res[i] + G.c * rhs_res[i+1]
+        rhs_res[i]   = tmp
+    end
+end
+
+"""
+    solve_current_least_squares(H, Gs, rot_count, rhs_res)
+
+Assumes H has been upper-triangularised in its first `rot_count` cols/rows.
+Returns the minimal-residual solution y of the k×k system
+    H[1:k,1:k] * y = -rhs_res[1:k].
+"""
+function solve_current_least_squares!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}, rhs_res::AbstractVector{T}) where T
+    # re-apply to a fresh copy of rhs if you need to keep the original
+    apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count)
+    
+    # TODO use my custom in-place triangular solve from custom_nla.jl here?
+    # or otherwise give some indication of the structure of H to the
+    # linear solver?
+    @views lls_sol = H[1:rot_count[], 1:rot_count[]] \ (-rhs_res[1:rot_count[]])
+    
+    return lls_sol
 end
 
 """

@@ -1,7 +1,6 @@
 using SparseArrays
 using BenchmarkTools
 using LinearAlgebra, LinearMaps
-import LinearAlgebra:givensAlgorithm
 using JuMP
 using Plots
 using TimerOutputs
