@@ -607,14 +607,19 @@ function optimise!(ws::AbstractWorkspace,
         if args["acceleration"] == :krylov
             # copy older iterate
             # if we have just tried krylov acceleration, this notion is handled
-            # differently and efficiently from within krylov_accel_check!
+            # differently and efficiently from within krylov_accel_check!,
+            # using recycled work from the fixed-point residual check in
+            # there
             if !just_tried_acceleration
                 @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
             end
             
             # acceleration attempt step
-            if (ws.k[] + 1) % ws.attempt_period == 0
+            if (ws.givens_count[] + 2) == ws.attempt_period
+
+                println("Givens count before computing accelerant: $(ws.givens_count[]).")
                 compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                println("Givens count after computing accelerant: $(ws.givens_count[]).")
 
                 # TODO: sort out norm to use in fixed-point residual safeguard
                 @views if krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
@@ -622,6 +627,8 @@ function optimise!(ws::AbstractWorkspace,
                     ws.k_eff[] += 1
                     
                     println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
+                    println("With current Givens (count+1) = $(ws.givens_count[] + 1).")
+                    println()
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -642,7 +649,8 @@ function optimise!(ws::AbstractWorkspace,
 
                 # reset krylov acceleration data when memory is fully
                 # populated, regardless of success/failure
-                if (ws.k[] + 1) % (ws.mem + 1) == 0
+                if ws.givens_count[] + 1 == ws.mem
+                    println("Here Givens count is $(ws.givens_count[]).")
                     ws.krylov_basis .= 0.0
                     ws.H .= 0.0
                     ws.givens_count[] = 0

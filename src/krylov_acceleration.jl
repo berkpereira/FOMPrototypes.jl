@@ -113,15 +113,15 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
     # and ws.krylov_operator == :B is accounted for in the ws.H matrix
     # itself, which in the former case is shifted by -I at every step of the
     # way leading up to here (see Obsidian 2024/wee51 notes)
-    y_krylov_sol = solve_current_least_squares!(
+    solve_current_least_squares!(
         ws.H,
         ws.givens_rotations,
         ws.givens_count,
-        rhs_res_custom
+        rhs_res_custom # NB solution overwrites rhs_res_custom
         )
 
     # compute full-dimension LLS solution
-    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * y_krylov_sol
+    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
 
     # obtain actual acceleration candidate by applying FOM to
     # this, and write candidate to result_vec

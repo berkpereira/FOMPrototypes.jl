@@ -244,22 +244,28 @@ function apply_rotations_to_krylov_rhs!(rhs_res::AbstractVector{T}, Gs::Vector{G
 end
 
 """
-    solve_current_least_squares(H, Gs, rot_count, rhs_res)
+    solve_current_least_squares!(H, Gs, rot_count, rhs_res)
 
 Assumes H has been upper-triangularised in its first `rot_count` cols/rows.
-Returns the minimal-residual solution y of the k×k system
-    H[1:k,1:k] * y = -rhs_res[1:k].
+Solves the kxk system
+    H[1:k,1:k] * y = -rhs_res[1:k]
+in place --- solution is written to rhs_res[1:k].
 """
 function solve_current_least_squares!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}, rhs_res::AbstractVector{T}) where T
-    # re-apply to a fresh copy of rhs if you need to keep the original
+    # apply the stored Givens rotations to the rhs_res vector
     apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count)
     
-    # TODO use my custom in-place triangular solve from custom_nla.jl here?
-    # or otherwise give some indication of the structure of H to the
-    # linear solver?
-    @views lls_sol = H[1:rot_count[], 1:rot_count[]] \ (-rhs_res[1:rot_count[]])
+    # use UpperTriangular wrapper to exploit triangular structure
+    # in ldiv!
+    R = UpperTriangular(@view H[1:rot_count[], 1:rot_count[]])
+    rhs_res[1:rot_count[]] .*= -1.0 # negate the rhs_res vector
+    @views ldiv!(R, rhs_res[1:rot_count[]])
     
-    return lls_sol
+    # naive solution code:
+    # @views lls_sol = H[1:rot_count[], 1:rot_count[]] \ (-rhs_res[1:rot_count[]])
+    # return lls_sol
+    
+    return nothing
 end
 
 """

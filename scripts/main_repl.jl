@@ -1,4 +1,4 @@
-using Revise
+# using Revise
 import FOMPrototypes
 
 config = Dict(
@@ -14,8 +14,8 @@ config = Dict(
     "rel-kkt-tol"  => 1e-12,
     
     "acceleration"       => :krylov,
-    "accel-memory"       => 29,
-    "acc-attempt-period" => 30,
+    "accel-memory"       => 49,
+    "acc-attempt-period" => 50,
 
     "krylov-operator"    => :tilde_A,
     
