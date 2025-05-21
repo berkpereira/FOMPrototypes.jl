@@ -539,6 +539,17 @@ function optimise!(ws::AbstractWorkspace,
     
     # init acceleration trigger flag
     just_tried_acceleration = false
+
+    # we use back_to_building_krylov_basis as follows
+    # as we build Krylov basis up, ws.givens_count is incremented
+    # when it gets to a given trigger point, we attempt acceleration and set
+    # just_tried_acceleration = true. after the following, recycling iteration, 
+    # the counter ws.givens_count will still be at the trigger point and
+    # just_tried_acceleration is false. however, we wish to keep builing
+    # the krylov basis --- NOT attempt acceleration again. to distinguish these
+    # cases we use back_to_building_krylov_basis
+    back_to_building_krylov_basis = true
+    
     # set restart counter
     j_restart = 0
 
@@ -615,20 +626,13 @@ function optimise!(ws::AbstractWorkspace,
             end
             
             # acceleration attempt step
-            if (ws.givens_count[] + 2) == ws.attempt_period
-
-                println("Givens count before computing accelerant: $(ws.givens_count[]).")
+            if ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis
                 compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
-                println("Givens count after computing accelerant: $(ws.givens_count[]).")
 
                 # TODO: sort out norm to use in fixed-point residual safeguard
                 @views if krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
-                    
-                    println("Accepted Krylov acceleration candidate at iteration $(ws.k[]).")
-                    println("With current Givens (count+1) = $(ws.givens_count[] + 1).")
-                    println()
                     
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
@@ -650,13 +654,13 @@ function optimise!(ws::AbstractWorkspace,
                 # reset krylov acceleration data when memory is fully
                 # populated, regardless of success/failure
                 if ws.givens_count[] + 1 == ws.mem
-                    println("Here Givens count is $(ws.givens_count[]).")
                     ws.krylov_basis .= 0.0
                     ws.H .= 0.0
                     ws.givens_count[] = 0
                 end
 
                 just_tried_acceleration = true
+                back_to_building_krylov_basis = true
             # standard step in the krylov setup (two columns)
             else
                 # increment effective iter counter (ie excluding unsuccessful acc attempts)
@@ -671,12 +675,16 @@ function optimise!(ws::AbstractWorkspace,
 
                     # fills in first column of ws.krylov_basis
                     init_krylov_basis!(ws) # ws.H is zeros at this point still
+                
                 elseif just_tried_acceleration
                     # recycle working (x, y) iterate
                     ws.vars.xy_q[:, 1] .= ws.vars.xy_recycled
                     
-                    # fills in first column of ws.krylov_basis
-                    init_krylov_basis!(ws) # ws.H is zeros at this point still
+                    # also re-initialise Krylov basis
+                    if ws.givens_count[] == 0 # just wiped Krylov basis clean
+                        # fills in first column of ws.krylov_basis
+                        init_krylov_basis!(ws) # ws.H is zeros at this point still
+                    end
                 else # the usual case
                     # apply method operator (to both (x, y) and Arnoldi (q) vectors)
                     twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
@@ -703,6 +711,11 @@ function optimise!(ws::AbstractWorkspace,
                     # column of H
                     # also increment ws.givens_count by 1
                     generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+
+                    # ws.givens_count has had "time" to be increment past
+                    # a trigger point, so we can relax this flag in order
+                    # to allow the next acceleration attempt when it comes up
+                    back_to_building_krylov_basis = false
                 end
 
                 # record iteration data if requested
@@ -734,7 +747,7 @@ function optimise!(ws::AbstractWorkspace,
                     # account for records as appropriate
                     if any(curr_xy_update .!= 0.0) # ie if acceleration was successful
                         ws.k_eff[] += 1
-                        # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                        println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1

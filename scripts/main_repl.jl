@@ -10,15 +10,16 @@ config = Dict(
     # "problem-name" => "NYPA_Maragal_1_lasso",
     
     "res-norm"     => Inf,
-    "max-iter"     => 998,
+    "max-iter"     => 1000,
     "rel-kkt-tol"  => 1e-12,
     
-    "acceleration"       => :krylov,
-    "accel-memory"       => 49,
-    "anderson-period" => 50,
+    "acceleration" => :krylov,
+    "accel-memory" => 50,
 
-    "krylov-operator"    => :tilde_A,
+    "krylov-tries-per-mem" => 3,
+    "krylov-operator"      => :tilde_A,
     
+    "anderson-period"       => 2,
     "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
@@ -30,7 +31,7 @@ config = Dict(
     "linesearch-period" => Inf,
     "linesearch-eps"    => 0.001,
 
-    "print-mod"          => 3000,
+    "print-mod"          => 50,
     "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
     "show-vlines"        => true,
     "run-fast"           => false,

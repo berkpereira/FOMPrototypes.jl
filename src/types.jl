@@ -232,7 +232,8 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
 
     # additional Krylov-related fields
     mem::Int # memory for Krylov acceleration
-    attempt_period::Int # how often to attempt acceleration
+    tries_per_mem::Int # number of tries per Krylov memory fill-up
+    trigger_givens_counts::Vector{Int} # trigger points for attempting Krylov acceleration
     krylov_operator::Symbol # either :tilde_A or :B
     H::Matrix{T} # Arnoldi Hessenberg matrix, size (mem+1, mem)
     krylov_basis::Matrix{T} # Krylov basis matrix, size (m + n, mem)
@@ -242,6 +243,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
     # NOTE that mem is (k+1) in the usual Arnoldi relation written
     # at the point of maximum memory usage as
     # A Q_k = Q_{k+1} \tilde{H}_k
+    # ie plainly the number of columns allocated for krylov basis vectors
 
     # constructor where initial iterates are not passed (default set to zero)
     function KrylovWorkspace{T}(p::ProblemData{T},
@@ -253,11 +255,13 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
         θ::T,
         to::Union{TimerOutput, Nothing},
         mem::Int,
-        attempt_period::Int,
+        tries_per_mem::Int,
         krylov_operator::Symbol) where {T <: AbstractFloat}
 
-        if (mem + 1) % attempt_period != 0
-            throw(ArgumentError("Krylov acceleration attempt period must be a divisor of mem + 1."))
+        # make vector of trigger_givens_counts
+        trigger_givens_counts = Vector{Int}(undef, tries_per_mem)
+        for i in eachindex(trigger_givens_counts)
+            trigger_givens_counts[i] = Int(floor(i * (mem - 1) / tries_per_mem))
         end
 
         if θ != 1.0
@@ -287,7 +291,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
 
         println(typeof(dP))
 
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, attempt_period, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0))
     end
 end
 
@@ -299,14 +303,14 @@ function KrylovWorkspace(
     ρ::T,
     θ::T,
     mem::Int,
-    attempt_period::Int,
+    tries_per_mem::Int,
     krylov_operator::Symbol;
     vars::Union{TwocolVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
     # delegate to the inner constructor
-    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, attempt_period, krylov_operator)
+    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, tries_per_mem, krylov_operator)
 end
 
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat}(args...; kwargs...)

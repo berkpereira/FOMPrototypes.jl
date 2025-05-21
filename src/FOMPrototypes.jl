@@ -334,7 +334,7 @@ function run_prototype(problem::ProblemData,
         @timeit to "init workspace" begin
             # initialise the workspace
             if args["acceleration"] == :krylov
-                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], args["krylov-operator"], A_gram = A_gram, to = to)
+                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["krylov-operator"], A_gram = A_gram, to = to)
             elseif args["acceleration"] == :anderson
                 ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], to = to)
             else
