@@ -15,7 +15,7 @@ config = Dict(
     
     "acceleration"       => :krylov,
     "accel-memory"       => 49,
-    "acc-attempt-period" => 50,
+    "anderson-period" => 50,
 
     "krylov-operator"    => :tilde_A,
     

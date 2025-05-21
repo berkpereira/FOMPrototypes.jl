@@ -14,7 +14,7 @@ config_admm_none = Dict(
     "acceleration"    => :none,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -40,7 +40,7 @@ config_admm_krylov = Dict(
     "acceleration"    => :krylov,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -66,7 +66,7 @@ config_admm_anderson = Dict(
     "acceleration"    => :anderson,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -92,7 +92,7 @@ config_1_none = Dict(
     "acceleration"    => :none,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -116,7 +116,7 @@ config_1_krylov = Dict(
     "acceleration"    => :krylov,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -140,7 +140,7 @@ config_1_anderson = Dict(
     "acceleration"    => :anderson,
     "accel-memory"    => 19,
     "krylov-operator" => :tilde_A,
-    "acc-attempt-period" => 10,
+    "anderson-period" => 10,
 
     "rho"   => 1.0,
     "theta" => 1.0,

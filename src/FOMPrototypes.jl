@@ -304,7 +304,7 @@ function run_prototype(problem::ProblemData,
     x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
 
     # simple args consistency check
-    if args["acc-attempt-period"] <= 1
+    if args["anderson-period"] <= 1
         error("Anderson period must be 2 or more.")
     end
 
@@ -334,9 +334,9 @@ function run_prototype(problem::ProblemData,
         @timeit to "init workspace" begin
             # initialise the workspace
             if args["acceleration"] == :krylov
-                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["acc-attempt-period"], args["krylov-operator"], A_gram = A_gram, to = to)
+                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], args["krylov-operator"], A_gram = A_gram, to = to)
             elseif args["acceleration"] == :anderson
-                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["acc-attempt-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], to = to)
+                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], to = to)
             else
                 ws = NoneWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram, to = to)
             end
@@ -378,7 +378,7 @@ function plot_results(results,
         title_common *= "Acceleration: none.$newline_char"
         krylov_operator_str = ""
     elseif args["acceleration"] == :anderson
-        title_common *= "Anderson acceleration: mem = $(args["accel-memory"]), period = $(args["acc-attempt-period"]),$newline_char broyden = $(args["anderson-broyden-type"]), mem_type = $(args["anderson-mem-type"]).$newline_char"
+        title_common *= "Anderson acceleration: mem = $(args["accel-memory"]), period = $(args["anderson-period"]),$newline_char broyden = $(args["anderson-broyden-type"]), mem_type = $(args["anderson-mem-type"]).$newline_char"
         krylov_operator_str = ""
     elseif args["acceleration"] == :krylov
         title_common *= "Krylov acceleration: mem = $(args["accel-memory"]), op = $(args["krylov-operator"]).$newline_char"
