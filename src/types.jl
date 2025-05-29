@@ -69,17 +69,30 @@ struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
 end
 KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
 
-struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
+struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
+    xy::Vector{T}
+    xy_prev::Vector{T}
+    xy_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
+    preproj_y::Vector{T} # of interest just for recording active set
+    # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
+    
+    function AndersonVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m))
+    end
+end
+AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
+
+struct NoneVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy::Vector{T}
     xy_prev::Vector{T}
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
-    function OnecolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+    function NoneVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
         new(zeros(n + m), zeros(n + m), zeros(m))
     end
 end
-OnecolVariables(args...) = OnecolVariables{DefaultFloat}(args...)
+NoneVariables(args...) = NoneVariables{DefaultFloat}(args...)
 
 # Type for storing residuals in the workspace
 mutable struct ProgressMetrics{T <: AbstractFloat}
@@ -136,10 +149,10 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
 abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
-struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
+struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, NoneVariables{T}}
     k::Base.RefValue{Int} # iter counter
     p::ProblemData{T}
-    vars::OnecolVariables{T}
+    vars::NoneVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
@@ -151,7 +164,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
     proj_flags::AbstractVector{Bool}
 
     function NoneWorkspace{T}(p::ProblemData{T},
-        vars::Union{OnecolVariables{T}, Nothing},
+        vars::Union{NoneVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
@@ -166,7 +179,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
-            vars = OnecolVariables(m, n)
+            vars = NoneVariables(m, n)
         end
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
@@ -188,7 +201,7 @@ function NoneWorkspace(
     τ::Union{T, Nothing},
     ρ::T,
     θ::T;
-    vars::Union{OnecolVariables{T}, Nothing} = nothing,
+    vars::Union{NoneVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
@@ -316,12 +329,13 @@ end
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat}(args...; kwargs...)
 
 # workspace type for when Anderson acceleration is used
-struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVariables{T}}
+struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul (Anderson) acceleration attempts
-    k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions
+    k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
+    composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     p::ProblemData{T}
-    vars::OnecolVariables{T}
+    vars::AndersonVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
@@ -334,12 +348,12 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
 
     # additional Anderson acceleration-related fields
     mem::Int # memory for Anderson accelerator
-    attempt_period::Int # how often to attempt Anderson acceleration
+    anderson_interval::Int # how often to attempt Anderson acceleration
     accelerator::AndersonAccelerator
 
     function AndersonWorkspace{T}(
         p::ProblemData{T},
-        vars::Union{OnecolVariables{T}, Nothing},
+        vars::Union{AndersonVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
@@ -347,12 +361,12 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         θ::T,
         to::Union{TimerOutput, Nothing},
         mem::Int,
-        attempt_period::Int,
+        anderson_interval::Int,
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
         regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer},
         anderson_log::Bool) where {T <: AbstractFloat}
-        attempt_period >= 2 || throw(ArgumentError("Anderson acceleration attempt period must be at least 2."))
+        anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
 
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
@@ -368,7 +382,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         W_inv = prepare_inv(W, to)
 
         if vars === nothing
-            vars = OnecolVariables(m, n)
+            vars = AndersonVariables(m, n)
         end
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
@@ -379,7 +393,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T}(Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
+        new{T}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, anderson_interval, aa)
     end
 
 end
@@ -393,8 +407,8 @@ function AndersonWorkspace(
     ρ::T,
     θ::T,
     mem::Int,
-    attempt_period::Int;
-    vars::Union{OnecolVariables{T}, Nothing} = nothing,
+    anderson_interval::Int;
+    vars::Union{AndersonVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     broyden_type::Symbol = :normal2,
     memory_type::Symbol = :rolling,
@@ -431,7 +445,7 @@ function AndersonWorkspace(
     end
     
     # delegate to the inner constructor
-    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, attempt_period, broyden_type, memory_type, regulariser_type, anderson_log)
+    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, broyden_type, memory_type, regulariser_type, anderson_log)
 end
 
 

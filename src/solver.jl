@@ -428,7 +428,7 @@ function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
             accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
         )
-    elseif acceleration == :none || acceleration == :anderson
+    elseif acceleration == :anderson || acceleration == :none
         return (
             temp_n_mat1 = zeros(Float64, ws.p.n, 2),
             temp_n_mat2 = zeros(Float64, ws.p.n, 2),
@@ -567,7 +567,7 @@ function optimise!(ws::AbstractWorkspace,
         @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
         @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
         @views view_q = ws.vars.xy_q[:, 2]
-    elseif ws.vars isa OnecolVariables
+    elseif ws.vars isa NoneVariables || ws.vars isa AndersonVariables
         @views view_x = ws.vars.xy[1:ws.p.n]
         @views view_y = ws.vars.xy[ws.p.n+1:end]
     else
@@ -748,7 +748,7 @@ function optimise!(ws::AbstractWorkspace,
             end
         else # NOT krylov set-up, so working variable is one-column
             # Anderson acceleration attempt
-            if args["acceleration"] == :anderson && ws.k[] % ws.attempt_period == 0 && ws.k[] > 0
+            if args["acceleration"] == :anderson && ws.composition_counter[] == args["anderson-interval"]
                 # ws.vars.xy might be overwritten, so we take note of it here
                 # this is for the sole purpose of checking the length of the
                 # step just below in this code branch
@@ -757,6 +757,8 @@ function optimise!(ws::AbstractWorkspace,
                 # attempt acceleration step. if successful (ie no numerical
                 # problems), this overwites ws.vars.xy
                 @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, 0)
+                ws.vars.xy_into_accelerator .= ws.vars.xy # this is T^0(ws.vars.xy)
+                ws.composition_counter[] = 0
 
                 if ws.accelerator.success
                     ws.k_eff[] += 1
@@ -793,8 +795,13 @@ function optimise!(ws::AbstractWorkspace,
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
                 if args["acceleration"] == :anderson
-                    @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, 0)
-                    
+                    # just applied onecol operator, so we increment
+                    # composition counter
+                    ws.composition_counter[] += 1
+
+                    if ws.composition_counter[] == args["anderson-interval"]
+                        @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, ws.vars.xy_into_accelerator, 0)
+                    end
                     ws.k_vanilla[] += 1
                     
                     # note ws.k_eff only a thing when using acceleration
