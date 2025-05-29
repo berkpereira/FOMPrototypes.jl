@@ -321,7 +321,7 @@ end
 Check for acceptance of a Krylov acceleration candidate.
 Recycles work done in matrix-vector products involving A, A', and P.
 
-Assigns to TwocolVariables.xy_recycled.
+Assigns to KrylovVariables.xy_recycled.
 Returns Boolean indicating acceleration success/failure.
 
 Source code has similarities to that of onecol_method_operator!
@@ -563,7 +563,7 @@ function optimise!(ws::AbstractWorkspace,
     spectrum_plot_period::Int = 17,) where T
 
     # create views into x and y variables, along with "Arnoldi vector" q
-    if ws.vars isa TwocolVariables
+    if ws.vars isa KrylovVariables
         @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
         @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
         @views view_q = ws.vars.xy_q[:, 2]
@@ -654,7 +654,7 @@ function optimise!(ws::AbstractWorkspace,
         # krylov setup
         if args["acceleration"] == :krylov
             # copy older iterate
-            # if we have just tried krylov acceleration, this notion is handled
+            # if we HAVE just tried krylov acceleration, this notion is handled
             # differently and efficiently from within krylov_accel_check!,
             # using recycled work from the fixed-point residual check in
             # there
@@ -750,11 +750,13 @@ function optimise!(ws::AbstractWorkspace,
             # Anderson acceleration attempt
             if args["acceleration"] == :anderson && ws.k[] % ws.attempt_period == 0 && ws.k[] > 0
                 # ws.vars.xy might be overwritten, so we take note of it here
+                # this is for the sole purpose of checking the length of the
+                # step just below in this code branch
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
                 # attempt acceleration step. if successful (ie no numerical
                 # problems), this overwites ws.vars.xy
-                @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, ws.k_vanilla[])
+                @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, 0)
 
                 if ws.accelerator.success
                     ws.k_eff[] += 1
@@ -791,10 +793,8 @@ function optimise!(ws::AbstractWorkspace,
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
                 if args["acceleration"] == :anderson
-                    @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, ws.k_vanilla[])
+                    @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, 0)
                     
-                    # note COSMOAccelerators functions expect just vanilla
-                    # iteration count (excluding all acceleration attempts)
                     ws.k_vanilla[] += 1
                     
                     # note ws.k_eff only a thing when using acceleration

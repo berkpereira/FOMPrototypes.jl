@@ -43,7 +43,7 @@ ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
 
 abstract type AbstractVariables{T<:AbstractFloat} end
 
-struct TwocolVariables{T <: AbstractFloat} <: AbstractVariables{T}
+struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
     # Consolidated (x, y) vector and q vector (for Krylov basis building).
     # (x, y) is exactly as it sounds. q is for building a basis with an
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
@@ -63,11 +63,11 @@ struct TwocolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy_prev::Vector{T}
 
     # default (zeros) initialisation of variables
-    function TwocolVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+    function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
         new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m), zeros(n + m))
     end
 end
-TwocolVariables(args...) = TwocolVariables{DefaultFloat}(args...)
+KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
 
 struct OnecolVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy::Vector{T}
@@ -211,11 +211,11 @@ struct GivensRotation{T <: AbstractFloat}
 end
 
 # workspace type for when Krylov acceleration is used
-struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariables{T}}
+struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     p::ProblemData{T}
-    vars::TwocolVariables{T}
+    vars::KrylovVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, Symmetric{T}}
@@ -247,7 +247,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
 
     # constructor where initial iterates are not passed (default set to zero)
     function KrylovWorkspace{T}(p::ProblemData{T},
-        vars::Union{TwocolVariables{T}, Nothing},
+        vars::Union{KrylovVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
@@ -271,7 +271,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, TwocolVariabl
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
-            vars = TwocolVariables(m, n)
+            vars = KrylovVariables(m, n)
         end
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
@@ -305,7 +305,7 @@ function KrylovWorkspace(
     mem::Int,
     tries_per_mem::Int,
     krylov_operator::Symbol;
-    vars::Union{TwocolVariables{T}, Nothing} = nothing,
+    vars::Union{KrylovVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
