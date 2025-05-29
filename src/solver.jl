@@ -752,8 +752,8 @@ function optimise!(ws::AbstractWorkspace,
                 # ws.vars.xy might be overwritten, so we take note of it here
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
-                # attempt acceleration step. if successful, this
-                # overwites ws.vars.xy
+                # attempt acceleration step. if successful (ie no numerical
+                # problems), this overwites ws.vars.xy
                 @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, ws.k_vanilla[])
 
                 if ws.accelerator.success
@@ -797,6 +797,7 @@ function optimise!(ws::AbstractWorkspace,
                     # iteration count (excluding all acceleration attempts)
                     ws.k_vanilla[] += 1
                     
+                    # note ws.k_eff only a thing when using acceleration
                     ws.k_eff[] += 1
                 end
 
