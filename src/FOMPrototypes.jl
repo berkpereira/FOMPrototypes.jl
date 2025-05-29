@@ -1,6 +1,7 @@
 module FOMPrototypes
 
-export main, run_cli, run_prototype, solve_reference, fetch_data
+export main, run_cli, run_prototype, solve_reference, fetch_data,
+    plot_results
 
 # Import packages.
 using ArgParse
@@ -14,6 +15,8 @@ using Plots
 using SparseArrays
 using SCS
 using Random
+using JLD2
+import Pkg
 
 # Include all project source files.
 include(joinpath(@__DIR__, "types.jl"))
@@ -31,11 +34,19 @@ include(joinpath(@__DIR__, "problem_data.jl"))
 # Initialization Block #
 ########################
     
-function initialise_misc()
+function initialise_misc(backend::Symbol = :plotlyjs)
     # Set Plots backend.
     # For interactive plots: plotlyjs()
     # For faster plotting: gr()
-    gr()
+    if backend == :plotlyjs
+        plotlyjs()
+    elseif backend == :pyplot
+        pyplot()
+    elseif backend == :gr
+        gr()
+    else
+        error("Invalid backend specified. Use :plotlyjs, :pyplot, or :gr.")
+    end
 
     # Determine newline character based on backend.
     local newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
@@ -216,16 +227,17 @@ function choose_problem(problem_option::Symbol)
 end
 
 function fetch_data(problem_set::String, problem_name::String)
-    if problem_name != "giselsson"
-        data = load_clarabel_benchmark_prob_data(problem_set, problem_name)
-    else
+    if problem_name == "giselsson" || problem_name == "toy"
         repo_root = dirname(Pkg.project().path)
-        giselsson_path = joinpath(repo_root, "synthetic_problem_data/giselsson_problem.jld2")
-        data = load(giselsson_path)["data"]
+        file = "synthetic_problem_data/$(problem_name)_problem.jld2"
+        data = load(joinpath(repo_root, file))
+        # Unpack the data.
+        P, c, A, b, K = data["P"], data["c"], data["A"], data["b"], data["K"]
+    else
+        data = load_clarabel_benchmark_prob_data(problem_set, problem_name)
+        # Unpack the data.
+        P, c, A, b, K = data.P, data.c, data.A, data.b, data.K
     end
-
-    # Unpack the data.
-    P, c, A, b, K = data.P, data.c, data.A, data.b, data.K
 
     # Create a problem instance.
     problem = ProblemData(problem_set, problem_name, P, c, A, b, K)
@@ -247,17 +259,17 @@ function solve_reference(problem::ProblemData,
     if reference_solver == :SCS
         println("RUNNING SCS...")
         model = Model(SCS.Optimizer)
-        set_optimizer_attribute(model, "eps_abs", 1e-10)
-        set_optimizer_attribute(model, "eps_rel", 1e-10)
+        set_optimizer_attribute(model, "eps_rel", 1e-6)
+        set_optimizer_attribute(model, "eps_abs", 1e-6)
 
         # set acceleration_lookback to 0 to disable Anderson acceleration
-        set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
+        # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
         # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10
-        set_optimizer_attribute(model, "max_iters", 150) # default 1e5
-        # set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
+        # set_optimizer_attribute(model, "max_iters", 150) # default 1e5
+        set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
         set_optimizer_attribute(model, "scale", 1) # initial dual scale factor, default 0.1
         set_optimizer_attribute(model, "adaptive_scale", 0) # whether to heuristically adapt dual scale, default 1
-        set_optimizer_attribute(model, "rho_x", 1) # primal scale factor, default 1e-6
+        # set_optimizer_attribute(model, "rho_x", 1) # primal scale factor, default 1e-6
         set_optimizer_attribute(model, "alpha", 1) # relaxation parameter, default 1.5
     elseif reference_solver == :Clarabel
         println("RUNNING CLARABEL...")
@@ -290,7 +302,7 @@ function solve_reference(problem::ProblemData,
     y_ref = dual.(con)  # Dual variables (Lagrange multipliers)
     obj_ref = objective_value(model)
 
-    return x_ref, s_ref, y_ref, obj_ref
+    return model, x_ref, s_ref, y_ref, obj_ref
 end
 
 #######################################
@@ -336,7 +348,8 @@ function run_prototype(problem::ProblemData,
             if args["acceleration"] == :krylov
                 ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["krylov-operator"], A_gram = A_gram, to = to)
             elseif args["acceleration"] == :anderson
-                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], to = to)
+                anderson_log = !args["run-fast"]
+                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-period"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], anderson_log = anderson_log, to = to)
             else
                 ws = NoneWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram, to = to)
             end
@@ -349,6 +362,7 @@ function run_prototype(problem::ProblemData,
         args,
         setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
         x_sol = x_ref, y_sol = y_ref,
+        timer = to,
         explicit_affine_operator = false)
     end
 
@@ -362,7 +376,12 @@ end
 function plot_results(results,
     problem_set::String,
     problem_name::String,
-    args::Dict{String, T}, newline_char) where T
+    args::Dict{String, T},
+    backend::Symbol = :plotlyjs) where T
+
+    newline_char = initialise_misc(backend)
+
+    println("Backend is $(Plots.backend_name())")
 
     k_final = length(results.metrics_history[:primal_obj_vals])
     
@@ -434,20 +453,22 @@ function plot_results(results,
     add_vlines!(dres_plot)
     display(dres_plot)
 
-    # (x, y) distance to solution plot.
-    xy_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
-    xy_dist_plot = plot(0:k_final, xy_dist_to_sol, linewidth=LINEWIDTH,
-        label="Prototype (x, y) Distance", xlabel="Iteration", ylabel="Distance to Solution",
-        title="$title_common (x, y) Distance to Solution", yaxis=:log)
-    add_vlines!(xy_dist_plot)
-    display(xy_dist_plot)
+    if results.metrics_history[:x_dist_to_sol] !== nothing
+        # (x, y) distance to solution plot.
+        xy_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
+        xy_dist_plot = plot(0:k_final, xy_dist_to_sol, linewidth=LINEWIDTH,
+            label="Prototype (x, y) Distance", xlabel="Iteration", ylabel="Distance to Solution",
+            title="$title_common (x, y) Distance to Solution", yaxis=:log)
+        add_vlines!(xy_dist_plot)
+        display(xy_dist_plot)
 
-    # (x, y) characteristic norm distance to solution plot.
-    seminorm_plot = plot(0:k_final, results.metrics_history[:xy_chardist], linewidth=LINEWIDTH,
-    label="(x, y) Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
-    title="$title_common (x, y) Characteristic Norm Distance to Solution", yaxis=:log)
-    add_vlines!(seminorm_plot)
-    display(seminorm_plot)
+        # (x, y) characteristic norm distance to solution plot.
+        seminorm_plot = plot(0:k_final, results.metrics_history[:xy_chardist], linewidth=LINEWIDTH,
+        label="(x, y) Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
+        title="$title_common (x, y) Characteristic Norm Distance to Solution", yaxis=:log)
+        add_vlines!(seminorm_plot)
+        display(seminorm_plot)
+    end
 
     # (x, y) step norms plot.
     xy_step_norms_plot = plot(0:k_final-1, results.metrics_history[:xy_step_norms], linewidth=LINEWIDTH,
@@ -533,11 +554,9 @@ function main(config::Dict{String, Any})
     config, x_ref = x_ref, y_ref = y_ref)
 
     if !config["run-fast"]
-        newline_char = initialise_misc()
         println()
         println("About to plot results...")
-        # plot_results(results, config["variant"], config["restart-period"], config["acceleration"], config["accel-memory"], config["linesearch-period"], newline_char, config["problem-set"], config["problem-name"], config["krylov-operator"], show_vlines = config["show-vlines"])
-        plot_results(results, config["problem-set"], config["problem-name"], config, newline_char)
+        plot_results(results, config["problem-set"], config["problem-name"], config)
     end
     
     #return data of interest to inspect
