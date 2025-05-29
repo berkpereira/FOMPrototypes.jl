@@ -97,7 +97,7 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
     # TODO pre-allocate working vectors in this function when acceleration
     # is used
 
-    # TODO slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
+    # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
 
 
     # compute FOM(xy_q[:, 1]) and store it in result_vec
