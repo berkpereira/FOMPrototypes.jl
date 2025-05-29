@@ -350,7 +350,8 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         attempt_period::Int,
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
-        regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer}) where {T <: AbstractFloat}
+        regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer},
+        anderson_log::Bool) where {T <: AbstractFloat}
         attempt_period >= 2 || throw(ArgumentError("Anderson acceleration attempt period must be at least 2."))
 
         if θ != 1.0
@@ -376,7 +377,8 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, OnecolVaria
         # default constructor types:
         # AndersonAccelerator{Float64, Type2{QRDecomp}, RestartedMemory, NoRegularizer}
 
-        aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem)
+        aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
+        
         new{T}(Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, attempt_period, aa)
     end
 
@@ -397,6 +399,7 @@ function AndersonWorkspace(
     broyden_type::Symbol = :normal2,
     memory_type::Symbol = :rolling,
     regulariser_type::Symbol = :none,
+    anderson_log::Bool = false,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
 
     if broyden_type == :normal2
@@ -428,7 +431,7 @@ function AndersonWorkspace(
     end
     
     # delegate to the inner constructor
-    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, attempt_period, broyden_type, memory_type, regulariser_type)
+    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, attempt_period, broyden_type, memory_type, regulariser_type, anderson_log)
 end
 
 
