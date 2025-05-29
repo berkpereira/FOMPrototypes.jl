@@ -189,7 +189,8 @@ function M1_op!(x::AbstractVector{Float64}, result_vec::AbstractVector{Float64},
     if variant == :PDHG # M1 = 1/τ * I
         result_vec ./= ws.τ
     elseif variant == :ADMM # M1 = ρ * A' * A
-        result_vec .*= A_gram
+        temp_n_vec .= x
+        mul!(result_vec, A_gram, temp_n_vec)
         result_vec .*= ws.ρ
     elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
         mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
