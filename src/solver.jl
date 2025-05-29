@@ -3,6 +3,7 @@ using Plots
 using Random
 using Printf
 using Infiltrator
+using TimerOutputs
 import COSMOAccelerators
 
 # data to store history of when a run uses args["run-fast"] == false
@@ -513,6 +514,41 @@ function kkt_criterion(ws::AbstractWorkspace, kkt_tol::Float64)
     return max_err <= kkt_tol
 end
 
+# We also define a series of helper functions defining the behaviour in
+# different "types" of iterations
+function krylov_usual_step!(ws::KrylovWorkspace,
+    scratch,
+    timer::TimerOutput
+    )
+    # apply method operator (to both (x, y) and Arnoldi (q) vectors)
+    twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
+
+    # Arnoldi "step", orthogonalises the incoming basis vector
+    # and updates the Hessenberg matrix appropriately, all in-place
+    @timeit timer "krylov arnoldi" @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
+
+    # if ws.krylov_operator == :tilde_A, the QR factorisation
+    # we require for the Krylov LLS subproblem is that of
+    # the Hessenberg matrix MINUS an identity matrix,
+    # so we must apply this immediately
+    if ws.krylov_operator == :tilde_A
+        ws.H[ws.givens_count[]+1, ws.givens_count[]+1] -= 1.0
+    end
+    
+    @timeit timer "krylov givens" begin
+        # apply previously existing Givens rotations to the brand new column
+        # in H. if H has a single column here, then
+        # ws.givens_count[] == 0 and this does nothing
+        apply_existing_rotations_new_col!(ws.H, ws.givens_rotations, ws.givens_count)
+
+        # generate new Givens rotation, store it in
+        # ws.givens_rotations, and apply it in-place to the new
+        # column of H
+        # also increment ws.givens_count by 1
+        generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+    end
+end
+
 """
 Run the optimiser for the initial inputs and solver options given.
 acceleration is a Symbol in {:none, :krylov, :anderson}
@@ -522,6 +558,7 @@ function optimise!(ws::AbstractWorkspace,
     setup_time::Float64 = 0.0, # time spent in set-up (seconds)
     x_sol::Union{Nothing, Vector{Float64}} = nothing,
     y_sol::Union{Nothing, Vector{Float64}} = nothing,
+    timer::TimerOutput,
     explicit_affine_operator::Bool = false,
     spectrum_plot_period::Int = 17,) where T
 
@@ -627,10 +664,12 @@ function optimise!(ws::AbstractWorkspace,
             
             # acceleration attempt step
             if ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis
-                compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                @timeit timer "krylov sol" compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 # TODO: sort out norm to use in fixed-point residual safeguard
-                @views if krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                # this flag is only used here
+                @timeit timer "krylov safeguard" @views accept_krylov = krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                if accept_krylov
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
@@ -686,31 +725,8 @@ function optimise!(ws::AbstractWorkspace,
                         init_krylov_basis!(ws) # ws.H is zeros at this point still
                     end
                 else # the usual case
-                    # apply method operator (to both (x, y) and Arnoldi (q) vectors)
-                    twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
 
-                    # Arnoldi "step", orthogonalises the incoming basis vector
-                    # and updates the Hessenberg matrix appropriately, all in-place
-                    @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
-
-                    # if ws.krylov_operator == :tilde_A, the QR factorisation
-                    # we require for the Krylov LLS subproblem is that of
-                    # the Hessenberg matrix MINUS an identity matrix,
-                    # so we must apply this immediately
-                    if ws.krylov_operator == :tilde_A
-                        ws.H[ws.givens_count[]+1, ws.givens_count[]+1] -= 1.0
-                    end
-                    
-                    # apply previously existing Givens rotations to the brand new column
-                    # in H. if H has a single column here, then
-                    # ws.givens_count[] == 0 and this does nothing
-                    apply_existing_rotations_new_col!(ws.H, ws.givens_rotations, ws.givens_count)
-
-                    # generate new Givens rotation, store it in
-                    # ws.givens_rotations, and apply it in-place to the new
-                    # column of H
-                    # also increment ws.givens_count by 1
-                    generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+                    krylov_usual_step!(ws, scratch, timer)
 
                     # ws.givens_count has had "time" to be increment past
                     # a trigger point, so we can relax this flag in order
@@ -738,16 +754,19 @@ function optimise!(ws::AbstractWorkspace,
 
                 # attempt acceleration step. if successful, this
                 # overwites ws.vars.xy
-                COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, ws.k_vanilla[])
+                @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, ws.k_vanilla[])
+
+                if ws.accelerator.success
+                    ws.k_eff[] += 1
+                    # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                end
 
                 if !args["run-fast"]
                     # record step (might be zero if acceleration failed)
                     curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
                     # account for records as appropriate
-                    if any(curr_xy_update .!= 0.0) # ie if acceleration was successful
-                        ws.k_eff[] += 1
-                        println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
+                    if ws.accelerator.success # ie if acceleration was successful
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
@@ -756,9 +775,6 @@ function optimise!(ws::AbstractWorkspace,
                     # prevent recording large or zero update norm
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
-                elseif any(ws.vars.xy .!= scratch.temp_mn_vec1) # ie if acceleration was successful
-                    ws.k_eff[] += 1
-                    # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                 end
             
             else # standard onecol iteration
@@ -775,7 +791,7 @@ function optimise!(ws::AbstractWorkspace,
                 # if using Anderson accel, now update accelerator standard
                 # iterate/successor pair history
                 if args["acceleration"] == :anderson
-                    COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, ws.k_vanilla[])
+                    @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, scratch.temp_mn_vec1, ws.k_vanilla[])
                     
                     # note COSMOAccelerators functions expect just vanilla
                     # iteration count (excluding all acceleration attempts)
