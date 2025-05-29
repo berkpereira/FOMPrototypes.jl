@@ -28,8 +28,10 @@ function print_results(
     # Start with iteration, objective, and primal/dual residuals
     if ws isa NoneWorkspace # no acceleration
         print_output = @sprintf("k %4.1d | obj: %12.5e", ws.k[], ws.res.obj_primal)
-    else # NB: k effective excludes count of unsuccessful acceleration attempts
-        print_output = @sprintf("k %4.1d | k effective %4.1d | obj: %12.5e", ws.k[], ws.k_eff[], ws.res.obj_primal)
+    elseif ws isa KrylovWorkspace # NB: k effective excludes count of unsuccessful acceleration attempts
+        print_output = @sprintf("k %4.1d | k eff %4.1d | obj: %12.5e", ws.k[], ws.k_eff[], ws.res.obj_primal)
+    elseif ws isa AndersonWorkspace # NB k van(illa) counts only vanilla iterations, as the COSMO papers do
+        print_output = @sprintf("k %4.1d | k eff %4.1d | k van %4.1d | obj: %12.5e", ws.k[], ws.k_eff[], ws.k_vanilla[], ws.res.obj_primal)
     end
 
     # objective error if obj_sol is provided
