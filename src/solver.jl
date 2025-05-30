@@ -321,14 +321,15 @@ end
 Check for acceptance of a Krylov acceleration candidate.
 Recycles work done in matrix-vector products involving A, A', and P.
 
-Assigns to KrylovVariables.xy_recycled.
+Writes to to_recycle_xy.
 Returns Boolean indicating acceleration success/failure.
 
 Source code has similarities to that of onecol_method_operator!
 """
-function krylov_accel_check!(ws::KrylovWorkspace,
+function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
+    to_recycle_xy::AbstractVector{Float64},
     temp_mn_vec1::AbstractVector{Float64},
     temp_mn_vec2::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
@@ -337,8 +338,8 @@ function krylov_accel_check!(ws::KrylovWorkspace,
 
     # we catch the unguarded case early, since it is the simplest by far
     if ws.safeguard_norm == :none
-        # store FOM(accelerated_xy) in ws.vars.xy_recycled right away
-        onecol_method_operator!(ws, accelerated_xy, ws.vars.xy_recycled, temp_n_vec1, temp_n_vec2, temp_m_vec)
+        # store FOM(accelerated_xy) in to_recycle_xy right away
+        onecol_method_operator!(ws, accelerated_xy, to_recycle_xy, temp_n_vec1, temp_n_vec2, temp_m_vec)
         ws.vars.xy_prev .= current_xy
 
         # always "successful" acceleration
@@ -354,7 +355,7 @@ function krylov_accel_check!(ws::KrylovWorkspace,
     # (temporarily) store FOM(current_xy) --- vanilla iterate --- in xy_recycled
     # this is overwritten later in this function if the acceleration
     # is successful, namely with xy_recycled .= FOM(accelerated_xy)
-    ws.vars.xy_recycled .= temp_mn_vec1 # TODO avoid this copying by simply using ws.vars.xy_recycled in some of the lines around this one
+    to_recycle_xy .= temp_mn_vec1 # TODO avoid this copying by simply using to_recycle_xy in some of the lines around this one
     ws.vars.xy_prev .= current_xy
 
     # store fixed-point residual of current_xy in temp_mn_vec2
@@ -383,7 +384,7 @@ function krylov_accel_check!(ws::KrylovWorkspace,
 
     # store FOM(accelerated_xy) in temp_mn_vec1
     # NOTE: we must keep temp_mn_vec1 INTACT from this on UNTIL we decide whether
-    # or not to overwrite ws.vars.xy_recycled with FOM(accelerated_xy)
+    # or not to overwrite to_recycle_xy with FOM(accelerated_xy)
     onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
     # store fixed-point residual of accelerated_xy in temp_mn_vec2
@@ -410,11 +411,11 @@ function krylov_accel_check!(ws::KrylovWorkspace,
     # report success/failure of Krylov acceleration attempt
     acceleration_success = fp_metric_acc < fp_metric_vanilla
 
-    # if acceleration was a success, ws.vars.xy_recycled takes FOM(accelerated_xy)
+    # if acceleration was a success, to_recycle_xy takes FOM(accelerated_xy)
     # else, we leave it as it was assigned to above in this function, namely
-    # ws.vars.xy_recycled == FOM(current_xy)
+    # to_recycle_xy == FOM(current_xy)
     if acceleration_success
-        ws.vars.xy_recycled .= temp_mn_vec1
+        to_recycle_xy .= temp_mn_vec1
         ws.vars.xy_prev .= accelerated_xy
     end
 
@@ -449,7 +450,21 @@ function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
             temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
             accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
         )
-    elseif acceleration == :anderson || acceleration == :none
+    elseif acceleration == :anderson
+        return (
+            temp_n_mat1 = zeros(Float64, ws.p.n, 2),
+            temp_n_mat2 = zeros(Float64, ws.p.n, 2),
+            temp_m_mat = zeros(Float64, ws.p.m, 2),
+            temp_m_vec = zeros(Float64, ws.p.m),
+            temp_n_vec1 = zeros(Float64, ws.p.n),
+            temp_n_vec2 = zeros(Float64, ws.p.n), 
+            temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
+            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
+            temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
+            temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
+            accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
+        )
+    elseif acceleration == :none
         return (
             temp_n_mat1 = zeros(Float64, ws.p.n, 2),
             temp_n_mat2 = zeros(Float64, ws.p.n, 2),
@@ -676,7 +691,7 @@ function optimise!(ws::AbstractWorkspace,
         if args["acceleration"] == :krylov
             # copy older iterate
             # if we HAVE just tried krylov acceleration, this notion is handled
-            # differently and efficiently from within krylov_accel_check!,
+            # differently and efficiently from within accel_fp_safeguard!,
             # using recycled work from the fixed-point residual check in
             # there
             if !just_tried_acceleration
@@ -687,25 +702,24 @@ function optimise!(ws::AbstractWorkspace,
             if ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis
                 @timeit timer "krylov sol" compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
-                # TODO: sort out norm to use in fixed-point residual safeguard
                 # this flag is only used here
-                @timeit timer "krylov safeguard" @views accept_krylov = krylov_accel_check!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.vars.xy_recycled, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
                 if accept_krylov
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
-                    # assign actually
-                    ws.vars.xy_q[:, 1] .= scratch.accelerated_point
-
-                    # record stuff
                     if !args["run-fast"]
                         @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
                     end
+
+                    # assign actually
+                    ws.vars.xy_q[:, 1] .= scratch.accelerated_point
                 end
-                # prevent recording 0 or very large update norm
+
+                # prevent recording 0 or very large update norm in any case
                 if !args["run-fast"]
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
@@ -740,7 +754,8 @@ function optimise!(ws::AbstractWorkspace,
                     # recycle working (x, y) iterate
                     ws.vars.xy_q[:, 1] .= ws.vars.xy_recycled
                     
-                    # also re-initialise Krylov basis
+                    # also re-initialise Krylov basis IF we'd filled up
+                    # the entire memory
                     if ws.givens_count[] == 0 # just wiped Krylov basis clean
                         # fills in first column of ws.krylov_basis
                         init_krylov_basis!(ws) # ws.H is zeros at this point still
@@ -767,75 +782,119 @@ function optimise!(ws::AbstractWorkspace,
                 just_tried_acceleration = false
                 j_restart += 1
             end
-        else # NOT krylov set-up, so working variable is one-column
+        elseif args["acceleration"] == :anderson
             # Anderson acceleration attempt
-            if args["acceleration"] == :anderson && ws.composition_counter[] == args["anderson-interval"]
+            if ws.composition_counter[] == args["anderson-interval"]
                 # ws.vars.xy might be overwritten, so we take note of it here
                 # this is for the sole purpose of checking the norm of the
                 # step just below in this code branch
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
                 # attempt acceleration step. if successful (ie no numerical
-                # problems), this overwites ws.vars.xy
+                # problems), this overwites ws.vars.xy with accelerated step
                 @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, 0)
+                
+                scratch.accelerated_point .= ws.vars.xy # accelerated point if no numerics blowups
+                ws.vars.xy .= scratch.temp_mn_vec1 # retake the iterate from which we are attempting acceleration right now
+
+                # ws.accelerator.success only indicates there was no
+                # numerical blowup in the COSMOAccelerators.accelerate!
+                # internals
+                if ws.accelerator.success
+                    # at this point:
+                    # ws.vars.xy contains the iterate at which we stopped
+                    # when we began to pull the accelerate! levers;
+                    # scratch.accelerated_point contains the candidate
+                    # acceleration point, which is legitimately different
+                    # from ws.vars.xy
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.vars.xy_recycled, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+
+                    if accept_anderson
+                        ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
+
+                        if !args["run-fast"]
+                            curr_xy_update .= scratch.accelerated_point - ws.vars.xy
+                            push!(record.acc_step_iters, ws.k[])
+                            record.updates_matrix .= 0.0
+                            record.current_update_mat_col[] = 1
+                        end
+
+                        # assign actually
+                        ws.vars.xy .= scratch.accelerated_point
+                    end
+
+                    # note that this flag serves for us to use recycled
+                    # work from the fixed-point safeguard step when
+                    # the next iteration comes around
+                    just_tried_acceleration = true
+                end
+
+                # set up the first x to be composed anderon-interval times
+                # before being fed to accelerator's update! method
                 ws.vars.xy_into_accelerator .= ws.vars.xy # this is T^0(ws.vars.xy)
                 ws.composition_counter[] = 0
 
-                if ws.accelerator.success
-                    ws.k_eff[] += 1
-                end
-
+                # prevent recording large or zero update norm whether
+                # successful or not
                 if !args["run-fast"]
-                    # record step (might be zero if acceleration failed)
-                    curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
-
-                    # account for records as appropriate
-                    if ws.accelerator.success # ie if acceleration was successful
-                        push!(record.acc_step_iters, ws.k[])
-                        record.updates_matrix .= 0.0
-                        record.current_update_mat_col[] = 1
-                    end
-                    
-                    # prevent recording large or zero update norm
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
                 end
-            
-            else # standard onecol iteration
+            else # standard iteration with Anderson acceleration
+                ws.k_eff[] += 1
+                ws.k_vanilla[] += 1
+                
                 # copy older iterate before iterating
                 ws.vars.xy_prev .= ws.vars.xy
 
-                onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+                # we compute new iterate: if we just tried acceleration,
+                # we use the recycled variable stored during the fixed-point
+                # safeguarding step
+                if just_tried_acceleration
+                    ws.vars.xy .= ws.vars.xy_recycled
+                else
+                    onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+                    # swap contents of ws.vars.xy and scratch.temp_mn_vec1
+                    custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
+                end
 
-                # swap contents of ws.vars.xy and scratch.temp_mn_vec1
-                custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
-                # now ws.vars.xy contains newer iterate,  while
-                # scratch.temp_mn_vec1 contains older one
+                # just applied onecol operator, so we increment
+                # composition counter
+                ws.composition_counter[] += 1
 
-                # if using Anderson accel, now update accelerator standard
-                # iterate/successor pair history
-                if args["acceleration"] == :anderson
-                    # just applied onecol operator, so we increment
-                    # composition counter
-                    ws.composition_counter[] += 1
-
-                    if ws.composition_counter[] == args["anderson-interval"]
-                        @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, ws.vars.xy_into_accelerator, 0)
-                    end
-                    ws.k_vanilla[] += 1
-                    
-                    # note ws.k_eff only a thing when using acceleration
-                    ws.k_eff[] += 1
+                if ws.composition_counter[] == args["anderson-interval"]
+                    @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, ws.vars.xy_into_accelerator, 0)
                 end
 
                 if !args["run-fast"]
-                    # record step (might be zero if acceleration failed)
-                    curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+                    curr_xy_update .= ws.vars.xy - ws.vars.xy_prev
 
                     # record iteration data here
                     push!(record.xy_step_norms, norm(curr_xy_update))
                     push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
                 end
+
+                # cannot recycle anything at next iteration
+                just_tried_acceleration = false
+            end
+        else # no acceleration!
+            # copy older iterate before iterating
+            ws.vars.xy_prev .= ws.vars.xy
+
+            onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+
+            # swap contents of ws.vars.xy and scratch.temp_mn_vec1
+            custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
+            # now ws.vars.xy contains newer iterate,  while
+            # scratch.temp_mn_vec1 contains older one
+
+            if !args["run-fast"]
+                # record step (might be zero if acceleration failed)
+                curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+
+                # record iteration data here
+                push!(record.xy_step_norms, norm(curr_xy_update))
+                push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
             end
         end
         

@@ -179,7 +179,7 @@ This function computes M1 matrix-vector products with x efficiently.
 Result is stored in result_vec, while x is left unchanged.
 """
 function M1_op!(x::AbstractVector{Float64}, result_vec::AbstractVector{Float64},
-    ws::KrylovWorkspace,
+    ws::Union{KrylovWorkspace, AndersonWorkspace},
     variant::Symbol,
     A_gram::LinearMap{Float64},
     temp_n_vec::Vector{Float64})

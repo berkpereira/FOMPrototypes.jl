@@ -349,7 +349,7 @@ function run_prototype(problem::ProblemData,
                 ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["safeguard-norm"], args["krylov-operator"], A_gram = A_gram, to = to)
             elseif args["acceleration"] == :anderson
                 anderson_log = !args["run-fast"]
-                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-interval"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], anderson_log = anderson_log, to = to)
+                ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-interval"], args["safeguard-norm"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], anderson_log = anderson_log, to = to)
             else
                 ws = NoneWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram, to = to)
             end

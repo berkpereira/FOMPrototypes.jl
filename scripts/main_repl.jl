@@ -15,15 +15,15 @@ args = Dict(
     # "problem-name" => "toy",
     
     "res-norm"     => Inf,
-    "max-iter"     => 10_000,
+    "max-iter"     => Inf,
     "rel-kkt-tol"  => 1e-6,
 
     "acceleration" => :krylov,
-    "accel-memory" => 30,
-    "safeguard-norm" => :euclid, # in {:euclid, :char, :none}
+    "accel-memory" => 40,
+    "safeguard-norm" => :none, # in {:euclid, :char, :none}
     # "safeguard-factor" => 1.0, # NOT YET IN USE, factor for fixed-point residual safeguard check in accelerated methods
 
-    "krylov-tries-per-mem"  => 1,
+    "krylov-tries-per-mem"  => 2,
     "krylov-operator"       => :tilde_A,
     
     # note defaults are reg = :none, with :restarted and :QR2
@@ -43,7 +43,7 @@ args = Dict(
     "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
     "show-vlines"        => true,
     "run-fast"           => false,
-    "global-timeout"     => 2.0, # seconds, including set-up time
+    "global-timeout"     => 5.0, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 

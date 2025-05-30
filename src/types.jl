@@ -75,9 +75,11 @@ struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
+
+    xy_recycled::Vector{T}
     
     function AndersonVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m))
+        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m), zeros(n + m))
     end
 end
 AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
@@ -358,9 +360,18 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
     θ::T
     proj_flags::AbstractVector{Bool}
 
+    # precomputed diagonals
+    # TODO get rid of these when they are not needed
+    # depends on safeguard norm used, as well as the variant, but
+    # not always needed!
+    # see src/utils.jl for more details
+    dP::Vector{T} # diagonal of P
+    dA::Vector{T} # diagonal of A' * A
+
     # additional Anderson acceleration-related fields
     mem::Int # memory for Anderson accelerator
     anderson_interval::Int # how often to attempt Anderson acceleration
+    safeguard_norm::Symbol # in {:euclid, :char, :none}
     accelerator::AndersonAccelerator
 
     function AndersonWorkspace{T}(
@@ -374,11 +385,16 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
         to::Union{TimerOutput, Nothing},
         mem::Int,
         anderson_interval::Int,
+        safeguard_norm::Symbol,
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
         regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer},
         anderson_log::Bool) where {T <: AbstractFloat}
         anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
+
+        if !(safeguard_norm in [:euclid, :char, :none])
+            throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
+        end
 
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
@@ -387,6 +403,14 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
 
+        # TODO: get rid of duplication of 
+        # code generating dP and dA, search in utils
+        @timeit to "dP prep" begin
+            dP = Vector(diag(p.P))
+        end
+        @timeit to "dA prep" begin
+            dA = vec(sum(abs2, p.A; dims=1))
+        end
         @timeit to "W op prep" begin
             W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
         end
@@ -405,7 +429,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), mem, anderson_interval, aa)
+        new{T}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end
@@ -419,7 +443,8 @@ function AndersonWorkspace(
     ρ::T,
     θ::T,
     mem::Int,
-    anderson_interval::Int;
+    anderson_interval::Int,
+    safeguard_norm::Symbol;
     vars::Union{AndersonVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     broyden_type::Symbol = :normal2,
@@ -457,7 +482,7 @@ function AndersonWorkspace(
     end
     
     # delegate to the inner constructor
-    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, broyden_type, memory_type, regulariser_type, anderson_log)
+    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, safeguard_norm, broyden_type, memory_type, regulariser_type, anderson_log)
 end
 
 
