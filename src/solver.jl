@@ -334,6 +334,16 @@ function krylov_accel_check!(ws::KrylovWorkspace,
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
     temp_m_vec::AbstractVector{Float64})
+
+    # we catch the unguarded case early, since it is the simplest by far
+    if ws.safeguard_norm == :none
+        # store FOM(accelerated_xy) in ws.vars.xy_recycled right away
+        onecol_method_operator!(ws, accelerated_xy, ws.vars.xy_recycled, temp_n_vec1, temp_n_vec2, temp_m_vec)
+        ws.vars.xy_prev .= current_xy
+
+        # always "successful" acceleration
+        return true
+    end
     
     fp_metric_vanilla = 0.0
     fp_metric_acc = 0.0
@@ -344,47 +354,58 @@ function krylov_accel_check!(ws::KrylovWorkspace,
     # (temporarily) store FOM(current_xy) --- vanilla iterate --- in xy_recycled
     # this is overwritten later in this function if the acceleration
     # is successful, namely with xy_recycled .= FOM(accelerated_xy)
-    ws.vars.xy_recycled .= temp_mn_vec1
+    ws.vars.xy_recycled .= temp_mn_vec1 # TODO avoid this copying by simply using ws.vars.xy_recycled in some of the lines around this one
     ws.vars.xy_prev .= current_xy
 
     # store fixed-point residual of current_xy in temp_mn_vec2
     temp_mn_vec2 .= temp_mn_vec1 - current_xy
 
-    # store M1 * FOM_x(current x) in temp_n_vec1
-    @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+    if ws.safeguard_norm == :char
+        # store M1 * FOM_x(current x) in temp_n_vec1
+        @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
 
-    # increment fp_metric_vanilla with < M1 * fp_res_x(current x), fp_res_x(current x) >
-    @views fp_metric_vanilla += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
-    # increment fp_metric_vanilla with < M2 * fp_res_y(current y), fp_res_y(current y) >
-    @views fp_metric_vanilla += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
-    # increment fp_metric_vanilla with 2 < A fp_res_x(current x), fp_res_y(current y) >
-    @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
-    @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+        # increment fp_metric_vanilla with < M1 * fp_res_x(current x), fp_res_x(current x) >
+        @views fp_metric_vanilla += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
+        # increment fp_metric_vanilla with < M2 * fp_res_y(current y), fp_res_y(current y) >
+        @views fp_metric_vanilla += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
+        # increment fp_metric_vanilla with 2 < A fp_res_x(current x), fp_res_y(current y) >
+        @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
+        @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
     
+    else # ws.safeguard_norm == :euclid
+        fp_metric_vanilla = norm(temp_mn_vec2)
+    end
+
     # fp_metric_vanilla is fully computed by now
     # now we move on to fp_metric_acc
     # all temporary/working vectors can be used cleanly again by now
 
+
     # store FOM(accelerated_xy) in temp_mn_vec1
-    # NOTE: we must keep temp_mn_vec1 intact from now until we decide whether
+    # NOTE: we must keep temp_mn_vec1 INTACT from this on UNTIL we decide whether
     # or not to overwrite ws.vars.xy_recycled with FOM(accelerated_xy)
     onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
     # store fixed-point residual of accelerated_xy in temp_mn_vec2
     temp_mn_vec2 .= temp_mn_vec1 - accelerated_xy
 
-    # store M1 * FOM_x(current_x) in temp_n_vec1
-    @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+    if ws.safeguard_norm == :euclid
+        # store M1 * FOM_x(current_x) in temp_n_vec1
+        @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
 
-    # increment fp_metric_acc with < M1 * fp_res_x(accelerated x), fp_res_x(accelerated x) >
-    @views fp_metric_acc += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
-    # increment fp_metric_acc with < M2 * fp_res_y(accelerated y), fp_res_y(accelerated y) >
-    @views fp_metric_acc += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
-    # increment fp_metric_acc with 2 < A fp_res_x(accelerated x), fp_res_y(accelerated y) >
-    @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
-    @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+        # increment fp_metric_acc with < M1 * fp_res_x(accelerated x), fp_res_x(accelerated x) >
+        @views fp_metric_acc += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
+        # increment fp_metric_acc with < M2 * fp_res_y(accelerated y), fp_res_y(accelerated y) >
+        @views fp_metric_acc += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
+        # increment fp_metric_acc with 2 < A fp_res_x(accelerated x), fp_res_y(accelerated y) >
+        @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
+        @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+    else # ws.safeguard_norm == :euclid
+        fp_metric_acc = norm(temp_mn_vec2)
+    end
 
     # fp_metric_acc is also fully computed by now
+    # recall that temp_mn_vec1 STILL stores FOM(accelerated_xy) right now
 
     # report success/failure of Krylov acceleration attempt
     acceleration_success = fp_metric_acc < fp_metric_vanilla
@@ -621,10 +642,10 @@ function optimise!(ws::AbstractWorkspace,
 
     while !termination
         # Update average iterates
-        if args["restart-period"] != Inf
-            x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
-            y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
-        end
+        # if args["restart-period"] != Inf
+        #     x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
+        #     y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
+        # end
 
         # compute distance to real solution
         if !args["run-fast"]
@@ -750,7 +771,7 @@ function optimise!(ws::AbstractWorkspace,
             # Anderson acceleration attempt
             if args["acceleration"] == :anderson && ws.composition_counter[] == args["anderson-interval"]
                 # ws.vars.xy might be overwritten, so we take note of it here
-                # this is for the sole purpose of checking the length of the
+                # this is for the sole purpose of checking the norm of the
                 # step just below in this code branch
                 scratch.temp_mn_vec1 .= ws.vars.xy
 
@@ -762,7 +783,6 @@ function optimise!(ws::AbstractWorkspace,
 
                 if ws.accelerator.success
                     ws.k_eff[] += 1
-                    # println("Accepted Anderson acceleration candidate at iteration $(ws.k[]).")
                 end
 
                 if !args["run-fast"]
@@ -879,7 +899,7 @@ function optimise!(ws::AbstractWorkspace,
             curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
         end
         
-        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"], terminated = true)
+        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
 
         # assign results
         for key in HISTORY_KEYS
@@ -887,7 +907,7 @@ function optimise!(ws::AbstractWorkspace,
             results.metrics_history[key] = getfield(record, key)
         end
     else
-        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true)
+        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
     end
 
     return results

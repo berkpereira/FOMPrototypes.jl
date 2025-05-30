@@ -346,7 +346,7 @@ function run_prototype(problem::ProblemData,
         @timeit to "init workspace" begin
             # initialise the workspace
             if args["acceleration"] == :krylov
-                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["krylov-operator"], A_gram = A_gram, to = to)
+                ws = KrylovWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["safeguard-norm"], args["krylov-operator"], A_gram = A_gram, to = to)
             elseif args["acceleration"] == :anderson
                 anderson_log = !args["run-fast"]
                 ws = AndersonWorkspace(problem, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-interval"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], anderson_log = anderson_log, to = to)
@@ -392,7 +392,7 @@ function plot_results(results,
 
     # Common title components
     title_common = "Problem: $(problem_set) $(problem_name).$newline_char Variant $(args["variant"]) $newline_char"
-    title_common *= "Restart period = $(args["restart-period"]).$newline_char Linesearch period = $(args["linesearch-period"])$newline_char"
+    # title_common *= "Restart period = $(args["restart-period"]).$newline_char Linesearch period = $(args["linesearch-period"])$newline_char"
     if args["acceleration"] == :none
         title_common *= "Acceleration: none.$newline_char"
         krylov_operator_str = ""

@@ -12,7 +12,8 @@ function print_results(
     x::Union{Vector{Float64}, Nothing} = nothing,
     y::Union{Vector{Float64}, Nothing} = nothing,
     relative::Bool = false,
-    terminated::Bool = false)
+    terminated::Bool = false,
+    exit_status::Union{Symbol, Nothing} = nothing)
 
     # if not at print_modulo nor termination, do nothing
     if !terminated && ws.k[] % print_modulo != 0
@@ -22,6 +23,7 @@ function print_results(
     if terminated
         println("--------------------")
         println("     TERMINATED     ")
+        println("     status: $exit_status")
         println("--------------------")
     end
 

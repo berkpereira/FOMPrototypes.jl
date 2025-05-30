@@ -240,12 +240,17 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
     proj_flags::AbstractVector{Bool}
 
     # precomputed diagonals
+    # TODO get rid of these when they are not needed
+    # depends on safeguard norm used, as well as the variant, but
+    # not always needed!
+    # see src/utils.jl for more details
     dP::Vector{T} # diagonal of P
     dA::Vector{T} # diagonal of A' * A
 
     # additional Krylov-related fields
     mem::Int # memory for Krylov acceleration
     tries_per_mem::Int # number of tries per Krylov memory fill-up
+    safeguard_norm::Symbol # in {:euclid, :char, :none}, norm used for Krylov acceleration safeguard. if :none, no safeguard is used
     trigger_givens_counts::Vector{Int} # trigger points for attempting Krylov acceleration
     krylov_operator::Symbol # either :tilde_A or :B
     H::Matrix{T} # Arnoldi Hessenberg matrix, size (mem+1, mem)
@@ -269,7 +274,12 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
         to::Union{TimerOutput, Nothing},
         mem::Int,
         tries_per_mem::Int,
+        safeguard_norm::Symbol,
         krylov_operator::Symbol) where {T <: AbstractFloat}
+
+        if !(safeguard_norm in [:euclid, :char, :none])
+            throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
+        end
 
         # make vector of trigger_givens_counts
         trigger_givens_counts = Vector{Int}(undef, tries_per_mem)
@@ -290,6 +300,8 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
 
+        # TODO: get rid of duplication of 
+        # code generating dP and dA, search in utils
         @timeit to "dP prep" begin
             dP = Vector(diag(p.P))
         end
@@ -304,7 +316,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
 
         println(typeof(dP))
 
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0))
     end
 end
 
@@ -317,15 +329,15 @@ function KrylovWorkspace(
     θ::T,
     mem::Int,
     tries_per_mem::Int,
+    safeguard_norm::Symbol,
     krylov_operator::Symbol;
     vars::Union{KrylovVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
     # delegate to the inner constructor
-    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, tries_per_mem, krylov_operator)
+    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, tries_per_mem, safeguard_norm, krylov_operator)
 end
-
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat}(args...; kwargs...)
 
 # workspace type for when Anderson acceleration is used
