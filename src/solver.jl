@@ -160,7 +160,9 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
     if ws.krylov_operator == :tilde_A
-        @views ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1
+        # @views ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1 # seems to incur a lot of materialize! calls costs
+        @views ws.vars.xy_q[1:ws.p.n, 1] .-= temp_n_mat1[:, 1]
+        @views ws.vars.xy_q[1:ws.p.n, 2] .-= temp_n_mat1[:, 2]
     else # ie use B = A - I as krylov operator
         @views ws.vars.xy_q[1:ws.p.n, 1] .-= temp_n_mat1[:, 1] # as above
         @views ws.vars.xy_q[1:ws.p.n, 2] .= -temp_n_mat1[:, 2] # simpler
@@ -340,9 +342,8 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     if ws.safeguard_norm == :none
         # store FOM(accelerated_xy) in to_recycle_xy right away
         onecol_method_operator!(ws, accelerated_xy, to_recycle_xy, temp_n_vec1, temp_n_vec2, temp_m_vec)
-        ws.vars.xy_prev .= current_xy
 
-        # always "successful" acceleration
+        # always successful acceleration
         return true
     end
     
@@ -356,7 +357,6 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     # this is overwritten later in this function if the acceleration
     # is successful, namely with xy_recycled .= FOM(accelerated_xy)
     to_recycle_xy .= temp_mn_vec1 # TODO avoid this copying by simply using to_recycle_xy in some of the lines around this one
-    ws.vars.xy_prev .= current_xy
 
     # store fixed-point residual of current_xy in temp_mn_vec2
     temp_mn_vec2 .= temp_mn_vec1 - current_xy
@@ -372,7 +372,10 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
         # increment fp_metric_vanilla with 2 < A fp_res_x(current x), fp_res_y(current y) >
         @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
         @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
-    
+
+        fp_metric_vanilla = sqrt(fp_metric_vanilla)
+
+        println("at iter $(ws.k[]), char norm fp_metric_vanilla = $fp_metric_vanilla")
     else # ws.safeguard_norm == :euclid
         fp_metric_vanilla = norm(temp_mn_vec2)
     end
@@ -390,7 +393,7 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     # store fixed-point residual of accelerated_xy in temp_mn_vec2
     temp_mn_vec2 .= temp_mn_vec1 - accelerated_xy
 
-    if ws.safeguard_norm == :euclid
+    if ws.safeguard_norm == :char
         # store M1 * FOM_x(current_x) in temp_n_vec1
         @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
 
@@ -401,6 +404,10 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
         # increment fp_metric_acc with 2 < A fp_res_x(accelerated x), fp_res_y(accelerated y) >
         @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
         @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
+
+        fp_metric_acc = sqrt(fp_metric_acc)
+        
+        println("at iter $(ws.k[]), char norm fp_metric_acc = $fp_metric_acc")
     else # ws.safeguard_norm == :euclid
         fp_metric_acc = norm(temp_mn_vec2)
     end
@@ -409,14 +416,13 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     # recall that temp_mn_vec1 STILL stores FOM(accelerated_xy) right now
 
     # report success/failure of Krylov acceleration attempt
-    acceleration_success = fp_metric_acc < fp_metric_vanilla
+    acceleration_success = fp_metric_acc <= fp_metric_vanilla
 
     # if acceleration was a success, to_recycle_xy takes FOM(accelerated_xy)
     # else, we leave it as it was assigned to above in this function, namely
     # to_recycle_xy == FOM(current_xy)
     if acceleration_success
         to_recycle_xy .= temp_mn_vec1
-        ws.vars.xy_prev .= accelerated_xy
     end
 
     return acceleration_success
@@ -633,7 +639,7 @@ function optimise!(ws::AbstractWorkspace,
 
     # characteristic PPM preconditioner of the method
     if !args["run-fast"]
-        char_norm_mat = [(ws.W - ws.p.P) -ws.p.A'; -ws.p.A I(ws.p.m) / ws.ρ]
+        char_norm_mat = [(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
         function char_norm_func(vector::AbstractArray{Float64})
             return sqrt(dot(vector, char_norm_mat * vector))
         end
@@ -690,13 +696,7 @@ function optimise!(ws::AbstractWorkspace,
         # krylov setup
         if args["acceleration"] == :krylov
             # copy older iterate
-            # if we HAVE just tried krylov acceleration, this notion is handled
-            # differently and efficiently from within accel_fp_safeguard!,
-            # using recycled work from the fixed-point residual check in
-            # there
-            if !just_tried_acceleration
-                @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
-            end
+            @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
             if ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis
@@ -713,17 +713,26 @@ function optimise!(ws::AbstractWorkspace,
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
+
+                        push!(record.xy_step_norms, norm(curr_xy_update))
+                        push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
                     end
 
                     # assign actually
                     ws.vars.xy_q[:, 1] .= scratch.accelerated_point
+                else
+                    if !args["run-fast"]
+                        @views curr_xy_update .= 0.0
+                        push!(record.xy_step_norms, NaN)
+                        push!(record.xy_step_char_norms, NaN)
+                    end
                 end
 
-                # prevent recording 0 or very large update norm in any case
-                if !args["run-fast"]
-                    push!(record.xy_step_norms, NaN)
-                    push!(record.xy_step_char_norms, NaN)
-                end
+                # # prevent recording 0 or very large update norm in any case
+                # if !args["run-fast"]
+                #     push!(record.xy_step_norms, NaN)
+                #     push!(record.xy_step_char_norms, NaN)
+                # end
 
                 # reset krylov acceleration data when memory is fully
                 # populated, regardless of success/failure
@@ -889,7 +898,6 @@ function optimise!(ws::AbstractWorkspace,
             # scratch.temp_mn_vec1 contains older one
 
             if !args["run-fast"]
-                # record step (might be zero if acceleration failed)
                 curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
 
                 # record iteration data here
