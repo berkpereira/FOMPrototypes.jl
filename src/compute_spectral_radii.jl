@@ -9,7 +9,6 @@ using SparseArrays
 using SCS
 using Random
 using JLD2
-using Pkg
 
 function process_problem(problem_set, problem_name; ρ::Float64)
     # Load the problem data
