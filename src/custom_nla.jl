@@ -103,7 +103,7 @@ function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vecto
 end
 
 """
-    arnoldi_step!(V, v_new, H)
+    arnoldi_step!(ws, V, v_new, H)
 
 Perform one Modified Gram-Schmidt orthogonalisation step for Krylov methods.
 Orthogonalises the new vector IN-PLACE.
@@ -118,33 +118,20 @@ Assumptions:
 - H has been pre-allocated with the correct size (e.g. mem+1 by mem).
 - Orthogonalisation uses modified Gram-Schmidt (numerically stable).
 """
-function arnoldi_step!(V::AbstractMatrix{T},
+function arnoldi_step!(
+    V::AbstractMatrix{T},
     v_new::AbstractVector{T},
     H::AbstractMatrix{T},
     rot_count::Base.Ref{Int}) where T <: AbstractFloat
     # Determine the current column of interest.
     k = rot_count[] + 1
 
-    # println()
-    # println("k is ", k)
-    # println("Size of V: ", size(V))
-    # println("Size of H: ", size(H))
-
-    # first_zero_col = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
-    # if first_zero_col === nothing
-    #     throw(ArgumentError("No zero column found in V."))
-    # end
-    # println("First zero column of V: ", first_zero_col)
-
-    # k = findfirst(col -> all(iszero, view(V, :, col)), 1:size(V, 2))
-    # if isnothing(k)
-    #     k = size(V, 2) - 1
-    # else
-    #     k -= 1
-    # end
+    mn = size(V, 1) # number of rows in V
 
     # Loop through previous basis vectors to orthogonalise v_new    
-    @inbounds for j in 1:k
+    # init_idx = max(1, k-4)
+    init_idx = 1 # this is the canonical choice, of course
+    @inbounds for j in init_idx:k
         @views Hjk = dot(V[:, j], v_new)
         H[j, k] = Hjk
         
@@ -161,18 +148,35 @@ function arnoldi_step!(V::AbstractMatrix{T},
     end
 
     # Compute the norm of the orthogonalised vector.
-    H[k + 1, k] = norm(v_new)
+    @inbounds H[k + 1, k] = norm(v_new)
 
     # Check for breakdown
-    if H[k + 1, k] == 0.0
-        error("(Happy?) breakdown: orthogonalized vector has zero norm.")
+    @inbounds if H[k + 1, k] == 0.0
+        error("(Happy?) breakdown: orthogonalized vector in Arnoldi is zero.")
     end
 
     # Normalize v_new to make it unit length
-    v_new ./= H[k + 1, k]
+    # s = H[k + 1, k]
+    # @inbounds for i in eachindex(v_new)
+    #     v_new[i] /= s
+    # end
+    
+    # @inbounds v_new /= H[k + 1, k] # or just this as opposed to @inbounds loop?
+
+    # nromalise v_new
+    @inbounds s = 1 / H[k + 1, k]
+    BLAS.scal!(s, v_new) # this does v_new = s * v_new
 
     # Place the orthonormalized vector into the basis matrix V
-    V[:, k + 1] .= v_new
+    # @inbounds V[:, k + 1] .= v_new # simple way to do it
+    
+    # lower-level call to do it
+    # TODO if it works well, put it into a helper function fast_store_column! ?
+    @inbounds begin
+        ptr_src = pointer(v_new)
+        ptr_dest = pointer(V, k * mn + 1)   # pointer to the start of column (k+1)
+        BLAS.blascopy!(mn, ptr_src, 1, ptr_dest, 1)
+    end
 
     return nothing
 end
