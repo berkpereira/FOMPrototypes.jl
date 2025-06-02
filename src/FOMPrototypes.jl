@@ -16,7 +16,6 @@ using SparseArrays
 using SCS
 using Random
 using JLD2
-import Pkg
 
 # Include all project source files.
 include(joinpath(@__DIR__, "types.jl"))
