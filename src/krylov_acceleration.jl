@@ -125,6 +125,9 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
 
     # obtain actual acceleration candidate by applying FOM to
     # this, and write candidate to result_vec
+    
+    # TODO: check norm of this step here? we could cheapen safeguard by
+    # doing it here?... need another temp vector passed in
     onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
     return nothing
