@@ -3,32 +3,32 @@ import FOMPrototypes
 
 args = Dict(
     "ref-solver"   => :SCS,
-    "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
-    "problem-set"  => "sslsq",
-    "problem-name" => "HB_abb313_lasso", # with PDHG, Krylov accelerated gets stuck even though unaccelerated works well...?
+    "variant"      => :PDHG, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_abb313_lasso", # with PDHG, Krylov accelerated gets stuck even though unaccelerated works well...?
     # "problem-name" => "HB_ash219_lasso", # well with old Krylov
     # "problem-name" => "NYPA_Maragal_5_lasso",
     # "problem-set"  => "maros",
     # "problem-name" => "STADAT3",
 
-    # "problem-set"  => "toy",
-    # "problem-name" => "toy",
+    "problem-set"  => "toy",
+    "problem-name" => "toy",
     
     "res-norm"     => Inf,
-    "max-iter"     => Inf,
-    "rel-kkt-tol"  => 1e-6,
+    "max-iter"     => 100,
+    "rel-kkt-tol"  => 1e-12,
 
     "acceleration" => :krylov,
-    "accel-memory" => 40,
-    "safeguard-norm" => :none, # in {:euclid, :char, :none}
+    "accel-memory" => 5,
+    "safeguard-norm" => :euclid, # in {:euclid, :char, :none}
     # "safeguard-factor" => 1.0, # NOT YET IN USE, factor for fixed-point residual safeguard check in accelerated methods
 
-    "krylov-tries-per-mem"  => 2,
-    "krylov-operator"       => :tilde_A,
+    "krylov-tries-per-mem"  => 1,
+    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
-    "anderson-interval"     => 10,
-    "anderson-broyden-type" => :QR2, # in {Symbol(1), :normal2, :QR2}
+    "anderson-interval"     => 1,
+    "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
@@ -39,11 +39,11 @@ args = Dict(
     # "linesearch-period" => Inf,
     # "linesearch-eps"    => 0.001,
 
-    "print-mod"          => 1,
+    "print-mod"          => 1000,
     "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
     "show-vlines"        => true,
-    "run-fast"           => false,
-    "global-timeout"     => 5.0, # seconds, including set-up time
+    "run-fast"           => true,
+    "global-timeout"     => 2.0, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 

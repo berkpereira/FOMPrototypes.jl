@@ -283,7 +283,7 @@ end
 # TODO: consider operating on upper triangular parts only, since all of the
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
-# as $W^{-1} = (M_1 + P + ρ A^T A)^{-1}$.
+# as $W^{-1} = (M_1 + P)^{-1}$.
 function W_operator(variant::Symbol, P::Symmetric, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
     n = size(A_gram, 1)
     
