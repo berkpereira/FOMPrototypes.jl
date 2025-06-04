@@ -227,7 +227,7 @@ end
 
 function fetch_data(problem_set::String, problem_name::String)
     if problem_name == "giselsson" || problem_name == "toy"
-        repo_root = dirname(Pkg.project().path)
+        repo_root = normpath(joinpath(@__DIR__, ".."))
         file = "synthetic_problem_data/$(problem_name)_problem.jld2"
         data = load(joinpath(repo_root, file))
         # Unpack the data.
@@ -330,7 +330,12 @@ function run_prototype(problem::ProblemData,
             take_away_op = build_takeaway_op(args["variant"], problem.P, problem.A, A_gram, args["rho"])
             Random.seed!(42)  # seed for reproducibility
             max_τ = 1 / dom_λ_power_method(take_away_op, 30)
-            τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
+            
+            if max_τ !== NaN
+                τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
+            else # max_τ === NaN can happen eg in variant Symbol(1) if R(P + ρ * A' * A) is zero. in these cases we can use any τ > 0
+                τ = 1.0 # fallback value
+            end
         else # ADMM does not use τ step size
             τ = nothing
         end
