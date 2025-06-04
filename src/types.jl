@@ -259,6 +259,8 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
     krylov_basis::Matrix{T} # Krylov basis matrix, size (m + n, mem)
     givens_rotations::Vector{GivensRotation{T}}
     givens_count::Base.RefValue{Int}
+    arnoldi_breakdown::Base.RefValue{Bool}
+    fp_found::Base.RefValue{Bool} # used to trigger a termination condition when stuff goes wrong initialising Krylov basis (with NaNs due to a zero fixed-point residual having been found!)
     
     # NOTE that mem is (k+1) in the usual Arnoldi relation written
     # at the point of maximum memory usage as
@@ -318,7 +320,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
 
         println(typeof(dP))
 
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0))
+        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 

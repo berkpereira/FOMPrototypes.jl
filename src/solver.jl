@@ -374,8 +374,6 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
         @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
 
         fp_metric_vanilla = sqrt(fp_metric_vanilla)
-
-        println("at iter $(ws.k[]), char norm fp_metric_vanilla = $fp_metric_vanilla")
     else # ws.safeguard_norm == :euclid
         fp_metric_vanilla = norm(temp_mn_vec2)
     end
@@ -406,8 +404,6 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
         @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
 
         fp_metric_acc = sqrt(fp_metric_acc)
-        
-        println("at iter $(ws.k[]), char norm fp_metric_acc = $fp_metric_acc")
     else # ws.safeguard_norm == :euclid
         fp_metric_acc = norm(temp_mn_vec2)
     end
@@ -558,7 +554,8 @@ end
 
 # We also define a series of helper functions defining the behaviour in
 # different "types" of iterations
-function krylov_usual_step!(ws::KrylovWorkspace,
+function krylov_usual_step!(
+    ws::KrylovWorkspace,
     scratch,
     timer::TimerOutput
     )
@@ -567,9 +564,9 @@ function krylov_usual_step!(ws::KrylovWorkspace,
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place
-    @timeit timer "krylov arnoldi" @views arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
+    @timeit timer "krylov arnoldi" @views ws.arnoldi_breakdown[] = arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
 
-    # if ws.krylov_operator == :tilde_A, the QR factorisation
+    # if ws.krylov_operator == :tilde_A, the QR factorisation   
     # we require for the Krylov LLS subproblem is that of
     # the Hessenberg matrix MINUS an identity matrix,
     # so we must apply this immediately
@@ -587,7 +584,19 @@ function krylov_usual_step!(ws::KrylovWorkspace,
         # ws.givens_rotations, and apply it in-place to the new
         # column of H
         # also increment ws.givens_count by 1
-        generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+        # the EXCEPTION is if Arnoldi broke down (found invariant subspace
+        # and set H(givens_count[] + 2, givens_count[] + 1) equal to 0)
+        if !ws.arnoldi_breakdown[]
+            # ws.givens_count[] gets incremented by 1 inside this function
+            generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+        else
+            # NOTE: in this case we increment ws.givens_count[] so as to signal
+            # that we have gathered a new column to solve, but this rotation
+            # is not actually generated/stored, since the Arnoldi breakdown
+            # has given us a triangular principal subblock of ws.H
+            # even without it
+            ws.givens_count[] += 1
+        end
     end
 end
 
@@ -595,7 +604,8 @@ end
 Run the optimiser for the initial inputs and solver options given.
 acceleration is a Symbol in {:none, :krylov, :anderson}
 """
-function optimise!(ws::AbstractWorkspace,
+function optimise!(
+    ws::AbstractWorkspace,
     args::Dict{String, T};
     setup_time::Float64 = 0.0, # time spent in set-up (seconds)
     x_sol::Union{Nothing, Vector{Float64}} = nothing,
@@ -643,7 +653,6 @@ function optimise!(ws::AbstractWorkspace,
         function char_norm_func(vector::AbstractArray{Float64})
             return sqrt(dot(vector, char_norm_mat * vector))
         end
-        # char_norm_func = norm
     else
         char_norm_func = nothing
     end
@@ -699,11 +708,12 @@ function optimise!(ws::AbstractWorkspace,
             @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
-            if ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis
+            if (ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
                 @timeit timer "krylov sol" compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
                 # this flag is only used here
                 @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.vars.xy_recycled, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+
                 if accept_krylov
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
@@ -736,10 +746,12 @@ function optimise!(ws::AbstractWorkspace,
 
                 # reset krylov acceleration data when memory is fully
                 # populated, regardless of success/failure
-                if ws.givens_count[] + 1 == ws.mem
+                if ws.givens_count[] + 1 == ws.mem || ws.arnoldi_breakdown[]
                     ws.krylov_basis .= 0.0
                     ws.H .= 0.0
                     ws.givens_count[] = 0
+
+                    ws.arnoldi_breakdown[] = false
                 end
 
                 just_tried_acceleration = true
@@ -929,12 +941,15 @@ function optimise!(ws::AbstractWorkspace,
         global_time = loop_time + setup_time
 
         # check termination conditions
-        if ws.k[] > args["max-iter"]
-            termination = true
-            exit_status = :max_iter
-        elseif kkt_criterion(ws, args["rel-kkt-tol"])
+        if kkt_criterion(ws, args["rel-kkt-tol"])
             termination = true
             exit_status = :kkt_solved
+        elseif ws isa KrylovWorkspace && ws.fp_found[]
+            termination = true
+            exit_status = :exact_fp_found
+        elseif ws.k[] > args["max-iter"]
+            termination = true
+            exit_status = :max_iter
         elseif loop_time > args["loop-timeout"]
             termination = true
             exit_status = :loop_timeout

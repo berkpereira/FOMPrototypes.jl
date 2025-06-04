@@ -20,6 +20,11 @@ function init_krylov_basis!(ws::KrylovWorkspace)
     @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] .- ws.vars.xy_prev
     # normalise
     @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+
+    if ws.vars.xy_q[1, 2] === NaN
+        @info "🟢 Have NaNs, indicates a fixed-point has been found already!"
+        ws.fp_found[] = true
+    end
     # store in krylov_basis[:,1]
     @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
 end
@@ -117,7 +122,8 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
         ws.H,
         ws.givens_rotations,
         ws.givens_count,
-        rhs_res_custom # NB solution overwrites rhs_res_custom
+        rhs_res_custom, # NB solution overwrites rhs_res_custom
+        ws.arnoldi_breakdown[] # indicates whether to apply the last APPARENT Givens rotation to the rhs vector or not
         )
 
     # compute full-dimension LLS solution

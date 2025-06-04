@@ -103,7 +103,7 @@ function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vecto
 end
 
 """
-    arnoldi_step!(ws, V, v_new, H)
+    arnoldi_step!(V, v_new, H)
 
 Perform one Modified Gram-Schmidt orthogonalisation step for Krylov methods.
 Orthogonalises the new vector IN-PLACE.
@@ -137,7 +137,11 @@ function arnoldi_step!(
         
         # Use BLAS.axpy! for efficient in-place subtraction:
         # this does v_new = v_new - Hjk * V[:, j]
+        # THIS IS QUICK:
         BLAS.axpy!(-Hjk, view(V, :, j), v_new)
+
+        # THIS IS SLOW
+        # @views v_new .= v_new - Hjk * V[:, j]
 
         # BAD way apparently:
         # Vj = view(V, :, j)
@@ -146,13 +150,17 @@ function arnoldi_step!(
         
         # @. v_new = v_new - Hjk * Vj
     end
-
     # Compute the norm of the orthogonalised vector.
     @inbounds H[k + 1, k] = norm(v_new)
 
     # Check for breakdown
-    @inbounds if H[k + 1, k] == 0.0
-        error("(Happy?) breakdown: orthogonalized vector in Arnoldi is zero.")
+    @inbounds if H[k + 1, k] <= 1e-12
+        @info "(Happy?) Arnoldi breakdown: orthogonalized vector in Arnoldi is approx zero."
+
+        @inbounds H[k + 1, k] = 0.0 # set to clean zero
+
+        # return true to indicate breakdown
+        return true
     end
 
     # Normalize v_new to make it unit length
@@ -161,9 +169,10 @@ function arnoldi_step!(
     #     v_new[i] /= s
     # end
     
+    # normalise v_new
     # @inbounds v_new /= H[k + 1, k] # or just this as opposed to @inbounds loop?
 
-    # nromalise v_new
+    # normalise v_new
     @inbounds s = 1 / H[k + 1, k]
     BLAS.scal!(s, v_new) # this does v_new = s * v_new
 
@@ -178,7 +187,8 @@ function arnoldi_step!(
         BLAS.blascopy!(mn, ptr_src, 1, ptr_dest, 1)
     end
 
-    return nothing
+    # no breakdown, hence return false
+    return false
 end
 
 """
@@ -237,9 +247,11 @@ in place.
 rhs_res should be a vector of size rot_count[] + 1, to which the first
 rot_count[] rotations in Gs are applied.
 """
-function apply_rotations_to_krylov_rhs!(rhs_res::AbstractVector{T}, Gs::Vector{GivensRotation{T}},
-    rot_count::Base.Ref{Int}) where T
-    @inbounds for i in 1:rot_count[]
+function apply_rotations_to_krylov_rhs!(
+    rhs_res::AbstractVector{T},
+    Gs::Vector{GivensRotation{T}},
+    rot_count::Int) where T
+    @inbounds for i in 1:rot_count
         G = Gs[i]
         tmp =  G.c * rhs_res[i] + G.s * rhs_res[i+1]
         rhs_res[i+1] = -G.s * rhs_res[i] + G.c * rhs_res[i+1]
@@ -252,16 +264,25 @@ end
 
 Assumes H has been upper-triangularised in its first `rot_count` cols/rows.
 Solves the kxk system
-    H[1:k,1:k] * y = -rhs_res[1:k]
-in place --- solution is written to rhs_res[1:k].
+    H[1:rot_count[], 1:rot_count[]] * y = -rhs_res[1:rot_count[]]
+in place --- solution is written to rhs_res[1:rot_count[]].
 """
-function solve_current_least_squares!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}, rhs_res::AbstractVector{T}) where T
+function solve_current_least_squares!(H::AbstractMatrix{T}, Gs::Vector{GivensRotation{T}}, rot_count::Base.Ref{Int}, rhs_res::AbstractVector{T}, arnoldi_breakdown::Bool) where T
     # apply the stored Givens rotations to the rhs_res vector
-    apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count)
+    if !arnoldi_breakdown
+        apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count[])
+    else
+        # if we had Arnoldi breakdown, really we ignore what would usually
+        # have been the final Givens rotation here, since the breakdown
+        # gave us an upper triangular subblock of H even without the use
+        # of a final such rotation
+        apply_rotations_to_krylov_rhs!(rhs_res, Gs, rot_count[] - 1)
+    end
     
     # use UpperTriangular wrapper to exploit triangular structure
     # in ldiv!
-    R = UpperTriangular(@view H[1:rot_count[], 1:rot_count[]])
+    R = UpperTriangular(view(H, 1:rot_count[], 1:rot_count[]))
+
     rhs_res[1:rot_count[]] .*= -1.0 # negate the rhs_res vector
     @views ldiv!(R, rhs_res[1:rot_count[]])
     
