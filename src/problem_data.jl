@@ -1,4 +1,4 @@
-using JuMP, ClarabelBenchmarks, Clarabel, LinearAlgebra
+using JuMP, ClarabelBenchmarks, Clarabel, LinearAlgebra, SparseArrays
 
 function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::String)
 
@@ -19,7 +19,10 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
     solver = model.moi_backend.optimizer.model.optimizer.solver
 
     # extract the problem data 
-    P = solver.data.P # note no Symmetric wrapper
+    P = solver.data.P # Clarabel stores diag + upper triangle only
+    # Fill lower triangle to make a full symmetric sparse matrix
+    # (mirror strictly upper part; keep diagonal as-is)
+    P = P + transpose(triu(P, 1))
     A = solver.data.A
     (m, n) = size(A)
     c = solver.data.q
