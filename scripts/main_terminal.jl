@@ -1,5 +1,4 @@
 # this file is used to run solver code directly from a terminal command
-using Revise
 import FOMPrototypes
 
 if abspath(PROGRAM_FILE) == @__FILE__

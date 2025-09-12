@@ -1,36 +1,67 @@
-# using Revise
 import FOMPrototypes
+using Infiltrator
 
 args = Dict(
     "ref-solver"   => :SCS,
-    "variant"      => :PDHG, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
+    "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
+
     # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_abb313_lasso", # with PDHG, Krylov accelerated gets stuck even though unaccelerated works well...?
-    # "problem-name" => "HB_ash219_lasso", # well with old Krylov
-    # "problem-name" => "NYPA_Maragal_5_lasso",
+    # "problem-name" => "HB_abb313_lasso",
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_ash219_lasso", # well with Krylov
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_ash85_lasso",
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_ash85_huber",
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_ash331_lasso",
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_abb313_lasso",
+
+    # "problem-set"  => "sslsq",
+    # "problem-name" => "HB_ash219_huber",
+
+    "problem-set"  => "sslsq",
+    "problem-name" => "NYPA_Maragal_4_lasso",
+
+    # this can break when estimation of max_τ goes wrong (negative! even)
+    # "problem-set"  => "mpc",
+    # "problem-name" => "springMass_4",
+
+    # NB this LP gives bad Arnoldi breakdowns (rank deficient
+    # LLS system, breaks forward solve) when using ADMM, Krylov,
+    # mem = 40, tries_per_mem = 3, euclidean safeguard, krylov operator = :tilde_A
+    # TODO address these issues
+    # "problem-set"  => "netlib_feasible",
+    # "problem-name" => "afiro",
+    
     # "problem-set"  => "maros",
     # "problem-name" => "STADAT3",
 
-    "problem-set"  => "toy",
-    "problem-name" => "toy",
+    # "problem-set"  => "toy",
+    # "problem-name" => "toy",
     
     "res-norm"     => Inf,
-    "max-iter"     => 100,
-    "rel-kkt-tol"  => 1e-12,
+    "rel-kkt-tol"  => 1e-10,
 
-    "acceleration" => :krylov,
-    "accel-memory" => 5,
-    "safeguard-norm" => :euclid, # in {:euclid, :char, :none}
-    # "safeguard-factor" => 1.0, # NOT YET IN USE, factor for fixed-point residual safeguard check in accelerated methods
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
+    "accel-memory" => 15,
+    "safeguard-norm" => :char, # in {:euclid, :char, :none}
+    "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 
-    "krylov-tries-per-mem"  => 1,
-    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
+    "krylov-tries-per-mem"  => 5,
+    "krylov-operator"       => :B, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
-    "anderson-interval"     => 1,
-    "anderson-broyden-type" => :normal2, # in {Symbol(1), :normal2, :QR2}
+    "anderson-interval"     => 5,
+    "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
-    "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
+    "anderson-reg"          => :tikonov, # in {:none, :tikonov, :frobenius}
 
     "rho"   => 1.0,
     "theta" => 1.0,
@@ -39,11 +70,12 @@ args = Dict(
     # "linesearch-period" => Inf,
     # "linesearch-eps"    => 0.001,
 
-    "print-mod"          => 1000,
-    "print-res-rel"      => true, # print relative (or absolute) residuals/duality gaps
+    "max-iter"           => Inf,
+    "print-mod"          => 100,
+    "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
-    "run-fast"           => true,
-    "global-timeout"     => 2.0, # seconds, including set-up time
+    "run-fast"           => false,
+    "global-timeout"     => 5.0, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 
@@ -54,13 +86,13 @@ args = Dict(
 problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
 
 # call reference solver:
-model_ref, x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
+# model_ref, x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
 
 # call my solver:
-ws, results, to = FOMPrototypes.run_prototype(problem, args["problem-set"], args["problem-name"], args);
+ws, results, to, tilde_A, tilde_b, H_unmod = FOMPrototypes.run_prototype(problem, args["problem-set"], args["problem-name"], args, full_diagnostics = false, spec_plot_period = 50);
 
 # plot results if applicable:
 if !args["run-fast"]
-    FOMPrototypes.plot_results(results, args["problem-set"], args["problem-name"], args, :gr);
+    FOMPrototypes.plot_results(ws, results, args["problem-set"], args["problem-name"], args, :plotlyjs)
 end
 ;
