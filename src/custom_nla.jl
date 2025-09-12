@@ -131,6 +131,7 @@ function arnoldi_step!(
     # Loop through previous basis vectors to orthogonalise v_new    
     # init_idx = max(1, k-4)
     init_idx = 1 # this is the canonical choice, of course
+    
     @inbounds for j in init_idx:k
         @views Hjk = dot(V[:, j], v_new)
         H[j, k] = Hjk
@@ -177,15 +178,15 @@ function arnoldi_step!(
     BLAS.scal!(s, v_new) # this does v_new = s * v_new
 
     # Place the orthonormalized vector into the basis matrix V
-    # @inbounds V[:, k + 1] .= v_new # simple way to do it
+    @inbounds V[:, k + 1] .= v_new # simple way to do it
     
-    # lower-level call to do it
+    # lower-level call to place orthonormalized vector into V
     # TODO if it works well, put it into a helper function fast_store_column! ?
-    @inbounds begin
-        ptr_src = pointer(v_new)
-        ptr_dest = pointer(V, k * mn + 1)   # pointer to the start of column (k+1)
-        BLAS.blascopy!(mn, ptr_src, 1, ptr_dest, 1)
-    end
+    # @inbounds begin
+    #     ptr_src = pointer(v_new)
+    #     ptr_dest = pointer(V, k * mn + 1)   # pointer to the start of column (k+1)
+    #     BLAS.blascopy!(mn, ptr_src, 1, ptr_dest, 1)
+    # end
 
     # no breakdown, hence return false
     return false
@@ -283,14 +284,21 @@ function solve_current_least_squares!(H::AbstractMatrix{T}, Gs::Vector{GivensRot
     # in ldiv!
     R = UpperTriangular(view(H, 1:rot_count[], 1:rot_count[]))
 
-    rhs_res[1:rot_count[]] .*= -1.0 # negate the rhs_res vector
+    @inbounds rhs_res[1:rot_count[]] .*= -1.0 # negate the rhs_res vector
+
+    # this ought to be triggered after an Arnoldi breakdown
+    # where we have found a 1-eigenvector of tilde_A (ie null vector of B = tilde_A - I)
+    @inbounds if abs(R[rot_count[], rot_count[]]) < 10 * eps(T)
+        return :B_nullvec
+    end
+    
     @views ldiv!(R, rhs_res[1:rot_count[]])
     
     # naive solution code:
     # @views lls_sol = H[1:rot_count[], 1:rot_count[]] \ (-rhs_res[1:rot_count[]])
     # return lls_sol
     
-    return nothing
+    return :success
 end
 
 """

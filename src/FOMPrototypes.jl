@@ -4,6 +4,7 @@ export main, run_cli, run_prototype, solve_reference, fetch_data,
     plot_results
 
 # Import packages.
+using Revise
 using ArgParse
 using Infiltrator
 using TimerOutputs
@@ -11,7 +12,6 @@ using LinearMaps
 using Infiltrator
 using Profile
 using BenchmarkTools
-using Plots
 using SparseArrays
 using SCS
 using Random
@@ -28,6 +28,7 @@ include(joinpath(@__DIR__, "linesearch.jl"))
 include(joinpath(@__DIR__, "printing.jl"))
 include(joinpath(@__DIR__, "solver.jl"))
 include(joinpath(@__DIR__, "problem_data.jl"))
+include(joinpath(@__DIR__, "plotting.jl"))
 
 ########################
 # Initialization Block #
@@ -51,8 +52,8 @@ function initialise_misc(backend::Symbol = :plotlyjs)
     local newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
 
     # Set default plot size (in pixels)
-    default(size=(1100, 700)) # for desktop
-    # default(size=(1200, 800)) # for laptop
+    # default(size=(2000, 450)) # for desktop
+    default(size=(800, 600)) # for laptop
 
     return newline_char
 end
@@ -312,7 +313,9 @@ function run_prototype(problem::ProblemData,
     problem_set::String,
     problem_name::String,
     args::Dict{String, T};
-    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing) where T
+    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing,
+    full_diagnostics::Bool = false,
+    spec_plot_period::Real = Inf) where T
 
     # simple args consistency check
     if args["anderson-interval"] < 1
@@ -330,6 +333,8 @@ function run_prototype(problem::ProblemData,
             take_away_op = build_takeaway_op(args["variant"], problem.P, problem.A, A_gram, args["rho"])
             Random.seed!(42)  # seed for reproducibility
             max_τ = 1 / dom_λ_power_method(take_away_op, 30)
+
+            @info "Maximum τ: $(max_τ)"
             
             if max_τ !== NaN
                 τ = 0.90 * max_τ # 90% of max_τ is used in PDLP paper, for instance
@@ -362,22 +367,27 @@ function run_prototype(problem::ProblemData,
 
     @timeit to "solver" begin
         # Run the solver
-        results = optimise!(ws,
-        args,
-        setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
-        x_sol = x_ref, y_sol = y_ref,
-        timer = to,
-        explicit_affine_operator = false)
+        results, tilde_A, tilde_b, H_unmod = optimise!(
+            ws,
+            args,
+            setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
+            x_sol = x_ref,
+            y_sol = y_ref,
+            timer = to,
+            full_diagnostics = full_diagnostics,
+            spectrum_plot_period = spec_plot_period)
     end
 
-    return ws, results, to
+    return ws, results, to, tilde_A, tilde_b, H_unmod
 end
 
 #############################
 # Refactored Plotting Block #
 #############################
 
-function plot_results(results,
+function plot_results(
+    ws::AbstractWorkspace,
+    results,
     problem_set::String,
     problem_name::String,
     args::Dict{String, T},
@@ -391,7 +401,7 @@ function plot_results(results,
     
     # plotting constants
     LINEWIDTH = 2.5
-    VERT_LINEWIDTH = 1.5
+    VERT_LINEWIDTH = 1
     ALPHA = 0.9
 
     # Common title components
@@ -413,11 +423,13 @@ function plot_results(results,
     constraint_lines = constraint_changes(results.metrics_history[:record_proj_flags])
 
     # Helper function to add common vertical lines, only if show_vlines is true.
-    function add_vlines!(plt; constraint_style=(:dash, ALPHA, :green, VERT_LINEWIDTH))
+    function add_vlines!(plt; include_active_set_changes::Bool = true)
         if args["show-vlines"]
-            vline!(plt, results.metrics_history[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH), label="Accelerated Steps")
+            vline!(plt, results.metrics_history[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH * 1.5), label="Accelerated Steps")
             vline!(plt, results.metrics_history[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
-            vline!(plt, constraint_lines, line = constraint_style, label="Active set changes")
+            if include_active_set_changes
+                vline!(plt, constraint_lines, line = (:solid, ALPHA, :green, VERT_LINEWIDTH), label="Active set changes")
+            end
         end
         return plt
     end
@@ -504,15 +516,37 @@ function plot_results(results,
     # add_vlines!(update_ranks_plot)
     # display(update_ranks_plot)
 
-    # Projection flags plot (often intensive)
-    # enforced_constraints_plot(results.metrics_history[:record_proj_flags])
-
     # Consecutive update (x, y) cosines plot.
     xy_update_cosines_plot = plot(1:k_final-1, results.metrics_history[:xy_update_cosines], linewidth=LINEWIDTH,
         label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates",
         title="$title_common Consecutive (x, y) Update Cosines")
-    add_vlines!(xy_update_cosines_plot, constraint_style = (:dashdot, ALPHA, :green, VERT_LINEWIDTH))
+    add_vlines!(xy_update_cosines_plot)
     display(xy_update_cosines_plot)
+
+    # Projection flags plot (often intensive)
+    # enforced_constraints_plot(results.metrics_history[:record_proj_flags])
+
+    # plot count of flipped constraints
+    proj_diffs_plot = plot_projection_diffs(results.metrics_history[:record_proj_flags])
+    add_vlines!(proj_diffs_plot, include_active_set_changes = false)
+    display(proj_diffs_plot)
+
+    # plot count of enforced constraints
+    enforced_constraints_plot = plot_enforced_constraints_count(results.metrics_history[:record_proj_flags], ws.p.m)
+    add_vlines!(enforced_constraints_plot, include_active_set_changes = false)
+    display(enforced_constraints_plot)
+
+    # FP Metric Ratio plot.
+    acc_attempt_iters = results.metrics_history[:acc_attempt_iters]
+    fp_metric_ratios = results.metrics_history[:fp_metric_ratios]
+    fp_metric_plot = plot(acc_attempt_iters, fp_metric_ratios, linewidth=LINEWIDTH,
+        label="FP Metric Ratio", xlabel="Acceleration Attempt Iterations", ylabel="FP Metric Ratio",
+        title="$title_common FP Metric Ratio",
+        lw=2, # Set line width for better visibility
+        marker=:circle, # Add markers to each data point
+        markersize=3)
+    add_vlines!(fp_metric_plot)
+    display(fp_metric_plot)
 end
 
 ##########################
@@ -560,7 +594,7 @@ function main(config::Dict{String, Any})
     if !config["run-fast"]
         println()
         println("About to plot results...")
-        plot_results(results, config["problem-set"], config["problem-name"], config)
+        plot_results(ws, results, config["problem-set"], config["problem-name"], config)
     end
     
     #return data of interest to inspect
