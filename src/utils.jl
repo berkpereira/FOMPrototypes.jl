@@ -8,6 +8,7 @@ using SCS
 using Statistics
 using Clarabel
 using FFTW
+using Printf
 
 """
 This function multiplies in-place a matrix by another matrix with two columns.
@@ -113,7 +114,7 @@ guarantees (see AD-PMM in Shefi and Teboulle 2014 paper). Namely,
 the theoretical (1 / τ_max) given by the reciprocal of the largest eigenvalue
 of the operator returned by this function.
 """
-function build_takeaway_op(variant::Symbol, P::Symmetric{Float64},
+function build_takeaway_op(variant::Symbol, P::SparseMatrixCSC{Float64, Int64},
     A::SparseMatrixCSC{Float64, Int64}, A_gram::LinearMap{Float64},
     ρ::Float64)
     n = size(P, 1)  # assume P is square
@@ -284,18 +285,18 @@ end
 # matrices involved are symmetric.
 # This is often in my/Paul's notes referred to
 # as $W^{-1} = (M_1 + P)^{-1}$.
-function W_operator(variant::Symbol, P::Symmetric, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
+function W_operator(variant::Symbol, P::SparseMatrixCSC, A::AbstractMatrix, A_gram::LinearMap, τ::Union{Float64, Nothing}, ρ::Float64)
     n = size(A_gram, 1)
     
     ################## NON-DIAGONAL  pre-gradient operators ####################
     
     if variant == :PDHG
-        pre_operator = Symmetric(sparse(I(n)) / τ + P)
+        pre_operator = sparse(I(n)) / τ + P # note no Symmetric wrapper
     elseif variant == :ADMM
         # note: I think in this case I am forced to form the 
         # matrix P + ρ * A' * A explicitly, in order to then compute
         # its Cholesky factors for inverse-vec products
-        pre_operator = Symmetric(P + ρ * A' * A)
+        pre_operator = P + ρ * A' * A # note NO Symmetric wrapper
     
     ################ DIAGONAL pre-gradient operators ################
 
@@ -427,14 +428,49 @@ function add_cone_constraints!(model::JuMP.Model, s::JuMP.Containers.Array, K::V
     end
 end
 
+"""
+Plots the spectrum of matrix A in the complex plane.
+Adds some reference elements relevant to our spectral analysis.
+"""
 function plot_spectrum(A::AbstractMatrix{Float64}, k::Union{Int, Nothing} = nothing)
     eig_decomp = eigen(Matrix(A))
     
-    # Plot the spectrum in the complex plane
-    display(scatter(real(eig_decomp.values), imag(eig_decomp.values),
+    # Compute the spectral radius.
+    spectral_radius = maximum(abs.(eig_decomp.values))
+    
+    # Build the title string.
+    title_str = "Spectrum, k = $k"
+    title_str *= ", spectral radius = " * @sprintf("%0.5f", spectral_radius)
+    max_imag = maximum(imag.(eig_decomp.values))
+    title_str *= ", max imag: " * @sprintf("%0.5f", max_imag)
+    # Define tolerances for "small" distances
+    tol0 = 1e-4  # tolerance for eigenvalues near 0 
+    tol1 = 1e-4  # tolerance for eigenvalues near 1
+
+    # Count eigenvalues near 0 and near 1
+    num_near_zero = count(x -> abs(x) < tol0, eig_decomp.values)
+    num_near_one  = count(x -> abs(x - 1) < tol1, eig_decomp.values)
+
+    # Append the counts to the title string
+    title_str *= ", near 0: $(num_near_zero)"
+    title_str *= ", near 1: $(num_near_one)"
+    
+    p = scatter(
+        real(eig_decomp.values), imag(eig_decomp.values),
         xlabel="Re", ylabel="Im",
-        title="Spectrum of tilde_A, k = $k",
-        legend=false, aspect_ratio=:equal, marker=:x))
+        title=title_str,
+        legend=false, aspect_ratio=:equal, marker=:x)
+
+    # add a single red marker at (0.5, 0.0)
+    scatter!(p, [0.5], [0.0], markershape=:circle, color=:red)
+
+    # add a solid red circle (outline) of radius 0.5 centered at (0.5, 0.0)
+    θ = range(0, 2π, length=100)
+    rx = 0.5 .+ 0.5 * cos.(θ)
+    ry = 0.0 .+ 0.5 * sin.(θ)
+    plot!(p, rx, ry, linecolor=:red, linestyle=:solid, label="")
+
+    display(p)
 
     # NB: the function returns the eigendecomposition.
     return eig_decomp

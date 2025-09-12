@@ -13,8 +13,8 @@ function prepare_inv(W::Diagonal{T},
     return DiagInvOp(inv_diag)
 end
 
-function prepare_inv(W::Symmetric{T},
-    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10) where T <: AbstractFloat
+function prepare_inv(W::SparseMatrixCSC{T, I},
+    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10) where {T <: AbstractFloat, I <: Integer}
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
     
     if to !== nothing

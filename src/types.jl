@@ -16,7 +16,7 @@ abstract type AbstractInvOp end
 @with_kw struct ProblemData{T, I}
     problem_set::String
     problem_name::String
-    P::Symmetric{T}
+    P::SparseMatrixCSC{T, I}
     c::Vector{T}
     A::SparseMatrixCSC{T, I}
     m::Int
@@ -29,7 +29,7 @@ abstract type AbstractInvOp end
     c_norm_inf::T
 
     function ProblemData{T, I}(problem_set::String, problem_name::String,
-        P::Symmetric{T}, c::Vector{T}, A::SparseMatrixCSC{T, I}, b::Vector{T},
+        P::SparseMatrixCSC{T, I}, c::Vector{T}, A::SparseMatrixCSC{T, I}, b::Vector{T},
         K::Vector{Clarabel.SupportedCone}) where {T <: AbstractFloat, I <: Integer}
         m, n = size(A)
         
@@ -148,16 +148,16 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
         pm.gap_rel,
        )
 
-abstract type AbstractWorkspace{T<:AbstractFloat, V <: AbstractVariables{T}} end
+abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
-struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, NoneVariables{T}}
+struct NoneWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, NoneVariables{T}}
     k::Base.RefValue{Int} # iter counter
     p::ProblemData{T}
     vars::NoneVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, Symmetric{T}}
+    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
     τ::Union{T, Nothing}
@@ -165,14 +165,14 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, NoneVariables{T
     θ::T
     proj_flags::AbstractVector{Bool}
 
-    function NoneWorkspace{T}(p::ProblemData{T},
+    function NoneWorkspace{T, I}(p::ProblemData{T},
         vars::Union{NoneVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
         ρ::T,
         θ::T,
-        to::Union{TimerOutput, Nothing}) where {T <: AbstractFloat}
+        to::Union{TimerOutput, Nothing}) where {T <: AbstractFloat, I <: Integer}
         
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
@@ -192,7 +192,7 @@ struct NoneWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, NoneVariables{T
         end
 
         W_inv = prepare_inv(W, to)
-        new{T}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T, I}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end 
 end
 
@@ -211,7 +211,7 @@ function NoneWorkspace(
     return NoneWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to)
 end
 
-NoneWorkspace(args...; kwargs...) = NoneWorkspace{DefaultFloat}(args...; kwargs...)
+NoneWorkspace(args...; kwargs...) = NoneWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # type used to store Givens rotation
 # LinearAlgebra.givensAlgorithm is derived from LAPACK's dlartg
@@ -226,14 +226,14 @@ struct GivensRotation{T <: AbstractFloat}
 end
 
 # workspace type for when Krylov acceleration is used
-struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariables{T}}
+struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, KrylovVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     p::ProblemData{T}
     vars::KrylovVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, Symmetric{T}}
+    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
     τ::Union{T, Nothing}
@@ -268,7 +268,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
     # ie plainly the number of columns allocated for krylov basis vectors
 
     # constructor where initial iterates are not passed (default set to zero)
-    function KrylovWorkspace{T}(p::ProblemData{T},
+    function KrylovWorkspace{T, I}(p::ProblemData{T},
         vars::Union{KrylovVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
@@ -279,7 +279,19 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
         mem::Int,
         tries_per_mem::Int,
         safeguard_norm::Symbol,
-        krylov_operator::Symbol) where {T <: AbstractFloat}
+        krylov_operator::Symbol) where {T <: AbstractFloat, I <: Integer}
+
+        if (mem - 1) >= p.m + p.n
+            throw(ArgumentError("(mem - 1) must be less than m + n."))
+        end
+
+        if tries_per_mem > (mem - 1)
+            throw(ArgumentError("tries_per_mem must be less than or equal to (mem - 1)."))
+        end
+
+        if !(krylov_operator in [:tilde_A, :B])
+            throw(ArgumentError("krylov_operator must be one of :tilde_A, :B"))
+        end
 
         if !(safeguard_norm in [:euclid, :char, :none])
             throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
@@ -318,9 +330,7 @@ struct KrylovWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, KrylovVariabl
 
         W_inv = prepare_inv(W, to)
 
-        println(typeof(dP))
-
-        new{T}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        new{T, I}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 
@@ -342,10 +352,10 @@ function KrylovWorkspace(
     # delegate to the inner constructor
     return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, tries_per_mem, safeguard_norm, krylov_operator)
 end
-KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat}(args...; kwargs...)
+KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # workspace type for when Anderson acceleration is used
-struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVariables{T}}
+struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, AndersonVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
@@ -354,7 +364,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
     vars::AndersonVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, Symmetric{T}}
+    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
     W_inv::AbstractInvOp
     A_gram::LinearMap{T}
     τ::Union{T, Nothing}
@@ -376,7 +386,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
     safeguard_norm::Symbol # in {:euclid, :char, :none}
     accelerator::AndersonAccelerator
 
-    function AndersonWorkspace{T}(
+    function AndersonWorkspace{T, I}(
         p::ProblemData{T},
         vars::Union{AndersonVariables{T}, Nothing},
         variant::Symbol,
@@ -391,7 +401,7 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
         regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer},
-        anderson_log::Bool) where {T <: AbstractFloat}
+        anderson_log::Bool) where {T <: AbstractFloat, I <: Integer}
         anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
 
         if !(safeguard_norm in [:euclid, :char, :none])
@@ -431,11 +441,11 @@ struct AndersonWorkspace{T <: AbstractFloat} <: AbstractWorkspace{T, AndersonVar
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end
-AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat}(args...; kwargs...)
+AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # thin wrapper to allow default constructor arguments
 function AndersonWorkspace(
