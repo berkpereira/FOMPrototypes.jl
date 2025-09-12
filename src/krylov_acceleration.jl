@@ -15,18 +15,37 @@ function update_proj_flags!(proj_flags::BitVector,
 end
 
 # helper to form and store the first Krylov basis vector
-function init_krylov_basis!(ws::KrylovWorkspace)
-    # form fixed‐point residual in slot 2
-    @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] .- ws.vars.xy_prev
-    # normalise
-    @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+function init_krylov_basis!(
+    ws::KrylovWorkspace,
+    krylov_status::Symbol=:success)
 
-    if ws.vars.xy_q[1, 2] === NaN
-        @info "🟢 Have NaNs, indicates a fixed-point has been found already!"
-        ws.fp_found[] = true
+    if krylov_status == :success
+        # form fixed‐point residual in slot 2
+        @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] .- ws.vars.xy_prev
+        # normalise
+        @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+
+        if ws.vars.xy_q[1, 2] === NaN
+            @info "🟢 Have NaNs in initial Krylov basis vector, indicates a fixed-point has been found already!"
+            ws.fp_found[] = true
+        end
+        # store in krylov_basis[:,1]
+        @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
+    elseif krylov_status == :B_nullvec
+        # if we have landed on a fp residual which is a null vector of B,
+        # ie a 1-eigenvector of tilde_A, this is likely to lead to breakdowns
+        # in successive tries as the FOM is stuck on a slow convergence zone.
+        # for this reason it might be a good idea to just try something
+        # different from this residual vector, otherwise we can get stuck
+        # solving trivial Krylov systems every iteration
+        @info "Found a null vector of B in previous Krylov solution, so am initialising Krylov basis with a random vector this time. This is iteration $(ws.k[])."
+        @views ws.vars.xy_q[:, 2] .= randn(ws.p.m + ws.p.n)
+        ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+        @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
+    else
+        # throw exception because this is not yet implemented.
+        throw(ArgumentError("Non-package Krylov initialisation not yet implemented."))
     end
-    # store in krylov_basis[:,1]
-    @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
 end
 
 """
@@ -93,7 +112,8 @@ This function performs an accelerated update of the candidate solution vector by
 # Returns
 - Nothing. The function updates `result_vec` with the computed acceleration candidate.
 """
-function compute_krylov_accelerant!(ws::KrylovWorkspace,
+function compute_krylov_accelerant!(
+    ws::KrylovWorkspace,
     result_vec::Vector{Float64},
     temp_n_vec1::Vector{Float64},
     temp_n_vec2::Vector{Float64},
@@ -117,8 +137,8 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
     # the difference between ws.krylov_operator == tilde_A
     # and ws.krylov_operator == :B is accounted for in the ws.H matrix
     # itself, which in the former case is shifted by -I at every step of the
-    # way leading up to here (see Obsidian 2024/wee51 notes)
-    solve_current_least_squares!(
+    # way leading up to here (see Obsidian 2024/week51 notes)
+    lls_status = solve_current_least_squares!(
         ws.H,
         ws.givens_rotations,
         ws.givens_count,
@@ -127,14 +147,22 @@ function compute_krylov_accelerant!(ws::KrylovWorkspace,
         )
 
     # compute full-dimension LLS solution
-    @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
+    if lls_status == :success
+        @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
 
-    # obtain actual acceleration candidate by applying FOM to
-    # this, and write candidate to result_vec
-    
-    # TODO: check norm of this step here? we could cheapen safeguard by
-    # doing it here?... need another temp vector passed in
-    onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+        # obtain actual acceleration candidate by applying FOM to
+        # this, and write candidate to result_vec
+        
+        # TODO: check norm of this step here? we could cheapen safeguard by
+        # doing it here?... need another temp vector passed in
 
-    return nothing
+        # sign_preop_multipliers = 
+
+        # the usual thing is to apply T to this GMRES proposal
+        onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    else
+        @info "❌ Krylov acceleration failed with status: $lls_status"
+    end
+
+    return lls_status
 end
