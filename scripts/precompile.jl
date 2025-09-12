@@ -1,4 +1,3 @@
-using Revise # not strictly necessary here
 using FOMPrototypes
 
 # call main on dummy configs for precompilation
