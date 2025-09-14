@@ -47,9 +47,9 @@ args = Dict(
     # "problem-name" => "toy",
     
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-6,
+    "rel-kkt-tol"  => 1e-9,
 
-    "acceleration" => :anderson, # in {:none, :krylov, :anderson}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "accel-memory" => 15,
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
@@ -71,6 +71,7 @@ args = Dict(
     # "linesearch-eps"    => 0.001,
 
     "max-iter"           => Inf,
+    "max-k-operator"     => Inf, # only relevant with Anderson/Krylov
     "print-mod"          => 1000,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,

@@ -1166,6 +1166,9 @@ function optimise!(
         elseif ws.k[] > args["max-iter"]
             termination = true
             exit_status = :max_iter
+        elseif (ws isa AndersonWorkspace || ws isa KrylovWorkspace) && ws.k_operator[] > args["max-k-operator"] # note distinctness from ordinary :max_iter above
+            termination = true
+            exit_status = :max_k_operator
         elseif loop_time > args["loop-timeout"]
             termination = true
             exit_status = :loop_timeout
