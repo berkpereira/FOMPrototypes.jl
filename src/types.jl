@@ -229,6 +229,7 @@ end
 struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, KrylovVariables{T}}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
+    k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     p::ProblemData{T}
     vars::KrylovVariables{T}
     res::ProgressMetrics{T}
@@ -330,7 +331,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
 
         W_inv = prepare_inv(W, to)
 
-        new{T, I}(Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        new{T, I}(Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 
@@ -357,8 +358,9 @@ KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(
 # workspace type for when Anderson acceleration is used
 struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, AndersonVariables{T}}
     k::Base.RefValue{Int} # iter counter
-    k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul (Anderson) acceleration attempts
+    k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
+    k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     p::ProblemData{T}
     vars::AndersonVariables{T}
@@ -441,7 +443,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end
