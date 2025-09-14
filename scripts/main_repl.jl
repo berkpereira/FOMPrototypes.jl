@@ -27,7 +27,7 @@ args = Dict(
     # "problem-name" => "HB_ash219_huber",
 
     "problem-set"  => "sslsq",
-    "problem-name" => "NYPA_Maragal_4_lasso",
+    "problem-name" => "NYPA_Maragal_5_lasso",
 
     # this can break when estimation of max_τ goes wrong (negative! even)
     # "problem-set"  => "mpc",
@@ -47,23 +47,23 @@ args = Dict(
     # "problem-name" => "toy",
     
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-10,
+    "rel-kkt-tol"  => 1e-6,
 
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
+    "acceleration" => :anderson, # in {:none, :krylov, :anderson}
     "accel-memory" => 15,
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 
-    "krylov-tries-per-mem"  => 5,
+    "krylov-tries-per-mem"  => 3,
     "krylov-operator"       => :B, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
-    "anderson-interval"     => 5,
+    "anderson-interval"     => 10,
     "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
-    "anderson-reg"          => :tikonov, # in {:none, :tikonov, :frobenius}
+    "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
-    "rho"   => 1.0,
+    "rho"   => 5.0,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -71,11 +71,11 @@ args = Dict(
     # "linesearch-eps"    => 0.001,
 
     "max-iter"           => Inf,
-    "print-mod"          => 100,
+    "print-mod"          => 1000,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
     "run-fast"           => false,
-    "global-timeout"     => 5.0, # seconds, including set-up time
+    "global-timeout"     => 2.5, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 
