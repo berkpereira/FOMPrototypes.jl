@@ -500,10 +500,12 @@ function AndersonWorkspace(
 end
 
 
-mutable struct Results{T <: AbstractFloat}
+mutable struct Results{T <: AbstractFloat, I <: Integer}
     metrics_history::Dict{Symbol, Any}
     metrics_final::ReturnMetrics{T}
     exit_status::Symbol
+    k_final::I
+    k_operator_final::I
 end
 
 # We now define some types to make the inversion of preconditioner + Hessian
