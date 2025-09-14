@@ -1,5 +1,4 @@
 using LinearAlgebra
-using Plots
 using Random
 using Printf
 using Infiltrator
@@ -24,6 +23,9 @@ const HISTORY_KEYS = [
     :xy_step_norms,
     :xy_step_char_norms,
     :xy_update_cosines,
+
+    :fp_metric_ratios,
+    :acc_attempt_iters,
 ]
 
 """
@@ -284,7 +286,7 @@ end
 
 function iter_x!(x::AbstractVector{Float64},
     gradient_preop::AbstractInvOp,
-    P::Symmetric,
+    P::AbstractMatrix{Float64},
     c::AbstractVector{Float64},
     A::AbstractMatrix{Float64},
     y_bar::AbstractVector{Float64},
@@ -328,15 +330,22 @@ Returns Boolean indicating acceleration success/failure.
 
 Source code has similarities to that of onecol_method_operator!
 """
-function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
+function accel_fp_safeguard!(
+    ws::Union{KrylovWorkspace, AndersonWorkspace},
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
     to_recycle_xy::AbstractVector{Float64},
+    safeguard_factor::Float64,
     temp_mn_vec1::AbstractVector{Float64},
     temp_mn_vec2::AbstractVector{Float64},
     temp_n_vec1::AbstractVector{Float64},
     temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64})
+    temp_m_vec::AbstractVector{Float64},
+    record::Union{NamedTuple, Nothing} = nothing,
+    tilde_A::Union{AbstractMatrix{Float64}, Nothing} = nothing,
+    tilde_b::Union{AbstractVector{Float64}, Nothing} = nothing,
+    full_diagnostics::Bool = false,
+    )
 
     # we catch the unguarded case early, since it is the simplest by far
     if ws.safeguard_norm == :none
@@ -380,7 +389,74 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
 
     # fp_metric_vanilla is fully computed by now
     # now we move on to fp_metric_acc
-    # all temporary/working vectors can be used cleanly again by now
+    # NOTE ALL TEMP/working vectors can be used cleanly again by now
+    if tilde_A !== nothing
+        try
+            # pinv_sol = (tilde_A - I) \ (-tilde_b)
+            pinv_sol = pinv(tilde_A - I) * (-tilde_b)
+            pinv_residual = norm(tilde_A * pinv_sol + tilde_b - pinv_sol)
+            if pinv_residual > 1e-9
+                println("❌ no true fixed-point at this affine operator! pinv sol residual: ", pinv_residual)
+            else
+                println("✅ true fixed-point at this affine operator! pinv sol residual: ",  pinv_residual)
+            end
+            println("Norm of pinv solution: ", norm(pinv_sol))
+            println("Norm of accelerated_xy: ", norm(accelerated_xy))
+
+            error_to_est = pinv_sol - accelerated_xy
+            rel_err = norm(error_to_est) / norm(pinv_sol)
+            if rel_err < 1e-2
+                println("✅ good Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
+            else
+                println("❌ bad Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
+            end
+
+            char_mat = Matrix([(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ])
+            true_lookahead = zeros(ws.p.m + ws.p.n)
+            onecol_method_operator!(
+                ws, pinv_sol, true_lookahead, temp_n_vec1, temp_n_vec2,
+                temp_m_vec)
+            # take a step from the linear system ≈solution, as in our Krylov method
+            onecol_method_operator!(
+                ws, true_lookahead, pinv_sol, temp_n_vec1, temp_n_vec2,
+                temp_m_vec)
+            
+            # swap: after this, true_lookahead stores T(pinv_sol)
+            custom_swap!(true_lookahead, pinv_sol, temp_mn_vec1)
+            
+            true_lookahead_step = true_lookahead - pinv_sol
+            if ws.safeguard_norm == :euclid
+                fp_metric_true = norm(true_lookahead_step)
+            elseif ws.safeguard_norm == :char
+                fp_metric_true = dot(true_lookahead_step, char_mat * true_lookahead_step)
+                fp_metric_true = sqrt(fp_metric_true)
+            end
+
+            true_metric_ratio = fp_metric_true / fp_metric_vanilla
+            if fp_metric_true < 1e-6
+                println("✅ T(pinv sol) achieves small fp metric: fp_metric_true / fp_metric_vanilla = ", true_metric_ratio)
+            else
+                println("❌ T(pinv sol) does NOT achieve small fp metric: fp_metric_true / fp_metric_vanilla = ", true_metric_ratio)
+            end
+        catch e
+            @info "Failed something when considering pinv-≈true fixed point at iter $(ws.k[]). $e"
+        end
+    end
+    if full_diagnostics && ws isa KrylovWorkspace
+        krylov_basis_svdvals = svdvals(ws.krylov_basis)
+        krylov_basis_svdvals = krylov_basis_svdvals[findall(krylov_basis_svdvals .>= 1e-10)]
+        max_sval = maximum(krylov_basis_svdvals)
+        min_sval = minimum(krylov_basis_svdvals)
+        cond_no = max_sval / min_sval
+        if cond_no > 1.1
+            println("❌ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
+            println("largest singular value: ", max_sval)
+            println("smallest singular value: ", min_sval)
+            @show krylov_basis_svdvals
+        else
+            println("✅ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
+        end
+    end
 
 
     # store FOM(accelerated_xy) in temp_mn_vec1
@@ -411,8 +487,25 @@ function accel_fp_safeguard!(ws::Union{KrylovWorkspace, AndersonWorkspace},
     # fp_metric_acc is also fully computed by now
     # recall that temp_mn_vec1 STILL stores FOM(accelerated_xy) right now
 
+    
+    metric_ratio = fp_metric_acc / fp_metric_vanilla
+    
     # report success/failure of Krylov acceleration attempt
-    acceleration_success = fp_metric_acc <= fp_metric_vanilla
+    if record !== nothing
+        push!(record.acc_attempt_iters, ws.k[])
+        push!(record.fp_metric_ratios, metric_ratio)
+    end
+
+    # determine acceptance
+    acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
+    if acceleration_success && metric_ratio < 0.9
+        println("✅ acceleration attempt at iter $(ws.k[]) was successful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    elseif acceleration_success && metric_ratio >= 0.9
+        println("⚠️ acceleration attempt at iter $(ws.k[]) was successful but not great. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    else
+        println("❌ acceleration attempt at iter $(ws.k[]) was UNsuccessful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    end
+    println()
 
     # if acceleration was a success, to_recycle_xy takes FOM(accelerated_xy)
     # else, we leave it as it was assigned to above in this function, namely
@@ -497,6 +590,7 @@ function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
             update_mat_singval_ratios = Float64[],
             update_mat_iters = Int[],
             acc_step_iters = Int[],
+            acc_attempt_iters = Int[],
             linesearch_iters = Int[],
             xy_step_norms = Float64[],
             xy_step_char_norms = Float64[], # record method's "char norm" of the updates
@@ -506,6 +600,9 @@ function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
             xy_chardist = !isnothing(x_sol) ? Float64[] : nothing,
             current_update_mat_col = Ref(1),
             updates_matrix = zeros(ws.p.n + ws.p.m, 20),
+
+            fp_metric_ratios = Float64[],
+
         )
     end
 end
@@ -557,7 +654,9 @@ end
 function krylov_usual_step!(
     ws::KrylovWorkspace,
     scratch,
-    timer::TimerOutput
+    timer::TimerOutput;
+    H_unmod::Union{Nothing, AbstractMatrix{Float64}} = nothing,
+    tilde_A::Union{AbstractMatrix{Float64}, Nothing} = nothing,
     )
     # apply method operator (to both (x, y) and Arnoldi (q) vectors)
     twocol_method_operator!(ws, scratch.temp_n_mat1, scratch.temp_n_mat2, scratch.temp_m_mat, scratch.temp_n_vec_complex1, scratch.temp_n_vec_complex2, scratch.temp_m_vec_complex, true)
@@ -572,6 +671,11 @@ function krylov_usual_step!(
     # so we must apply this immediately
     if ws.krylov_operator == :tilde_A
         ws.H[ws.givens_count[]+1, ws.givens_count[]+1] -= 1.0
+    end
+
+    # this is only when running full (expensive) diagnostics
+    if H_unmod !== nothing
+        H_unmod[:, ws.givens_count[] + 1] .= ws.H[:, ws.givens_count[] + 1]
     end
     
     @timeit timer "krylov givens" begin
@@ -601,6 +705,34 @@ function krylov_usual_step!(
 end
 
 """
+This function is used to modify the explicitly formed linearised operator of
+the method. This is an expensive computation obviously not to be used when
+the code is being run for "real" purposes.
+"""
+function construct_explicit_operator!(
+    ws::AbstractWorkspace,
+    W_inv_mat::AbstractMatrix{Float64},
+    tilde_A::AbstractMatrix{Float64},
+    tilde_b::AbstractVector{Float64},
+    )
+    
+    D_A = Diagonal(ws.proj_flags)
+
+    tilde_A[1:ws.p.n, 1:ws.p.n] .= I(ws.p.n) - W_inv_mat * ws.p.P - 2 * ws.ρ * W_inv_mat * ws.p.A' * D_A * ws.p.A
+    tilde_A[1:ws.p.n, ws.p.n+1:end] .= - W_inv_mat * ws.p.A' * (2 * D_A - I(ws.p.m))
+    tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.ρ * D_A * ws.p.A
+    tilde_A[ws.p.n+1:end, ws.p.n+1:end] .= D_A
+
+    tilde_b[1:ws.p.n] .= W_inv_mat * (2 * ws.ρ * ws.p.A' * D_A * ws.p.b - ws.p.c)
+    @views tilde_b[ws.p.n+1:end] .= - ws.ρ * D_A * ws.p.b
+
+    # # compute fixed-points, ie solutions (if existing, and potentially
+    # # non-unique) to the system (tilde_A - I) z = -tilde_b
+    # println("Actual fixed point is: ")
+    # println((tilde_A - I(ws.p.m + ws.p.n)) \ (-tilde_b))
+end
+
+"""
 Run the optimiser for the initial inputs and solver options given.
 acceleration is a Symbol in {:none, :krylov, :anderson}
 """
@@ -611,8 +743,8 @@ function optimise!(
     x_sol::Union{Nothing, Vector{Float64}} = nothing,
     y_sol::Union{Nothing, Vector{Float64}} = nothing,
     timer::TimerOutput,
-    explicit_affine_operator::Bool = false,
-    spectrum_plot_period::Int = 17,) where T
+    full_diagnostics::Bool = false,
+    spectrum_plot_period::Real = Inf) where T
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
@@ -625,9 +757,38 @@ function optimise!(
     else
         error("Unknown variable type in workspace.")
     end
+
+    # if we are to ever explicitly form the linearised method operator
+    if full_diagnostics
+        tilde_A = zeros(ws.p.m + ws.p.n, ws.p.m + ws.p.n)
+        tilde_b = zeros(ws.p.m + ws.p.n)
+
+        if ws isa KrylovWorkspace
+            H_unmod = UpperHessenberg(zeros(ws.mem, ws.mem - 1))
+        else
+            H_unmod = nothing
+        end
+
+        # form dense identity
+        dense_I = Matrix{Float64}(I, ws.p.n, ws.p.n)
+
+        # form matrix inverse of W (= P + M_1)
+        if ws.W_inv isa CholeskyInvOp
+            W_inv_mat = ws.W_inv.F \ dense_I
+            W_inv_mat = Symmetric(W_inv_mat)
+        elseif ws.W_inv isa DiagInvOp
+            W_inv_mat = Diagonal(ws.W_inv.inv_diag)
+        end
+    else
+        tilde_A = nothing
+        tilde_b = nothing
+        H_unmod = nothing
+    end
     
     # init acceleration trigger flag
     just_tried_acceleration = false
+
+    krylov_status = :init
 
     # we use back_to_building_krylov_basis as follows
     # as we build Krylov basis up, ws.givens_count is incremented
@@ -709,10 +870,45 @@ function optimise!(
             
             # acceleration attempt step
             if (ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
-                @timeit timer "krylov sol" compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
 
-                # this flag is only used here
-                @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.vars.xy_recycled, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                ws.k_operator[] += 1 # one operator application in computing Krylov point (GMRES-equivalence, see Walker and Ni 2011)
+
+                # use safeguard if the Krylov procedure suffered no breakdowns
+                if krylov_status == :success
+
+                    if full_diagnostics # best to update for use here
+                        construct_explicit_operator!(ws, W_inv_mat, tilde_A, tilde_b)
+
+                        # NOTE CARE might want to override with true fixed point!
+                        # @warn "trying override Krylov with (PINV?) true fixed-point of current affine operation!"
+                        # try
+                        #     # scratch.accelerated_point .= (tilde_A - I) \ (-tilde_b)
+                        #     scratch.accelerated_point .= pinv(tilde_A - I) * (-tilde_b)
+                        #     @info "✅ successful override"
+                        # catch e
+                        #     @info "❌ unsuccessful override, proceeding w GNRES candidate"
+                        # end
+                        
+                        BQ = (tilde_A - I) * ws.krylov_basis[:, 1:ws.givens_count[]]
+                        arnoldi_relation_err = BQ - ws.krylov_basis[:, 1:ws.givens_count[] + 1] * H_unmod[1:ws.givens_count[] + 1, 1:ws.givens_count[]]
+                        norm_arnoldi_err = norm(arnoldi_relation_err)
+
+                        println()
+                        println("---- ACCEL INFO ITER $(ws.k[]), GIVENS COUNT $(ws.givens_count[]) ----")
+                        if norm_arnoldi_err > 1e-10
+                            println("❌ Arnoldi relation error (size $(size(arnoldi_relation_err))) at iter $(ws.k[]): ", norm_arnoldi_err, ". norm of B*Q = $(norm(BQ))")
+                        else
+                            println("✅ Arnoldi relation error (size $(size(arnoldi_relation_err))) at iter $(ws.k[]): ", norm_arnoldi_err, ". norm of B*Q = $(norm(BQ))")
+                        end
+                    end
+
+                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.vars.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+
+                    ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
+                else
+                    accept_krylov = false
+                end
 
                 if accept_krylov
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
@@ -760,6 +956,8 @@ function optimise!(
             else
                 # increment effective iter counter (ie excluding unsuccessful acc attempts)
                 ws.k_eff[] += 1
+
+                ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
                 
                 # if we just had an accel attempt, we recycle work carried out
                 # during the acceleration acceptance criterion check
@@ -779,11 +977,15 @@ function optimise!(
                     # the entire memory
                     if ws.givens_count[] == 0 # just wiped Krylov basis clean
                         # fills in first column of ws.krylov_basis
-                        init_krylov_basis!(ws) # ws.H is zeros at this point still
+                        init_krylov_basis!(ws, krylov_status) # ws.H is zeros at this point still
+                        
+                        if full_diagnostics
+                            H_unmod .= 0.0
+                        end
                     end
                 else # the usual case
 
-                    krylov_usual_step!(ws, scratch, timer)
+                    krylov_usual_step!(ws, scratch, timer, H_unmod=H_unmod, tilde_A=tilde_A)
 
                     # ws.givens_count has had "time" to be increment past
                     # a trigger point, so we can relax this flag in order
@@ -828,7 +1030,9 @@ function optimise!(
                     # scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.vars.xy_recycled, scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.vars.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+
+                    ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
                     if accept_anderson
                         ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
@@ -838,32 +1042,36 @@ function optimise!(
                             push!(record.acc_step_iters, ws.k[])
                             record.updates_matrix .= 0.0
                             record.current_update_mat_col[] = 1
+
+                            push!(record.xy_step_norms, norm(curr_xy_update))
+                            push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
                         end
 
                         # assign actually
                         ws.vars.xy .= scratch.accelerated_point
+                    elseif !args["run-fast"] # prevent recording zero update norm
+                        push!(record.xy_step_norms, NaN)
+                        push!(record.xy_step_char_norms, NaN)
                     end
+
 
                     # note that this flag serves for us to use recycled
                     # work from the fixed-point safeguard step when
                     # the next iteration comes around
                     just_tried_acceleration = true
+                elseif !args["run-fast"] # prevent recording zero update norm
+                    push!(record.xy_step_norms, NaN)
+                    push!(record.xy_step_char_norms, NaN)
                 end
 
                 # set up the first x to be composed anderon-interval times
                 # before being fed to accelerator's update! method
                 ws.vars.xy_into_accelerator .= ws.vars.xy # this is T^0(ws.vars.xy)
                 ws.composition_counter[] = 0
-
-                # prevent recording large or zero update norm whether
-                # successful or not
-                if !args["run-fast"]
-                    push!(record.xy_step_norms, NaN)
-                    push!(record.xy_step_char_norms, NaN)
-                end
             else # standard iteration with Anderson acceleration
                 ws.k_eff[] += 1
                 ws.k_vanilla[] += 1
+                ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
                 
                 # copy older iterate before iterating
                 ws.vars.xy_prev .= ws.vars.xy
@@ -930,6 +1138,14 @@ function optimise!(
             push!(record.record_proj_flags, ws.proj_flags)
         end
 
+        
+        if full_diagnostics && ws.k[] % spectrum_plot_period == 0
+            # construct explicit operator for spectrum plotting
+            construct_explicit_operator!(ws, W_inv_mat, tilde_A, tilde_b)
+            # plot spectrum of the linearised operator
+            plot_spectrum(tilde_A, ws.k[])
+        end
+
         # Notion of a previous iterate step makes sense (again).
         just_restarted = false
 
@@ -992,5 +1208,5 @@ function optimise!(
         print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
     end
 
-    return results
+    return results, tilde_A, tilde_b, H_unmod
 end
