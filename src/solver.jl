@@ -1163,7 +1163,7 @@ function optimise!(
         elseif ws isa KrylovWorkspace && ws.fp_found[]
             termination = true
             exit_status = :exact_fp_found
-        elseif ws.k[] > args["max-iter"]
+        elseif ws isa NoneWorkspace && ws.k[] > args["max-iter"] # note this only applies to NoneWorkspace (no acceleration!)
             termination = true
             exit_status = :max_iter
         elseif (ws isa AndersonWorkspace || ws isa KrylovWorkspace) && ws.k_operator[] > args["max-k-operator"] # note distinctness from ordinary :max_iter above
@@ -1181,7 +1181,7 @@ function optimise!(
     # initialise results with common fields
     # ie for both run-fast set to true and to false
     metrics_final = ReturnMetrics(ws.res)
-    results = Results(Dict{Symbol, Any}(), metrics_final, exit_status)
+    results = Results(Dict{Symbol, Any}(), metrics_final, exit_status, ws.k[], ws isa NoneWorkspace ? ws.k[] : ws.k_operator[])
 
     # store final records if run-fast is set to true
     if !args["run-fast"]
