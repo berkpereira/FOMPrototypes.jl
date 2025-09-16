@@ -1,4 +1,4 @@
-include("problem_data.jl")
+include("../src/problem_data.jl")
 
 search_problem_set = "mpc" # in keys(ClarabelBenchmarks.PROBLEMS)
 
