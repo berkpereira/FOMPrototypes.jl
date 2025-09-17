@@ -498,14 +498,14 @@ function accel_fp_safeguard!(
 
     # determine acceptance
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
-    if acceleration_success && metric_ratio < 0.9
-        println("✅ acceleration attempt at iter $(ws.k[]) was successful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    elseif acceleration_success && metric_ratio >= 0.9
-        println("⚠️ acceleration attempt at iter $(ws.k[]) was successful but not great. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    else
-        println("❌ acceleration attempt at iter $(ws.k[]) was UNsuccessful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    end
-    println()
+    # if acceleration_success && metric_ratio < 0.9
+    #     println("✅ acceleration attempt at iter $(ws.k[]) was successful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    # elseif acceleration_success && metric_ratio >= 0.9
+    #     println("⚠️ acceleration attempt at iter $(ws.k[]) was successful but not great. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    # else
+    #     println("❌ acceleration attempt at iter $(ws.k[]) was UNsuccessful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
+    # end
+    # println()
 
     # if acceleration was a success, to_recycle_xy takes FOM(accelerated_xy)
     # else, we leave it as it was assigned to above in this function, namely

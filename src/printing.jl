@@ -4,7 +4,7 @@ using Printf
 
 function print_results(
     ws::AbstractWorkspace,
-    print_modulo::Int;
+    print_modulo::Real;
     curr_xy_dist::Union{Float64, Nothing} = nothing,
     obj_sol::Union{Float64, Nothing} = nothing,
     x_sol::Union{Vector{Float64}, Nothing} = nothing,
