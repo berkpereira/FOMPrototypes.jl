@@ -244,7 +244,7 @@ function onecol_method_operator!(ws::AbstractWorkspace,
 
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
-        ws.res.gap_rel = ws.res.gap_abs / (1 + max(0.5xTPx + cTx, 0.5xTPx + bTy)) # relative gap
+        ws.res.gap_rel = ws.res.gap_abs / (1 + max(abs(0.5xTPx + cTx), abs(0.5xTPx + bTy))) # relative gap
         ws.res.obj_primal = 0.5xTPx + cTx
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
