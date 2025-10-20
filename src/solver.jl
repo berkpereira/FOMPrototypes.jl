@@ -855,7 +855,7 @@ function optimise!(
             
             # acceleration attempt step
             if (ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
-                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, scratch.accelerated_point)
+                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, ws.scratch.accelerated_point)
 
                 ws.k_operator[] += 1 # one operator application in computing Krylov point (GMRES-equivalence, see Walker and Ni 2011)
 
@@ -868,8 +868,8 @@ function optimise!(
                         # NOTE CARE might want to override with true fixed point!
                         # @warn "trying override Krylov with (PINV?) true fixed-point of current affine operation!"
                         # try
-                        #     # scratch.accelerated_point .= (tilde_A - I) \ (-tilde_b)
-                        #     scratch.accelerated_point .= pinv(tilde_A - I) * (-tilde_b)
+                        #     # ws.scratch.accelerated_point .= (tilde_A - I) \ (-tilde_b)
+                        #     ws.scratch.accelerated_point .= pinv(tilde_A - I) * (-tilde_b)
                         #     @info "✅ successful override"
                         # catch e
                         #     @info "❌ unsuccessful override, proceeding w GNRES candidate"
@@ -888,7 +888,7 @@ function optimise!(
                         end
                     end
 
-                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
                 else
@@ -900,7 +900,7 @@ function optimise!(
                     ws.k_eff[] += 1
                     
                     if !args["run-fast"]
-                        @views curr_xy_update .= scratch.accelerated_point - ws.vars.xy_q[:, 1]
+                        @views curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy_q[:, 1]
                         push!(record.acc_step_iters, ws.k[])
                         record.updates_matrix .= 0.0
                         record.current_update_mat_col[] = 1
@@ -910,7 +910,7 @@ function optimise!(
                     end
 
                     # assign actually
-                    ws.vars.xy_q[:, 1] .= scratch.accelerated_point
+                    ws.vars.xy_q[:, 1] .= ws.scratch.accelerated_point
                 else
                     if !args["run-fast"]
                         @views curr_xy_update .= 0.0
@@ -1003,7 +1003,7 @@ function optimise!(
                 # problems), this overwites ws.vars.xy with accelerated step
                 @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, 0)
                 
-                scratch.accelerated_point .= ws.vars.xy # accelerated point if no numerics blowups
+                ws.scratch.accelerated_point .= ws.vars.xy # accelerated point if no numerics blowups
                 ws.vars.xy .= scratch.temp_mn_vec1 # retake the iterate from which we are attempting acceleration right now
 
                 # ws.accelerator.success only indicates there was no
@@ -1013,10 +1013,10 @@ function optimise!(
                     # at this point:
                     # ws.vars.xy contains the iterate at which we stopped
                     # when we began to pull the accelerate! levers;
-                    # scratch.accelerated_point contains the candidate
+                    # ws.scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, ws.scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
@@ -1024,7 +1024,7 @@ function optimise!(
                         ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
 
                         if !args["run-fast"]
-                            curr_xy_update .= scratch.accelerated_point - ws.vars.xy
+                            curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy
                             push!(record.acc_step_iters, ws.k[])
                             record.updates_matrix .= 0.0
                             record.current_update_mat_col[] = 1
@@ -1034,7 +1034,7 @@ function optimise!(
                         end
 
                         # assign actually
-                        ws.vars.xy .= scratch.accelerated_point
+                        ws.vars.xy .= ws.scratch.accelerated_point
                     elseif !args["run-fast"] # prevent recording zero update norm
                         push!(record.xy_step_norms, NaN)
                         push!(record.xy_step_char_norms, NaN)
