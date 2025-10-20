@@ -355,9 +355,6 @@ This mirrors your original logic and reuses the provided scratch buffers.
 function compute_fp_metric!(
     ws::AbstractWorkspace,
     fp_res::AbstractVector{Float64},
-    temp_n_vec1::AbstractVector{Float64},
-    temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64},
     )
     n = ws.p.n
     m = ws.p.m
@@ -365,18 +362,18 @@ function compute_fp_metric!(
     if ws.safeguard_norm == :euclid
         return norm(fp_res)
     elseif ws.safeguard_norm == :char
-        # temp_n_vec1 will hold M1 * fp_x
-        @views M1_op!(fp_res[1:n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+        # ws.scratch.temp_n_vec1 will hold M1 * fp_x
+        @views M1_op!(fp_res[1:n], ws.scratch.temp_n_vec1, ws, ws.variant, ws.A_gram, ws.scratch.temp_n_vec2)
 
         # <M1 * fp_x, fp_x>
-        @views metric_sq = dot(temp_n_vec1, fp_res[1:n])
+        @views metric_sq = dot(ws.scratch.temp_n_vec1, fp_res[1:n])
 
         # + <M2 * fp_y, fp_y> where M2 = (1/ρ) I  (so becomes ||fp_y||^2 / ρ)
         @views metric_sq += norm(fp_res[n+1:end])^2 / ws.ρ
 
         # + 2 <A * fp_x, fp_y>
-        @views mul!(temp_m_vec, ws.p.A, fp_res[1:n])    # temp_m_vec := A * fp_x
-        @views metric_sq += 2 * dot(temp_m_vec, fp_res[n+1:end])
+        @views mul!(ws.scratch.temp_m_vec, ws.p.A, fp_res[1:n])    # ws.scratch.temp_m_vec := A * fp_x
+        @views metric_sq += 2 * dot(ws.scratch.temp_m_vec, fp_res[n+1:end])
 
         return sqrt(metric_sq)
     else
@@ -415,7 +412,7 @@ function accel_fp_safeguard!(
     ws.scratch.xy_recycled .= ws.scratch.xy_lookahead
 
     # compute fp metric for the vanilla iterate
-    fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.fp_res, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.fp_res)
 
     # optional diagnostics based on tilde_A
     if tilde_A !== nothing
@@ -488,7 +485,7 @@ function accel_fp_safeguard!(
     compute_fom_and_fp!(ws, accelerated_xy, ws.scratch.xy_lookahead, ws.scratch.fp_res)
 
     # compute fp metric for accelerated iterate
-    fp_metric_acc = compute_fp_metric!(ws, ws.scratch.fp_res, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    fp_metric_acc = compute_fp_metric!(ws, ws.scratch.fp_res)
 
     # ratio and record keeping
     metric_ratio = fp_metric_acc / fp_metric_vanilla
