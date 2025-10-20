@@ -54,17 +54,12 @@ struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
     preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
     y_qm_bar::Matrix{T} # Extrapolated primal variable
 
-    # recycled iterate --- to recycle work done when computing fixed-point
-    # residuals for acceleration acceptance criteria, then assigned
-    # to the working optimisation variable xy_q[:, 1] in the next iteration
-    xy_recycled::Vector{T}
-
     # to store "previous" working iterate for misc purposes
     xy_prev::Vector{T}
 
     # default (zeros) initialisation of variables
     function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m), zeros(n + m))
+        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m))
     end
 end
 KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
@@ -75,11 +70,9 @@ struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
-
-    xy_recycled::Vector{T}
     
     function AndersonVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m), zeros(n + m))
+        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m))
     end
 end
 AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
@@ -179,7 +172,12 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
     temp_m_vec::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
+
     accelerated_point::Vector{T}
+    # recycled iterate --- to recycle work done when computing fixed-point
+    # residuals for acceleration acceptance criteria, then assigned
+    # to the working optimisation variable xy_q[:, 1] in the next iteration
+    xy_recycled::Vector{T}
 end
 
 function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -188,6 +186,7 @@ function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, n),
         zeros(T, n),
         zeros(T, m),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
@@ -209,7 +208,12 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     temp_n_vec_complex1::Vector{Complex{T}}
     temp_n_vec_complex2::Vector{Complex{T}}
     temp_m_vec_complex::Vector{Complex{T}}
+    
     accelerated_point::Vector{T}
+    # recycled iterate --- to recycle work done when computing fixed-point
+    # residuals for acceleration acceptance criteria, then assigned
+    # to the working optimisation variable xy_q[:, 1] in the next iteration
+    xy_recycled::Vector{T}
 end
 
 function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -227,6 +231,7 @@ function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(Complex{T}, n),
         zeros(Complex{T}, n),
         zeros(Complex{T}, m),
+        zeros(T, m + n),
         zeros(T, m + n),
     )
 end
