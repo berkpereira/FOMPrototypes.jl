@@ -453,8 +453,8 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
-    scratch::AndersonScratch{T}
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
+    scratch::AndersonScratch{T}
     p::ProblemData{T}
     vars::AndersonVariables{T}
     res::ProgressMetrics{T}
