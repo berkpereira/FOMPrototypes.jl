@@ -180,6 +180,9 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
 
     xy_lookahead::Vector{T}
     fp_res::Vector{T}
+
+    # to check success after potentially being overwritten
+    xy_pre_overwrite::Vector{T}
 end
 
 function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -188,6 +191,7 @@ function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, n),
         zeros(T, n),
         zeros(T, m),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),

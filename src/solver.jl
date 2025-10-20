@@ -826,12 +826,12 @@ function optimise!(
         # compute distance to real solution
         if !args["run-fast"]
             if x_sol !== nothing
-                scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
-                scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
-                curr_xy_chardist = char_norm_func(scratch.temp_mn_vec1)
-                
-                @views curr_x_dist = norm(scratch.temp_mn_vec1[1:ws.p.n])
-                @views curr_y_dist = norm(scratch.temp_mn_vec1[ws.p.n+1:end])
+                ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
+                ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
+                curr_xy_chardist = char_norm_func(ws.scratch.temp_mn_vec1)
+
+                @views curr_x_dist = norm(ws.scratch.temp_mn_vec1[1:ws.p.n])
+                @views curr_y_dist = norm(ws.scratch.temp_mn_vec1[ws.p.n+1:end])
                 curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
             else
                 curr_x_dist = NaN
@@ -949,8 +949,8 @@ function optimise!(
                 # we also reinit the Krylov orthogonal basis 
                 if ws.k[] == 0 # special case in initial iteration
                     # TODO sort carefully what to with these separate scratch vectors
-                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], scratch.temp_mn_vec1, true)
-                    @views ws.vars.xy_q[:, 1] .= scratch.temp_mn_vec1
+                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], ws.scratch.temp_mn_vec1, true)
+                    @views ws.vars.xy_q[:, 1] .= ws.scratch.temp_mn_vec1
 
                     # fills in first column of ws.krylov_basis
                     init_krylov_basis!(ws) # ws.H is zeros at this point still
@@ -997,14 +997,14 @@ function optimise!(
                 # ws.vars.xy might be overwritten, so we take note of it here
                 # this is for the sole purpose of checking the norm of the
                 # step just below in this code branch
-                scratch.temp_mn_vec1 .= ws.vars.xy
+                ws.scratch.xy_pre_overwrite .= ws.vars.xy
 
                 # attempt acceleration step. if successful (ie no numerical
                 # problems), this overwites ws.vars.xy with accelerated step
                 @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.xy, ws.vars.xy_prev, ws.accelerator, 0)
                 
                 ws.scratch.accelerated_point .= ws.vars.xy # accelerated point if no numerics blowups
-                ws.vars.xy .= scratch.temp_mn_vec1 # retake the iterate from which we are attempting acceleration right now
+                ws.vars.xy .= ws.scratch.xy_pre_overwrite # retake the iterate from which we are attempting acceleration right now
 
                 # ws.accelerator.success only indicates there was no
                 # numerical blowup in the COSMOAccelerators.accelerate!
