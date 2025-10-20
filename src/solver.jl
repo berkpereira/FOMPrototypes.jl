@@ -512,55 +512,6 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     end
 end
 
-function preallocate_scratch(ws::VanillaWorkspace)
-    return (
-        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-        temp_m_mat = zeros(Float64, ws.p.m, 2),
-        temp_m_vec = zeros(Float64, ws.p.m),
-        temp_n_vec1 = zeros(Float64, ws.p.n),
-        temp_n_vec2 = zeros(Float64, ws.p.n), 
-        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
-        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-    )
-end
-
-function preallocate_scratch(ws::AndersonWorkspace)
-    return (
-        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-        temp_m_mat = zeros(Float64, ws.p.m, 2),
-        temp_m_vec = zeros(Float64, ws.p.m),
-        temp_n_vec1 = zeros(Float64, ws.p.n),
-        temp_n_vec2 = zeros(Float64, ws.p.n), 
-        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
-        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-        accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
-    )
-end
-
-function preallocate_scratch(ws::KrylovWorkspace)
-    return (
-        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-        temp_m_mat = zeros(Float64, ws.p.m, 2),
-        temp_m_vec = zeros(Float64, ws.p.m),
-        temp_n_vec1 = zeros(Float64, ws.p.n),
-        temp_n_vec2 = zeros(Float64, ws.p.n), 
-        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-        temp_n_vec_complex1 = zeros(ComplexF64, ws.p.n),
-        temp_n_vec_complex2 = zeros(ComplexF64, ws.p.n),
-        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-        accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
-    )
-end
-
-
 function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
     x_sol::Union{Nothing, AbstractVector{Float64}})
     if run_fast
@@ -787,9 +738,8 @@ function optimise!(
     
     # set restart counter
     j_restart = 0
-
-    # pre-allocate vectors for intermediate results in in-place computations
-    scratch = preallocate_scratch(ws) # scratch is a named tuple
+    
+    # allocate storage for current and previous updates
     curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
     prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
 
@@ -1069,9 +1019,9 @@ function optimise!(
                     ws.vars.xy .= ws.scratch.xy_recycled
                 else
                     # TODO sort carefully what to with these separate scratch vectors
-                    onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, true)
-                    # swap contents of ws.vars.xy and scratch.temp_mn_vec1
-                    custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
+                    onecol_method_operator!(ws, ws.vars.xy, ws.scratch.temp_mn_vec1, true)
+                    # swap contents of ws.vars.xy and ws.scratch.temp_mn_vec1
+                    custom_swap!(ws.vars.xy, ws.scratch.temp_mn_vec1, ws.scratch.temp_mn_vec2)
                 end
 
                 # just applied onecol operator, so we increment
@@ -1098,15 +1048,14 @@ function optimise!(
             ws.vars.xy_prev .= ws.vars.xy
 
             # TODO sort carefully what to with these separate scratch vectors
-            onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, true)
-
-            # swap contents of ws.vars.xy and scratch.temp_mn_vec1
-            custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
+            onecol_method_operator!(ws, ws.vars.xy, ws.scratch.temp_mn_vec1, true)
+            # swap contents of ws.vars.xy and ws.scratch.temp_mn_vec1
+            custom_swap!(ws.vars.xy, ws.scratch.temp_mn_vec1, ws.scratch.temp_mn_vec2)
             # now ws.vars.xy contains newer iterate,  while
-            # scratch.temp_mn_vec1 contains older one
+            # ws.scratch.temp_mn_vec1 contains older one
 
             if !args["run-fast"]
-                curr_xy_update .= ws.vars.xy - scratch.temp_mn_vec1
+                curr_xy_update .= ws.vars.xy - ws.scratch.temp_mn_vec1
 
                 # record iteration data here
                 push!(record.xy_step_norms, norm(curr_xy_update))
