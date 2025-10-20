@@ -115,9 +115,7 @@ This function performs an accelerated update of the candidate solution vector by
 function compute_krylov_accelerant!(
     ws::KrylovWorkspace,
     result_vec::Vector{Float64},
-    temp_n_vec1::Vector{Float64},
-    temp_n_vec2::Vector{Float64},
-    temp_m_vec::Vector{Float64})
+    )
 
     # TODO pre-allocate working vectors in this function when acceleration
     # is used
@@ -127,7 +125,7 @@ function compute_krylov_accelerant!(
 
     # compute FOM(xy_q[:, 1]) and store it in result_vec
     @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec)
-    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.xy_q[:, 1])
+    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.xy_q[:, 1]) # TODO get rid of alloc here
     
     # ws.H is passed as triangular, so we now need to apply the
     # Givens rotations to Q_{krylov + 1}^T * residual

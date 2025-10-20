@@ -855,7 +855,7 @@ function optimise!(
             
             # acceleration attempt step
             if (ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
-                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, scratch.accelerated_point, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec)
+                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, scratch.accelerated_point)
 
                 ws.k_operator[] += 1 # one operator application in computing Krylov point (GMRES-equivalence, see Walker and Ni 2011)
 
