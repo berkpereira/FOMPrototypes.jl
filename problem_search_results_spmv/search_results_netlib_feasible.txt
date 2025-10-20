@@ -1,4 +1,4 @@
-#SEARCH{set:netlib_feasible,min_m:1,max_m:nothing,min_n:1,max_n:nothing}
+#SEARCH{set:netlib_feasible,min_m:1,max_m:100000,min_n:1,max_n:100000}
 perold
 qap15
 d2q06c
@@ -100,7 +100,6 @@ dfl001
 ship08l
 scorpion
 scagr25
-ken_13
 degen2
 maros
 pds_10
