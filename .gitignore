@@ -8,6 +8,9 @@ conda-meta/
 # plots
 *.pdf
 
+# toy problem stuff
+synthetic_problem_data/*toy*
+
 # For external solver results
 external_solvers/
 
