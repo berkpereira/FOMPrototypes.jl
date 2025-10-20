@@ -1,33 +1,20 @@
 import FOMPrototypes
 using Infiltrator
+using Profile, PProf
 
 args = Dict(
     "ref-solver"   => :SCS,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_abb313_lasso",
-
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_ash219_lasso", # well with Krylov
-
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_ash85_lasso",
-
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_ash85_huber",
-
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_ash331_lasso",
-
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_abb313_lasso",
+    "problem-set"  => "maros",
+    "problem-name" => "AUG3DQP",
 
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash219_huber",
 
-    "problem-set"  => "sslsq",
-    "problem-name" => "NYPA_Maragal_5_lasso",
+    # big ol problem
+    # "problem-set"  => "netlib_feasible",
+    # "problem-name" => "maros_r7",
 
     # this can break when estimation of max_τ goes wrong (negative! even)
     # "problem-set"  => "mpc",
@@ -60,23 +47,23 @@ args = Dict(
     # note defaults are reg = :none, with :restarted and :QR2
     "anderson-interval"     => 10,
     "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
-    "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
+    "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
-    "rho"   => 5.0,
+    "rho"   => 0.1,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
     # "linesearch-period" => Inf,
     # "linesearch-eps"    => 0.001,
 
-    "max-iter"           => Inf,
-    "max-k-operator"     => Inf, # only relevant with Anderson/Krylov
-    "print-mod"          => 1000,
+    "max-iter"           => 1_000, # ONLY relevant with no acceleration!
+    "max-k-operator"     => 1_000, # ONLY relevant with Anderson/Krylov
+    "print-mod"          => 1_000,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
-    "run-fast"           => false,
-    "global-timeout"     => 2.5, # seconds, including set-up time
+    "run-fast"           => true,
+    "global-timeout"     => Inf, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 
