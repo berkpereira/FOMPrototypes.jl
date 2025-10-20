@@ -149,11 +149,96 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
     )
 
 
+# Types for scratch areas/working vectors to avoid heap allocations
+abstract type AbstractWorkspaceScratch{T} end
+
+struct VanillaScratch{T} <: AbstractWorkspaceScratch{T}
+    temp_n_vec1::Vector{T}
+    temp_n_vec2::Vector{T}
+    temp_m_vec::Vector{T}
+    temp_mn_vec1::Vector{T}
+    temp_mn_vec2::Vector{T}
+end
+
+function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
+    m, n = p.m, p.n
+    VanillaScratch{T}(
+        zeros(T, n),
+        zeros(T, n),
+        zeros(T, m),
+        zeros(T, m + n),
+        zeros(T, m + n),
+    )
+end
+
+VanillaScratch(p::ProblemData) = VanillaScratch{DefaultFloat}(p)
+
+struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
+    temp_n_vec1::Vector{T}
+    temp_n_vec2::Vector{T}
+    temp_m_vec::Vector{T}
+    temp_mn_vec1::Vector{T}
+    temp_mn_vec2::Vector{T}
+    accelerated_point::Vector{T}
+end
+
+function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
+    m, n = p.m, p.n
+    AndersonScratch{T}(
+        zeros(T, n),
+        zeros(T, n),
+        zeros(T, m),
+        zeros(T, m + n),
+        zeros(T, m + n),
+        zeros(T, m + n),
+    )
+end
+
+AndersonScratch(p::ProblemData) = AndersonScratch{DefaultFloat}(p)
+
+struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
+    temp_n_vec1::Vector{T}
+    temp_n_vec2::Vector{T}
+    temp_m_vec::Vector{T}
+    temp_mn_vec1::Vector{T}
+    temp_mn_vec2::Vector{T}
+
+    temp_n_mat1::Matrix{T}
+    temp_n_mat2::Matrix{T}
+    temp_m_mat::Matrix{T}
+    temp_n_vec_complex1::Vector{Complex{T}}
+    temp_n_vec_complex2::Vector{Complex{T}}
+    temp_m_vec_complex::Vector{Complex{T}}
+    accelerated_point::Vector{T}
+end
+
+function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
+    m, n = p.m, p.n
+    KrylovScratch{T}(
+        zeros(T, n),
+        zeros(T, n),
+        zeros(T, m),
+        zeros(T, m + n),
+        zeros(T, m + n),
+
+        zeros(T, n, 2),
+        zeros(T, n, 2),
+        zeros(T, m, 2),
+        zeros(Complex{T}, n),
+        zeros(Complex{T}, n),
+        zeros(Complex{T}, m),
+        zeros(T, m + n),
+    )
+end
+
+KrylovScratch(p::ProblemData) = KrylovScratch{DefaultFloat}(p)
+
 abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
 struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, VanillaVariables{T}}
     k::Base.RefValue{Int} # iter counter
+    scratch::VanillaScratch{T}
     p::ProblemData{T}
     vars::VanillaVariables{T}
     res::ProgressMetrics{T}
@@ -166,7 +251,8 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T
     θ::T
     proj_flags::AbstractVector{Bool}
 
-    function VanillaWorkspace{T, I}(p::ProblemData{T},
+    function VanillaWorkspace{T, I}(
+        p::ProblemData{T},
         vars::Union{VanillaVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
@@ -180,6 +266,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T
         end
 
         m, n = p.m, p.n
+        scratch = VanillaScratch(p)
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
             vars = VanillaVariables(m, n)
@@ -193,7 +280,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T
         end
 
         W_inv = prepare_inv(W, to)
-        new{T, I}(Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T, I}(Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
     end 
 end
 
@@ -231,6 +318,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
+    scratch::KrylovScratch{T}
     p::ProblemData{T}
     vars::KrylovVariables{T}
     res::ProgressMetrics{T}
@@ -270,7 +358,8 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
     # ie plainly the number of columns allocated for krylov basis vectors
 
     # constructor where initial iterates are not passed (default set to zero)
-    function KrylovWorkspace{T, I}(p::ProblemData{T},
+    function KrylovWorkspace{T, I}(
+        p::ProblemData{T},
         vars::Union{KrylovVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
@@ -298,6 +387,8 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
         if !(safeguard_norm in [:euclid, :char, :none])
             throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
         end
+
+        scratch = KrylovScratch(p)
 
         # make vector of trigger_givens_counts
         trigger_givens_counts = Vector{Int}(undef, tries_per_mem)
@@ -332,7 +423,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
 
         W_inv = prepare_inv(W, to)
 
-        new{T, I}(Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        new{T, I}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 
@@ -362,6 +453,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
+    scratch::AndersonScratch{T}
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     p::ProblemData{T}
     vars::AndersonVariables{T}
@@ -416,6 +508,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
         end
 
         m, n = p.m, p.n
+        scratch = AndersonScratch(p)
         res = ProgressMetrics{T}(m, n)
 
         # TODO: get rid of duplication of 
@@ -444,7 +537,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end
