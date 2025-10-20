@@ -899,7 +899,7 @@ function optimise!(
                         end
                     end
 
-                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.vars.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.scratch.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
                 else
@@ -968,7 +968,7 @@ function optimise!(
                 
                 elseif just_tried_acceleration
                     # recycle working (x, y) iterate
-                    ws.vars.xy_q[:, 1] .= ws.vars.xy_recycled
+                    ws.vars.xy_q[:, 1] .= ws.scratch.xy_recycled
                     
                     # also re-initialise Krylov basis IF we'd filled up
                     # the entire memory
@@ -1027,7 +1027,7 @@ function optimise!(
                     # scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.vars.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.scratch.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
@@ -1077,7 +1077,7 @@ function optimise!(
                 # we use the recycled variable stored during the fixed-point
                 # safeguarding step
                 if just_tried_acceleration
-                    ws.vars.xy .= ws.vars.xy_recycled
+                    ws.vars.xy .= ws.scratch.xy_recycled
                 else
                     # TODO sort carefully what to with these separate scratch vectors
                     onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, true)
