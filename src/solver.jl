@@ -391,7 +391,6 @@ function accel_fp_safeguard!(
     ws::Union{KrylovWorkspace, AndersonWorkspace},
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
-    to_recycle_xy::AbstractVector{Float64},
     safeguard_factor::Float64,
     temp_mn_vec1::AbstractVector{Float64},
     temp_mn_vec2::AbstractVector{Float64},
@@ -405,15 +404,15 @@ function accel_fp_safeguard!(
 )
     # Unguarded (fast) path
     if ws.safeguard_norm == :none
-        onecol_method_operator!(ws, accelerated_xy, to_recycle_xy)
+        onecol_method_operator!(ws, accelerated_xy, ws.scratch.xy_recycled)
         return true
     end
 
     # compute FOM(current_xy) in temp_mn_vec1 and fp_res_current in temp_mn_vec2
     compute_fom_and_fp!(ws, current_xy, temp_mn_vec1, temp_mn_vec2)
 
-    # preserve the vanilla FOM iterate into to_recycle_xy for now
-    to_recycle_xy .= temp_mn_vec1
+    # preserve the vanilla FOM iterate into ws.scratch.xy_recycled for now
+    ws.scratch.xy_recycled .= temp_mn_vec1
 
     # compute fp metric for the vanilla iterate
     fp_metric_vanilla = compute_fp_metric!(ws, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec)
@@ -487,7 +486,7 @@ function accel_fp_safeguard!(
 
     # compute FOM(accelerated_xy) into temp_mn_vec1 and fp_res_acc in temp_mn_vec2
     # NOTE: this will overwrite temp_mn_vec1 which previously contained FOM(current_xy),
-    # but we preserved to_recycle_xy earlier so we are safe.
+    # but we preserved ws.scratch.xy_recycled earlier so we are safe.
     compute_fom_and_fp!(ws, accelerated_xy, temp_mn_vec1, temp_mn_vec2)
 
     # compute fp metric for accelerated iterate
@@ -503,9 +502,9 @@ function accel_fp_safeguard!(
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
 
-    # finalize to_recycle_xy
+    # finalize ws.scratch.xy_recycled
     if acceleration_success
-        to_recycle_xy .= temp_mn_vec1    # temp_mn_vec1 == FOM(accelerated_xy)
+        ws.scratch.xy_recycled .= temp_mn_vec1    # temp_mn_vec1 == FOM(accelerated_xy)
     end
 
     return acceleration_success
@@ -899,7 +898,7 @@ function optimise!(
                         end
                     end
 
-                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, ws.scratch.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
                 else
@@ -1027,7 +1026,7 @@ function optimise!(
                     # scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, ws.scratch.xy_recycled, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
