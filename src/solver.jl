@@ -315,13 +315,77 @@ function iter_y!(y::AbstractVector{Float64},
 end
 
 """
+Compute FOM(xy) into `fom_out` and set `fp_out .= fom_out - xy`.
+Both `fom_out` and `fp_out` must be preallocated vectors of length m+n.
+This centralises the small sequence of operations and the associated scratch usage.
+"""
+function compute_fom_and_fp!(
+    ws::AbstractWorkspace,
+    xy::AbstractVector{Float64},
+    fom_out::AbstractVector{Float64},
+    fp_out::AbstractVector{Float64},
+)
+    # compute FOM(xy) into fom_out (in-place)
+    onecol_method_operator!(ws, xy, fom_out)
+    # fp_out := FOM(xy) - xy
+    fp_out .= fom_out .- xy
+    return nothing
+end
+
+"""
+Compute fixed-point metric for fp_res (length m+n) according to ws.safeguard_norm.
+
+Inputs:
+- ws: workspace (provides ws.p, ws.ρ, ws.variant, ws.A_gram, etc)
+- fp_res: fixed-point residual vector (fom - xy) of length m+n
+- temp_n_vec1, temp_n_vec2: scratch vectors length n
+- temp_m_vec: scratch vector length m
+
+Returns:
+- scalar fp metric (Float64)
+
+Behavior:
+- If ws.safeguard_norm == :euclid, returns norm(fp_res).
+- If ws.safeguard_norm == :char, computes the quadratic form using M1/M2 and the cross term:
+    metric^2 = <M1 * fp_x, fp_x> + ||fp_y||^2 / ρ + 2 <A * fp_x, fp_y>
+  and returns sqrt(metric^2).
+This mirrors your original logic and reuses the provided scratch buffers.
+"""
+function compute_fp_metric!(
+    ws,
+    fp_res::AbstractVector{Float64},
+    temp_n_vec1::AbstractVector{Float64},
+    temp_n_vec2::AbstractVector{Float64},
+    temp_m_vec::AbstractVector{Float64},
+)
+    n = ws.p.n
+    m = ws.p.m
+
+    if ws.safeguard_norm == :euclid
+        return norm(fp_res)
+    elseif ws.safeguard_norm == :char
+        # temp_n_vec1 will hold M1 * fp_x
+        @views M1_op!(fp_res[1:n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
+
+        # <M1 * fp_x, fp_x>
+        metric_sq = dot(temp_n_vec1, fp_res[1:n])
+
+        # + <M2 * fp_y, fp_y> where M2 = (1/ρ) I  (so becomes ||fp_y||^2 / ρ)
+        @views metric_sq += norm(fp_res[n+1:end])^2 / ws.ρ
+
+        # + 2 <A * fp_x, fp_y>
+        @views mul!(temp_m_vec, ws.p.A, fp_res[1:n])    # temp_m_vec := A * fp_x
+        @views metric_sq += 2 * dot(temp_m_vec, fp_res[n+1:end])
+
+        return sqrt(metric_sq)
+    else
+        throw(ArgumentError("Unknown ws.safeguard_norm: $(ws.safeguard_norm)"))
+    end
+end
+
+"""
 Check for acceptance of a Krylov acceleration candidate.
-Recycles work done in matrix-vector products involving A, A', and P.
-
-Writes to to_recycle_xy.
-Returns Boolean indicating acceleration success/failure.
-
-Source code has similarities to that of onecol_method_operator!
+Refactored to call helper routines that encapsulate FOM and fixed-point metric computations.
 """
 function accel_fp_safeguard!(
     ws::Union{KrylovWorkspace, AndersonWorkspace},
@@ -338,52 +402,23 @@ function accel_fp_safeguard!(
     tilde_A::Union{AbstractMatrix{Float64}, Nothing} = nothing,
     tilde_b::Union{AbstractVector{Float64}, Nothing} = nothing,
     full_diagnostics::Bool = false,
-    )
-
-    # we catch the unguarded case early, since it is the simplest by far
+)
+    # Unguarded (fast) path
     if ws.safeguard_norm == :none
-        # store FOM(accelerated_xy) in to_recycle_xy right away
         onecol_method_operator!(ws, accelerated_xy, to_recycle_xy)
-
-        # always successful acceleration
         return true
     end
-    
-    fp_metric_vanilla = 0.0
-    fp_metric_acc = 0.0
 
-    # store FOM(current_xy) in temp_mn_vec1
-    # TODO sort carefully what to with these separate scratch vectors
-    onecol_method_operator!(ws, current_xy, temp_mn_vec1)
+    # compute FOM(current_xy) in temp_mn_vec1 and fp_res_current in temp_mn_vec2
+    compute_fom_and_fp!(ws, current_xy, temp_mn_vec1, temp_mn_vec2)
 
-    # (temporarily) store FOM(current_xy) --- vanilla iterate --- in xy_recycled
-    # this is overwritten later in this function if the acceleration
-    # is successful, namely with xy_recycled .= FOM(accelerated_xy)
-    to_recycle_xy .= temp_mn_vec1 # TODO avoid this copying by simply using to_recycle_xy in some of the lines around this one
+    # preserve the vanilla FOM iterate into to_recycle_xy for now
+    to_recycle_xy .= temp_mn_vec1
 
-    # store fixed-point residual of current_xy in temp_mn_vec2
-    temp_mn_vec2 .= temp_mn_vec1 - current_xy
+    # compute fp metric for the vanilla iterate
+    fp_metric_vanilla = compute_fp_metric!(ws, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
-    if ws.safeguard_norm == :char
-        # store M1 * FOM_x(current x) in temp_n_vec1
-        @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
-
-        # increment fp_metric_vanilla with < M1 * fp_res_x(current x), fp_res_x(current x) >
-        @views fp_metric_vanilla += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
-        # increment fp_metric_vanilla with < M2 * fp_res_y(current y), fp_res_y(current y) >
-        @views fp_metric_vanilla += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
-        # increment fp_metric_vanilla with 2 < A fp_res_x(current x), fp_res_y(current y) >
-        @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
-        @views fp_metric_vanilla += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
-
-        fp_metric_vanilla = sqrt(fp_metric_vanilla)
-    else # ws.safeguard_norm == :euclid
-        fp_metric_vanilla = norm(temp_mn_vec2)
-    end
-
-    # fp_metric_vanilla is fully computed by now
-    # now we move on to fp_metric_acc
-    # NOTE ALL TEMP/working vectors can be used cleanly again by now
+    # optional diagnostics based on tilde_A
     if tilde_A !== nothing
         try
             # pinv_sol = (tilde_A - I) \ (-tilde_b)
@@ -432,6 +467,8 @@ function accel_fp_safeguard!(
             @info "Failed something when considering pinv-≈true fixed point at iter $(ws.k[]). $e"
         end
     end
+
+    # optional Krylov diagnostics
     if full_diagnostics && ws isa KrylovWorkspace
         krylov_basis_svdvals = svdvals(ws.krylov_basis)
         krylov_basis_svdvals = krylov_basis_svdvals[findall(krylov_basis_svdvals .>= 1e-10)]
@@ -448,61 +485,27 @@ function accel_fp_safeguard!(
         end
     end
 
+    # compute FOM(accelerated_xy) into temp_mn_vec1 and fp_res_acc in temp_mn_vec2
+    # NOTE: this will overwrite temp_mn_vec1 which previously contained FOM(current_xy),
+    # but we preserved to_recycle_xy earlier so we are safe.
+    compute_fom_and_fp!(ws, accelerated_xy, temp_mn_vec1, temp_mn_vec2)
 
-    # store FOM(accelerated_xy) in temp_mn_vec1
-    # NOTE: we must keep temp_mn_vec1 INTACT from this on UNTIL we decide whether
-    # or not to overwrite to_recycle_xy with FOM(accelerated_xy)
-    # TODO sort carefully what to with these separate scratch vectors
-    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1)
+    # compute fp metric for accelerated iterate
+    fp_metric_acc = compute_fp_metric!(ws, temp_mn_vec2, temp_n_vec1, temp_n_vec2, temp_m_vec)
 
-    # store fixed-point residual of accelerated_xy in temp_mn_vec2
-    temp_mn_vec2 .= temp_mn_vec1 - accelerated_xy
-
-    if ws.safeguard_norm == :char
-        # store M1 * FOM_x(current_x) in temp_n_vec1
-        @views M1_op!(temp_mn_vec2[1:ws.p.n], temp_n_vec1, ws, ws.variant, ws.A_gram, temp_n_vec2)
-
-        # increment fp_metric_acc with < M1 * fp_res_x(accelerated x), fp_res_x(accelerated x) >
-        @views fp_metric_acc += dot(temp_n_vec1, temp_mn_vec2[1:ws.p.n])
-        # increment fp_metric_acc with < M2 * fp_res_y(accelerated y), fp_res_y(accelerated y) >
-        @views fp_metric_acc += norm(temp_mn_vec2[ws.p.n+1:end])^2 / ws.ρ
-        # increment fp_metric_acc with 2 < A fp_res_x(accelerated x), fp_res_y(accelerated y) >
-        @views mul!(temp_m_vec, ws.p.A, temp_mn_vec2[1:ws.p.n]) # temp_m_vec stores A * fp_res_x(current x)
-        @views fp_metric_acc += 2 * dot(temp_m_vec, temp_mn_vec2[ws.p.n+1:end])
-
-        fp_metric_acc = sqrt(fp_metric_acc)
-    else # ws.safeguard_norm == :euclid
-        fp_metric_acc = norm(temp_mn_vec2)
-    end
-
-    # fp_metric_acc is also fully computed by now
-    # recall that temp_mn_vec1 STILL stores FOM(accelerated_xy) right now
-
-    
+    # ratio and record keeping
     metric_ratio = fp_metric_acc / fp_metric_vanilla
-    
-    # report success/failure of Krylov acceleration attempt
+
     if record !== nothing
         push!(record.acc_attempt_iters, ws.k[])
         push!(record.fp_metric_ratios, metric_ratio)
     end
 
-    # determine acceptance
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
-    # if acceleration_success && metric_ratio < 0.9
-    #     println("✅ acceleration attempt at iter $(ws.k[]) was successful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    # elseif acceleration_success && metric_ratio >= 0.9
-    #     println("⚠️ acceleration attempt at iter $(ws.k[]) was successful but not great. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    # else
-    #     println("❌ acceleration attempt at iter $(ws.k[]) was UNsuccessful. fp_metric_acc / fp_metric_vanilla: $metric_ratio")
-    # end
-    # println()
 
-    # if acceleration was a success, to_recycle_xy takes FOM(accelerated_xy)
-    # else, we leave it as it was assigned to above in this function, namely
-    # to_recycle_xy == FOM(current_xy)
+    # finalize to_recycle_xy
     if acceleration_success
-        to_recycle_xy .= temp_mn_vec1
+        to_recycle_xy .= temp_mn_vec1    # temp_mn_vec1 == FOM(accelerated_xy)
     end
 
     return acceleration_success
