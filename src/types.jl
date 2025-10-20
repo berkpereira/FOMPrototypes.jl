@@ -84,17 +84,17 @@ struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
 end
 AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
 
-struct NoneVariables{T <: AbstractFloat} <: AbstractVariables{T}
+struct VanillaVariables{T <: AbstractFloat} <: AbstractVariables{T}
     xy::Vector{T}
     xy_prev::Vector{T}
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
-    function NoneVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+    function VanillaVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
         new(zeros(n + m), zeros(n + m), zeros(m))
     end
 end
-NoneVariables(args...) = NoneVariables{DefaultFloat}(args...)
+VanillaVariables(args...) = VanillaVariables{DefaultFloat}(args...)
 
 # Type for storing residuals in the workspace
 mutable struct ProgressMetrics{T <: AbstractFloat}
@@ -146,15 +146,16 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
         pm.rp_rel,
         pm.rd_rel,
         pm.gap_rel,
-       )
+    )
+
 
 abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}} end
 
 # workspace type for when :none acceleration is used
-struct NoneWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, NoneVariables{T}}
+struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, VanillaVariables{T}}
     k::Base.RefValue{Int} # iter counter
     p::ProblemData{T}
-    vars::NoneVariables{T}
+    vars::VanillaVariables{T}
     res::ProgressMetrics{T}
     variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
     W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
@@ -165,8 +166,8 @@ struct NoneWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I
     θ::T
     proj_flags::AbstractVector{Bool}
 
-    function NoneWorkspace{T, I}(p::ProblemData{T},
-        vars::Union{NoneVariables{T}, Nothing},
+    function VanillaWorkspace{T, I}(p::ProblemData{T},
+        vars::Union{VanillaVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
         τ::Union{T, Nothing},
@@ -181,7 +182,7 @@ struct NoneWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I
         m, n = p.m, p.n
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
-            vars = NoneVariables(m, n)
+            vars = VanillaVariables(m, n)
         end
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
@@ -197,21 +198,21 @@ struct NoneWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I
 end
 
 # thin wrapper to allow default constructor arguments
-function NoneWorkspace(
+function VanillaWorkspace(
     p::ProblemData{T},
     variant::Symbol,
     τ::Union{T, Nothing},
     ρ::T,
     θ::T;
-    vars::Union{NoneVariables{T}, Nothing} = nothing,
+    vars::Union{VanillaVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
     
     # delegate to the inner constructor
-    return NoneWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to)
+    return VanillaWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to)
 end
 
-NoneWorkspace(args...; kwargs...) = NoneWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
+VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # type used to store Givens rotation
 # LinearAlgebra.givensAlgorithm is derived from LAPACK's dlartg

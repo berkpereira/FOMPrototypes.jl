@@ -529,7 +529,7 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     end
 end
 
-function preallocate_scratch(ws::NoneWorkspace)
+function preallocate_scratch(ws::VanillaWorkspace)
     return (
         temp_n_mat1 = zeros(Float64, ws.p.n, 2),
         temp_n_mat2 = zeros(Float64, ws.p.n, 2),
@@ -754,7 +754,7 @@ function optimise!(
         @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
         @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
         @views view_q = ws.vars.xy_q[:, 2]
-    elseif ws.vars isa NoneVariables || ws.vars isa AndersonVariables
+    elseif ws.vars isa VanillaVariables || ws.vars isa AndersonVariables
         @views view_x = ws.vars.xy[1:ws.p.n]
         @views view_y = ws.vars.xy[ws.p.n+1:end]
     else
@@ -1166,7 +1166,7 @@ function optimise!(
         elseif ws isa KrylovWorkspace && ws.fp_found[]
             termination = true
             exit_status = :exact_fp_found
-        elseif ws isa NoneWorkspace && ws.k[] > args["max-iter"] # note this only applies to NoneWorkspace (no acceleration!)
+        elseif ws isa VanillaWorkspace && ws.k[] > args["max-iter"] # note this only applies to VanillaWorkspace (no acceleration!)
             termination = true
             exit_status = :max_iter
         elseif (ws isa AndersonWorkspace || ws isa KrylovWorkspace) && ws.k_operator[] > args["max-k-operator"] # note distinctness from ordinary :max_iter above
@@ -1184,7 +1184,7 @@ function optimise!(
     # initialise results with common fields
     # ie for both run-fast set to true and to false
     metrics_final = ReturnMetrics(ws.res)
-    results = Results(Dict{Symbol, Any}(), metrics_final, exit_status, ws.k[], ws isa NoneWorkspace ? ws.k[] : ws.k_operator[])
+    results = Results(Dict{Symbol, Any}(), metrics_final, exit_status, ws.k[], ws isa VanillaWorkspace ? ws.k[] : ws.k_operator[])
 
     # store final records if run-fast is set to true
     if !args["run-fast"]

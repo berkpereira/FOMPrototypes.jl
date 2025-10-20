@@ -28,7 +28,7 @@ function print_results(
     end
 
     # Start with iteration, objective, and primal/dual residuals
-    if ws isa NoneWorkspace # no acceleration
+    if ws isa VanillaWorkspace # no acceleration
         print_output = @sprintf("k %4.1d | obj: %12.5e", ws.k[], ws.res.obj_primal)
     elseif ws isa KrylovWorkspace # NB: k effective excludes count of unsuccessful acceleration attempts
         print_output = @sprintf("k %4.1d | k op %4.1d | k eff %4.1d | obj: %12.5e", ws.k[], ws.k_operator[], ws.k_eff[], ws.res.obj_primal)
