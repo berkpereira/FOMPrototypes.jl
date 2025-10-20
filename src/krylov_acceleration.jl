@@ -126,7 +126,7 @@ function compute_krylov_accelerant!(
 
 
     # compute FOM(xy_q[:, 1]) and store it in result_vec
-    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec)
     @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.xy_q[:, 1])
     
     # ws.H is passed as triangular, so we now need to apply the
@@ -159,7 +159,7 @@ function compute_krylov_accelerant!(
         # sign_preop_multipliers = 
 
         # the usual thing is to apply T to this GMRES proposal
-        onecol_method_operator!(ws, gmres_sol, result_vec, temp_n_vec1, temp_n_vec2, temp_m_vec)
+        onecol_method_operator!(ws, gmres_sol, result_vec)
     else
         @info "❌ Krylov acceleration failed with status: $lls_status"
     end

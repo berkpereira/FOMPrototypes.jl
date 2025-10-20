@@ -187,25 +187,24 @@ squares problem following from the Krylov acceleration subproblem.
 Note that xy is the "current" iterate as a single vector in R^{n+m}.
 New iterate is written (in-place) into result_vec input vector.
 """
-function onecol_method_operator!(ws::AbstractWorkspace,
+function onecol_method_operator!(
+    ws::AbstractWorkspace,
     xy::AbstractVector{Float64},
     result_vec::AbstractVector{Float64},
-    temp_n_vec1::AbstractVector{Float64},
-    temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64},
-    update_res_flags::Bool = false)
+    update_res_flags::Bool = false
+    )
 
-    @views mul!(temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
+    @views mul!(ws.scratch.temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
 
     if update_res_flags
-        @views Ax_norm = norm(temp_m_vec, Inf)
+        @views Ax_norm = norm(ws.scratch.temp_m_vec, Inf)
     end
 
-    temp_m_vec .-= ws.p.b # subtract b from A * x
+    ws.scratch.temp_m_vec .-= ws.p.b # subtract b from A * x
 
     # if updating primal residual
     if update_res_flags
-        @views ws.res.r_primal .= temp_m_vec # assign A * x - b
+        @views ws.res.r_primal .= ws.scratch.temp_m_vec # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
         # at this point the primal residual is updated
@@ -213,26 +212,26 @@ function onecol_method_operator!(ws::AbstractWorkspace,
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    temp_m_vec .*= ws.ρ
-    @views temp_m_vec .+= xy[ws.p.n+1:end] # add current
+    ws.scratch.temp_m_vec .*= ws.ρ
+    @views ws.scratch.temp_m_vec .+= xy[ws.p.n+1:end] # add current
     if update_res_flags
-        @views ws.vars.preproj_y .= temp_m_vec # this is what's fed into dual cone projection operator
+        @views ws.vars.preproj_y .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
     end
-    @views project_to_dual_K!(temp_m_vec, ws.p.K) # temp_m_vec now stores y_{k+1}
+    @views project_to_dual_K!(ws.scratch.temp_m_vec, ws.p.K) # ws.scratch.temp_m_vec now stores y_{k+1}
 
     if update_res_flags
         # update in-place flags switching affine dynamics based on projection action
         # ws.proj_flags = D_k in Goodnotes handwritten notes
-        update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, temp_m_vec)
+        update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, ws.scratch.temp_m_vec)
     end
 
     # now we go to "bulk of" x and q_n update
-    @views mul!(temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
+    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
 
     if update_res_flags
-        Px_norm = norm(temp_n_vec1, Inf)
+        Px_norm = norm(ws.scratch.temp_n_vec1, Inf)
 
-        @views xTPx = dot(xy[1:ws.p.n], temp_n_vec1) # x^T P x
+        @views xTPx = dot(xy[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
         @views cTx  = dot(ws.p.c, xy[1:ws.p.n]) # c^T x
         @views bTy  = dot(ws.p.b, xy[ws.p.n+1:end]) # b^T y
 
@@ -243,23 +242,23 @@ function onecol_method_operator!(ws::AbstractWorkspace,
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
 
-    temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
+    ws.scratch.temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
 
     # TODO reduce allocations in this mul! call: pass another temp vector?
     # consider dedicated scratch storage for y_bar, akin to what
     # we do in twocol_method_operator!
-    @views mul!(temp_n_vec2, ws.p.A', (1 + ws.θ) * temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
+    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
 
     if update_res_flags
-        ATybar_norm = norm(temp_n_vec2, Inf)
+        ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
     end
 
     # now compute P x + A^T y_bar
-    temp_n_vec1 .+= temp_n_vec2 # this is to be pre-multiplied by W^{-1}
+    ws.scratch.temp_n_vec1 .+= ws.scratch.temp_n_vec2 # this is to be pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
     if update_res_flags
-        @views ws.res.r_dual .= temp_n_vec1 # assign P * x + A' * y_bar + c
+        @views ws.res.r_dual .= ws.scratch.temp_n_vec1 # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
 
@@ -268,12 +267,12 @@ function onecol_method_operator!(ws::AbstractWorkspace,
         ws.res.rd_rel = ws.res.rd_abs / (1 + max(Px_norm, ATybar_norm, ws.p.c_norm_inf)) # update relative dual residual metric
     end
     
-    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_vec1
-    apply_inv!(ws.W_inv, temp_n_vec1)
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to ws.scratch.temp_n_vec1
+    apply_inv!(ws.W_inv, ws.scratch.temp_n_vec1)
 
     # assign new iterates
-    @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - temp_n_vec1
-    result_vec[ws.p.n+1:end] .= temp_m_vec
+    @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - ws.scratch.temp_n_vec1
+    result_vec[ws.p.n+1:end] .= ws.scratch.temp_m_vec
     
     return nothing
 end
@@ -344,7 +343,7 @@ function accel_fp_safeguard!(
     # we catch the unguarded case early, since it is the simplest by far
     if ws.safeguard_norm == :none
         # store FOM(accelerated_xy) in to_recycle_xy right away
-        onecol_method_operator!(ws, accelerated_xy, to_recycle_xy, temp_n_vec1, temp_n_vec2, temp_m_vec)
+        onecol_method_operator!(ws, accelerated_xy, to_recycle_xy)
 
         # always successful acceleration
         return true
@@ -354,7 +353,8 @@ function accel_fp_safeguard!(
     fp_metric_acc = 0.0
 
     # store FOM(current_xy) in temp_mn_vec1
-    onecol_method_operator!(ws, current_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    # TODO sort carefully what to with these separate scratch vectors
+    onecol_method_operator!(ws, current_xy, temp_mn_vec1)
 
     # (temporarily) store FOM(current_xy) --- vanilla iterate --- in xy_recycled
     # this is overwritten later in this function if the acceleration
@@ -407,14 +407,10 @@ function accel_fp_safeguard!(
 
             char_mat = Matrix([(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ])
             true_lookahead = zeros(ws.p.m + ws.p.n)
-            onecol_method_operator!(
-                ws, pinv_sol, true_lookahead, temp_n_vec1, temp_n_vec2,
-                temp_m_vec)
+            onecol_method_operator!(ws, pinv_sol, true_lookahead)
             # take a step from the linear system ≈solution, as in our Krylov method
-            onecol_method_operator!(
-                ws, true_lookahead, pinv_sol, temp_n_vec1, temp_n_vec2,
-                temp_m_vec)
-            
+            onecol_method_operator!(ws, true_lookahead, pinv_sol)
+
             # swap: after this, true_lookahead stores T(pinv_sol)
             custom_swap!(true_lookahead, pinv_sol, temp_mn_vec1)
             
@@ -456,7 +452,8 @@ function accel_fp_safeguard!(
     # store FOM(accelerated_xy) in temp_mn_vec1
     # NOTE: we must keep temp_mn_vec1 INTACT from this on UNTIL we decide whether
     # or not to overwrite to_recycle_xy with FOM(accelerated_xy)
-    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1, temp_n_vec1, temp_n_vec2, temp_m_vec)
+    # TODO sort carefully what to with these separate scratch vectors
+    onecol_method_operator!(ws, accelerated_xy, temp_mn_vec1)
 
     # store fixed-point residual of accelerated_xy in temp_mn_vec2
     temp_mn_vec2 .= temp_mn_vec1 - accelerated_xy
@@ -959,7 +956,8 @@ function optimise!(
                 # during the acceleration acceptance criterion check
                 # we also reinit the Krylov orthogonal basis 
                 if ws.k[] == 0 # special case in initial iteration
-                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+                    # TODO sort carefully what to with these separate scratch vectors
+                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], scratch.temp_mn_vec1, true)
                     @views ws.vars.xy_q[:, 1] .= scratch.temp_mn_vec1
 
                     # fills in first column of ws.krylov_basis
@@ -1078,7 +1076,8 @@ function optimise!(
                 if just_tried_acceleration
                     ws.vars.xy .= ws.vars.xy_recycled
                 else
-                    onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+                    # TODO sort carefully what to with these separate scratch vectors
+                    onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, true)
                     # swap contents of ws.vars.xy and scratch.temp_mn_vec1
                     custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
                 end
@@ -1106,7 +1105,8 @@ function optimise!(
             # copy older iterate before iterating
             ws.vars.xy_prev .= ws.vars.xy
 
-            onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, true)
+            # TODO sort carefully what to with these separate scratch vectors
+            onecol_method_operator!(ws, ws.vars.xy, scratch.temp_mn_vec1, true)
 
             # swap contents of ws.vars.xy and scratch.temp_mn_vec1
             custom_swap!(ws.vars.xy, scratch.temp_mn_vec1, scratch.temp_mn_vec2)
