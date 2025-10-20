@@ -168,8 +168,8 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 end
 
 """
-Efficiently computes FOM iteration at point xy, and stores it in result_vec.
-Vector xy is left unchanged.
+Efficiently computes FOM iteration at point xy_in, and stores it in xy_out.
+Vector xy_in is left unchanged.
 
 Set update_res_flags to true iff the method is being used for a bona fide
 vanilla FOM iteration, where the active set flags and working residual metrics
@@ -184,17 +184,17 @@ This is convenient whenever we need the method's operator but without
 updating an Arnoldi vector, eg when solving the upper Hessenber linear least
 squares problem following from the Krylov acceleration subproblem.
 
-Note that xy is the "current" iterate as a single vector in R^{n+m}.
-New iterate is written (in-place) into result_vec input vector.
+Note that xy_in is the "current" iterate as a single vector in R^{n+m}.
+New iterate is written (in-place) into xy_out input vector.
 """
 function onecol_method_operator!(
     ws::AbstractWorkspace,
-    xy::AbstractVector{Float64},
-    result_vec::AbstractVector{Float64},
+    xy_in::AbstractVector{Float64},
+    xy_out::AbstractVector{Float64},
     update_res_flags::Bool = false
     )
 
-    @views mul!(ws.scratch.temp_m_vec, ws.p.A, xy[1:ws.p.n]) # compute A * x
+    @views mul!(ws.scratch.temp_m_vec, ws.p.A, xy_in[1:ws.p.n]) # compute A * x
 
     if update_res_flags
         @views Ax_norm = norm(ws.scratch.temp_m_vec, Inf)
@@ -213,7 +213,7 @@ function onecol_method_operator!(
     end
 
     ws.scratch.temp_m_vec .*= ws.ρ
-    @views ws.scratch.temp_m_vec .+= xy[ws.p.n+1:end] # add current
+    @views ws.scratch.temp_m_vec .+= xy_in[ws.p.n+1:end] # add current
     if update_res_flags
         @views ws.vars.preproj_y .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
     end
@@ -226,14 +226,14 @@ function onecol_method_operator!(
     end
 
     # now we go to "bulk of" x and q_n update
-    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, xy[1:ws.p.n]) # compute P * x
+    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, xy_in[1:ws.p.n]) # compute P * x
 
     if update_res_flags
         Px_norm = norm(ws.scratch.temp_n_vec1, Inf)
 
-        @views xTPx = dot(xy[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
-        @views cTx  = dot(ws.p.c, xy[1:ws.p.n]) # c^T x
-        @views bTy  = dot(ws.p.b, xy[ws.p.n+1:end]) # b^T y
+        @views xTPx = dot(xy_in[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
+        @views cTx  = dot(ws.p.c, xy_in[1:ws.p.n]) # c^T x
+        @views bTy  = dot(ws.p.b, xy_in[ws.p.n+1:end]) # b^T y
 
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
@@ -247,7 +247,7 @@ function onecol_method_operator!(
     # TODO reduce allocations in this mul! call: pass another temp vector?
     # consider dedicated scratch storage for y_bar, akin to what
     # we do in twocol_method_operator!
-    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * xy[ws.p.n+1:end]) # compute A' * y_bar
+    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * xy_in[ws.p.n+1:end]) # compute A' * y_bar
 
     if update_res_flags
         ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
@@ -271,8 +271,8 @@ function onecol_method_operator!(
     apply_inv!(ws.W_inv, ws.scratch.temp_n_vec1)
 
     # assign new iterates
-    @views result_vec[1:ws.p.n] .= xy[1:ws.p.n] - ws.scratch.temp_n_vec1
-    result_vec[ws.p.n+1:end] .= ws.scratch.temp_m_vec
+    @views xy_out[1:ws.p.n] .= xy_in[1:ws.p.n] - ws.scratch.temp_n_vec1
+    xy_out[ws.p.n+1:end] .= ws.scratch.temp_m_vec
     
     return nothing
 end
