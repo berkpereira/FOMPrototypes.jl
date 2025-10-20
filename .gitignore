@@ -5,6 +5,9 @@
 conda-meta/
 .CondaPkg/
 
+# plots
+*.pdf
+
 # For external solver results
 external_solvers/
 
