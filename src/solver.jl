@@ -650,7 +650,6 @@ end
 # different "types" of iterations
 function krylov_usual_step!(
     ws::KrylovWorkspace,
-    scratch,
     timer::TimerOutput;
     H_unmod::Union{Nothing, AbstractMatrix{Float64}} = nothing,
     tilde_A::Union{AbstractMatrix{Float64}, Nothing} = nothing,
@@ -982,7 +981,7 @@ function optimise!(
                     end
                 else # the usual case
 
-                    krylov_usual_step!(ws, scratch, timer, H_unmod=H_unmod, tilde_A=tilde_A)
+                    krylov_usual_step!(ws, timer, H_unmod=H_unmod, tilde_A=tilde_A)
 
                     # ws.givens_count has had "time" to be increment past
                     # a trigger point, so we can relax this flag in order
