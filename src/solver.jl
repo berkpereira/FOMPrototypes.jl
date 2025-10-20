@@ -390,11 +390,6 @@ function accel_fp_safeguard!(
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
     safeguard_factor::Float64,
-    temp_mn_vec1::AbstractVector{Float64},
-    temp_mn_vec2::AbstractVector{Float64},
-    temp_n_vec1::AbstractVector{Float64},
-    temp_n_vec2::AbstractVector{Float64},
-    temp_m_vec::AbstractVector{Float64},
     record::Union{NamedTuple, Nothing} = nothing,
     tilde_A::Union{AbstractMatrix{Float64}, Nothing} = nothing,
     tilde_b::Union{AbstractVector{Float64}, Nothing} = nothing,
@@ -443,7 +438,7 @@ function accel_fp_safeguard!(
             onecol_method_operator!(ws, true_lookahead, pinv_sol)
 
             # swap: after this, true_lookahead stores T(pinv_sol)
-            custom_swap!(true_lookahead, pinv_sol, temp_mn_vec1)
+            custom_swap!(true_lookahead, pinv_sol, ws.scratch.temp_mn_vec1)
             
             true_lookahead_step = true_lookahead - pinv_sol
             if ws.safeguard_norm == :euclid
@@ -499,7 +494,7 @@ function accel_fp_safeguard!(
 
     # finalize ws.scratch.xy_recycled
     if acceleration_success
-        ws.scratch.xy_recycled .= ws.scratch.xy_lookahead    # temp_mn_vec1 == FOM(accelerated_xy)
+        ws.scratch.xy_recycled .= ws.scratch.xy_lookahead    # ws.scratch.xy_lookahead == FOM(accelerated_xy)
     end
 
     return acceleration_success
@@ -893,7 +888,7 @@ function optimise!(
                         end
                     end
 
-                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws.vars.xy_q[:, 1], scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
                 else
@@ -1021,7 +1016,7 @@ function optimise!(
                     # scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, args["safeguard-factor"], scratch.temp_mn_vec1, scratch.temp_mn_vec2, scratch.temp_n_vec1, scratch.temp_n_vec2, scratch.temp_m_vec, record, tilde_A, tilde_b, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws.vars.xy, scratch.accelerated_point, args["safeguard-factor"], record, tilde_A, tilde_b, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
