@@ -529,51 +529,54 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     end
 end
 
-function preallocate_scratch(ws::AbstractWorkspace, acceleration::Symbol)
-    if acceleration == :krylov
-        return (
-            temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-            temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-            temp_m_mat = zeros(Float64, ws.p.m, 2),
-            temp_m_vec = zeros(Float64, ws.p.m),
-            temp_n_vec1 = zeros(Float64, ws.p.n),
-            temp_n_vec2 = zeros(Float64, ws.p.n), 
-            temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_n_vec_complex1 = zeros(ComplexF64, ws.p.n),
-            temp_n_vec_complex2 = zeros(ComplexF64, ws.p.n),
-            temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-            accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
-        )
-    elseif acceleration == :anderson
-        return (
-            temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-            temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-            temp_m_mat = zeros(Float64, ws.p.m, 2),
-            temp_m_vec = zeros(Float64, ws.p.m),
-            temp_n_vec1 = zeros(Float64, ws.p.n),
-            temp_n_vec2 = zeros(Float64, ws.p.n), 
-            temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
-            temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-            accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
-        )
-    elseif acceleration == :none
-        return (
-            temp_n_mat1 = zeros(Float64, ws.p.n, 2),
-            temp_n_mat2 = zeros(Float64, ws.p.n, 2),
-            temp_m_mat = zeros(Float64, ws.p.m, 2),
-            temp_m_vec = zeros(Float64, ws.p.m),
-            temp_n_vec1 = zeros(Float64, ws.p.n),
-            temp_n_vec2 = zeros(Float64, ws.p.n), 
-            temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
-            temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
-            temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
-        )
-    end
+function preallocate_scratch(ws::NoneWorkspace)
+    return (
+        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
+        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
+        temp_m_mat = zeros(Float64, ws.p.m, 2),
+        temp_m_vec = zeros(Float64, ws.p.m),
+        temp_n_vec1 = zeros(Float64, ws.p.n),
+        temp_n_vec2 = zeros(Float64, ws.p.n), 
+        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
+        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
+    )
 end
+
+function preallocate_scratch(ws::AndersonWorkspace)
+    return (
+        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
+        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
+        temp_m_mat = zeros(Float64, ws.p.m, 2),
+        temp_m_vec = zeros(Float64, ws.p.m),
+        temp_n_vec1 = zeros(Float64, ws.p.n),
+        temp_n_vec2 = zeros(Float64, ws.p.n), 
+        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_n_vec_complex = zeros(ComplexF64, ws.p.n),
+        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
+        accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
+    )
+end
+
+function preallocate_scratch(ws::KrylovWorkspace)
+    return (
+        temp_n_mat1 = zeros(Float64, ws.p.n, 2),
+        temp_n_mat2 = zeros(Float64, ws.p.n, 2),
+        temp_m_mat = zeros(Float64, ws.p.m, 2),
+        temp_m_vec = zeros(Float64, ws.p.m),
+        temp_n_vec1 = zeros(Float64, ws.p.n),
+        temp_n_vec2 = zeros(Float64, ws.p.n), 
+        temp_mn_vec1 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_mn_vec2 = zeros(Float64, ws.p.n + ws.p.m),
+        temp_n_vec_complex1 = zeros(ComplexF64, ws.p.n),
+        temp_n_vec_complex2 = zeros(ComplexF64, ws.p.n),
+        temp_m_vec_complex = zeros(ComplexF64, ws.p.m),
+        accelerated_point = zeros(Float64, ws.p.n + ws.p.m),
+    )
+end
+
 
 function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
     x_sol::Union{Nothing, AbstractVector{Float64}})
@@ -804,7 +807,7 @@ function optimise!(
     j_restart = 0
 
     # pre-allocate vectors for intermediate results in in-place computations
-    scratch = preallocate_scratch(ws, args["acceleration"]) # scratch is a named tuple
+    scratch = preallocate_scratch(ws) # scratch is a named tuple
     curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
     prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
 
