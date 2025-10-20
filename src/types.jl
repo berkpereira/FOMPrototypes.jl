@@ -173,11 +173,13 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
 
+    # acceleration and safeguarding
     accelerated_point::Vector{T}
     # recycled iterate --- to recycle work done when computing fixed-point
-    # residuals for acceleration acceptance criteria, then assigned
-    # to the working optimisation variable xy_q[:, 1] in the next iteration
     xy_recycled::Vector{T}
+
+    xy_lookahead::Vector{T}
+    fp_res::Vector{T}
 end
 
 function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -186,6 +188,8 @@ function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, n),
         zeros(T, n),
         zeros(T, m),
+        zeros(T, m + n),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
@@ -214,6 +218,8 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     # residuals for acceleration acceptance criteria, then assigned
     # to the working optimisation variable xy_q[:, 1] in the next iteration
     xy_recycled::Vector{T}
+    xy_lookahead::Vector{T}
+    fp_res::Vector{T}
 end
 
 function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -231,6 +237,8 @@ function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(Complex{T}, n),
         zeros(Complex{T}, n),
         zeros(Complex{T}, m),
+        zeros(T, m + n),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
     )
