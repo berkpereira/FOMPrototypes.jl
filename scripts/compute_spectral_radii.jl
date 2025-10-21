@@ -1,8 +1,9 @@
-include("problem_data.jl")
-include("types.jl")
-include("optimal_diagonal_shift.jl")
-include("cones.jl")
-include("utils.jl")
+include("../src/core/problem_data.jl")
+include("../src/core/types.jl")
+include("../src/spec_analysis/optimal_diagonal_shift.jl")
+include("../src/alg/cones.jl")
+include("../src/core/utils.jl")
+
 using CSV, DataFrames, Clarabel, ClarabelBenchmarks
 using Printf
 using Plots
