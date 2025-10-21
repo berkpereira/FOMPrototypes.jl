@@ -142,6 +142,28 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
     )
 
 
+# types to hold flags aiding control flow in algorithms
+abstract type AbstractControlFlags end
+
+mutable struct KrylovControlFlags <: AbstractControlFlags
+    just_tried_accel::Bool
+    accepted_accel::Bool
+    back_to_building_krylov_basis::Bool
+    krylov_status::Symbol
+end
+
+# NOTE default init values
+KrylovControlFlags() = KrylovControlFlags(false, false, true, :init)
+
+mutable struct AndersonControlFlags <: AbstractControlFlags
+    just_tried_accel::Bool
+    accepted_accel::Bool
+end
+
+# NOTE default init values
+AndersonControlFlags() = AndersonControlFlags(false, false)
+
+
 # Types for scratch areas/working vectors to avoid heap allocations
 abstract type AbstractWorkspaceScratch{T} end
 
@@ -358,7 +380,10 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
     τ::Union{T, Nothing}
     ρ::T
     θ::T
+    
     proj_flags::AbstractVector{Bool}
+    control_flags::KrylovControlFlags
+
 
     # precomputed diagonals
     # TODO get rid of these when they are not needed
@@ -452,7 +477,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
 
         W_inv = prepare_inv(W, to)
 
-        new{T, I}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        new{T, I}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 
@@ -494,7 +519,9 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
     τ::Union{T, Nothing}
     ρ::T
     θ::T
+
     proj_flags::AbstractVector{Bool}
+    control_flags::AndersonControlFlags
 
     # precomputed diagonals
     # TODO get rid of these when they are not needed
@@ -567,7 +594,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), AndersonControlFlags(), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end

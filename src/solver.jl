@@ -392,20 +392,16 @@ function optimise!(
         ws_diag = nothing
     end
     
-    # init acceleration trigger flag
-    just_tried_acceleration = false
 
-    krylov_status = :init
-
-    # we use back_to_building_krylov_basis as follows
+    # we use ws.control_flags.back_to_building_krylov_basis as follows
     # as we build Krylov basis up, ws.givens_count is incremented
     # when it gets to a given trigger point, we attempt acceleration and set
-    # just_tried_acceleration = true. after the following, recycling iteration, 
+    # ws.control_flags.just_tried_accel = true. after the following, recycling iteration, 
     # the counter ws.givens_count will still be at the trigger point and
-    # just_tried_acceleration is false. however, we wish to keep builing
+    # ws.control_flags.just_tried_accel is false. however, we wish to keep builing
     # the krylov basis --- NOT attempt acceleration again. to distinguish these
-    # cases we use back_to_building_krylov_basis
-    back_to_building_krylov_basis = true
+    # cases we use ws.control_flags.back_to_building_krylov_basis
+    # ws.control_flags.back_to_building_krylov_basis = true
     
     # set restart counter
     j_restart = 0
@@ -475,13 +471,13 @@ function optimise!(
             @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
             
             # acceleration attempt step
-            if (ws.givens_count[] in ws.trigger_givens_counts && !back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
-                @timeit timer "krylov sol" krylov_status = compute_krylov_accelerant!(ws, ws.scratch.accelerated_point)
+            if (ws.givens_count[] in ws.trigger_givens_counts && !ws.control_flags.back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
+                @timeit timer "krylov sol" ws.control_flags.krylov_status = compute_krylov_accelerant!(ws, ws.scratch.accelerated_point)
 
                 ws.k_operator[] += 1 # one operator application in computing Krylov point (GMRES-equivalence, see Walker and Ni 2011)
 
                 # use safeguard if the Krylov procedure suffered no breakdowns
-                if krylov_status == :success
+                if ws.control_flags.krylov_status == :success
 
                     if full_diagnostics # best to update for use here
                         construct_explicit_operator!(ws, ws_diag)
@@ -509,14 +505,14 @@ function optimise!(
                         end
                     end
 
-                    @timeit timer "fixed-point safeguard" @views accept_krylov = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
                 else
-                    accept_krylov = false
+                    ws.control_flags.accepted_accel = false
                 end
 
-                if accept_krylov
+                if ws.control_flags.accepted_accel
                     # increment effective iter counter (ie excluding unsuccessful acc attempts)
                     ws.k_eff[] += 1
                     
@@ -556,8 +552,8 @@ function optimise!(
                     ws.arnoldi_breakdown[] = false
                 end
 
-                just_tried_acceleration = true
-                back_to_building_krylov_basis = true
+                ws.control_flags.just_tried_accel = true
+                ws.control_flags.back_to_building_krylov_basis = true
             # standard step in the krylov setup (two columns)
             else
                 # increment effective iter counter (ie excluding unsuccessful acc attempts)
@@ -576,7 +572,7 @@ function optimise!(
                     # fills in first column of ws.krylov_basis
                     init_krylov_basis!(ws) # ws.H is zeros at this point still
                 
-                elseif just_tried_acceleration
+                elseif ws.control_flags.just_tried_accel
                     # recycle working (x, y) iterate
                     ws.vars.xy_q[:, 1] .= ws.scratch.xy_recycled
                     
@@ -584,7 +580,7 @@ function optimise!(
                     # the entire memory
                     if ws.givens_count[] == 0 # just wiped Krylov basis clean
                         # fills in first column of ws.krylov_basis
-                        init_krylov_basis!(ws, krylov_status) # ws.H is zeros at this point still
+                        init_krylov_basis!(ws, ws.control_flags.krylov_status) # ws.H is zeros at this point still
                         
                         if full_diagnostics
                             ws_diag.H_unmod .= 0.0
@@ -597,7 +593,7 @@ function optimise!(
                     # ws.givens_count has had "time" to be incremented past
                     # a trigger point, so we can relax this flag in order
                     # to allow the next acceleration attempt when it comes up
-                    back_to_building_krylov_basis = false
+                    ws.control_flags.back_to_building_krylov_basis = false
                 end
 
                 # record iteration data if requested
@@ -609,7 +605,7 @@ function optimise!(
                 end
 
                 # reset krylov acceleration flag
-                just_tried_acceleration = false
+                ws.control_flags.just_tried_accel = false
                 j_restart += 1
             end
         elseif args["acceleration"] == :anderson
@@ -637,11 +633,11 @@ function optimise!(
                     # ws.scratch.accelerated_point contains the candidate
                     # acceleration point, which is legitimately different
                     # from ws.vars.xy
-                    @timeit timer "fixed-point safeguard" @views accept_anderson = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy, ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+                    @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy, ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
                     ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
 
-                    if accept_anderson
+                    if ws.control_flags.accepted_accel
                         ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
 
                         if !args["run-fast"]
@@ -665,7 +661,7 @@ function optimise!(
                     # note that this flag serves for us to use recycled
                     # work from the fixed-point safeguard step when
                     # the next iteration comes around
-                    just_tried_acceleration = true
+                    ws.control_flags.just_tried_accel = true
                 elseif !args["run-fast"] # prevent recording zero update norm
                     push!(record.xy_step_norms, NaN)
                     push!(record.xy_step_char_norms, NaN)
@@ -686,7 +682,7 @@ function optimise!(
                 # we compute new iterate: if we just tried acceleration,
                 # we use the recycled variable stored during the fixed-point
                 # safeguarding step
-                if just_tried_acceleration
+                if ws.control_flags.just_tried_accel
                     ws.vars.xy .= ws.scratch.xy_recycled
                 else
                     # TODO sort carefully what to with these separate scratch vectors
@@ -712,7 +708,7 @@ function optimise!(
                 end
 
                 # cannot recycle anything at next iteration
-                just_tried_acceleration = false
+                ws.control_flags.just_tried_accel = false
             end
         else # no acceleration!
             # copy older iterate before iterating
