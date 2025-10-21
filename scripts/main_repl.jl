@@ -1,6 +1,5 @@
 import FOMPrototypes
 using Infiltrator
-using Profile, PProf
 
 args = Dict(
     "ref-solver"   => :SCS,
@@ -12,10 +11,6 @@ args = Dict(
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash219_huber",
 
-    # big ol problem
-    # "problem-set"  => "netlib_feasible",
-    # "problem-name" => "maros_r7",
-
     # this can break when estimation of max_τ goes wrong (negative! even)
     # "problem-set"  => "mpc",
     # "problem-name" => "springMass_4",
@@ -23,26 +18,19 @@ args = Dict(
     # NB this LP gives bad Arnoldi breakdowns (rank deficient
     # LLS system, breaks forward solve) when using ADMM, Krylov,
     # mem = 40, tries_per_mem = 3, euclidean safeguard, krylov operator = :tilde_A
-    # TODO address these issues
-    # "problem-set"  => "netlib_feasible",
-    # "problem-name" => "afiro",
     
-    # "problem-set"  => "maros",
-    # "problem-name" => "STADAT3",
+    #####################
 
-    # "problem-set"  => "toy",
-    # "problem-name" => "toy",
-    
     "res-norm"     => Inf,
     "rel-kkt-tol"  => 1e-9,
 
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "accel-memory" => 15,
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 
     "krylov-tries-per-mem"  => 3,
-    "krylov-operator"       => :B, # in {:tilde_A, :B}
+    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
     "anderson-interval"     => 10,
@@ -68,7 +56,7 @@ args = Dict(
 );
 
 # run everything with a single call:
-# ws, results, to, x_ref, y_ref = FOMPrototypes.main(args);
+# ws, ws_diag, results, to, x_ref, y_ref = FOMPrototypes.main(args);
 
 # get problem data:
 problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
@@ -77,7 +65,14 @@ problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
 # model_ref, x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
 
 # call my solver:
-ws, results, to, tilde_A, tilde_b, H_unmod = FOMPrototypes.run_prototype(problem, args["problem-set"], args["problem-name"], args, full_diagnostics = false, spec_plot_period = 50);
+ws, ws_diag, results, to = FOMPrototypes.run_prototype(
+    problem,
+    args["problem-set"],
+    args["problem-name"],
+    args,
+    full_diagnostics = false,
+    spec_plot_period = 50
+    );
 
 # plot results if applicable:
 if !args["run-fast"]
