@@ -35,3 +35,15 @@ end
 function is_feasible(r_primal::AbstractVector{Float64}, r_dual::AbstractVector{Float64}, A::AbstractMatrix{Float64}, P::AbstractMatrix{Float64}, x::AbstractVector{Float64}, s::AbstractVector{Float64}, y::AbstractVector{Float64}, b::AbstractVector{Float64}, c::AbstractVector{Float64}, ϵ_abs::Float64, ϵ_rel::Float64)
     return is_primal_feasible(r_primal, A, x, s, b, ϵ_abs, ϵ_rel) && is_dual_feasible(r_dual, P, x, c, A, y, ϵ_abs, ϵ_rel)
 end
+
+"""
+This function returns a Boolean indicating whether the KKT relative error
+has gone below the require tolerance, a common termination criterion.
+
+For instance, PDQP preprint uses tol = 1e-3 for low accuracy and 1e-6 for high
+accuracy solutions.
+"""
+function kkt_criterion(ws::AbstractWorkspace, kkt_tol::Float64)
+    max_err = max(ws.res.rp_rel, ws.res.rd_rel, ws.res.gap_rel)
+    return max_err <= kkt_tol
+end

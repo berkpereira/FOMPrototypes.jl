@@ -148,6 +148,59 @@ function compute_krylov_accelerant!(
     return lls_status
 end
 
+
+function krylov_usual_step!(
+    ws::KrylovWorkspace,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    timer::TimerOutput;
+    )
+    # apply method operator (to both (x, y) and Arnoldi (q) vectors)
+    twocol_method_operator!(ws, true)
+
+    # Arnoldi "step", orthogonalises the incoming basis vector
+    # and updates the Hessenberg matrix appropriately, all in-place
+    @timeit timer "krylov arnoldi" @views ws.arnoldi_breakdown[] = arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
+
+    # if ws.krylov_operator == :tilde_A, the QR factorisation   
+    # we require for the Krylov LLS subproblem is that of
+    # the Hessenberg matrix MINUS an identity matrix,
+    # so we must apply this immediately
+    if ws.krylov_operator == :tilde_A
+        ws.H[ws.givens_count[]+1, ws.givens_count[]+1] -= 1.0
+    end
+
+    # this is only when running full (expensive) diagnostics
+    if !isnothing(ws_diag)
+        ws_diag.H_unmod[:, ws.givens_count[] + 1] .= ws.H[:, ws.givens_count[] + 1]
+    end
+    
+    @timeit timer "krylov givens" begin
+        # apply previously existing Givens rotations to the brand new column
+        # in H. if H has a single column here, then
+        # ws.givens_count[] == 0 and this does nothing
+        apply_existing_rotations_new_col!(ws.H, ws.givens_rotations, ws.givens_count)
+
+        # generate new Givens rotation, store it in
+        # ws.givens_rotations, and apply it in-place to the new
+        # column of H
+        # also increment ws.givens_count by 1
+        # the EXCEPTION is if Arnoldi broke down (found invariant subspace
+        # and set H(givens_count[] + 2, givens_count[] + 1) equal to 0)
+        if !ws.arnoldi_breakdown[]
+            # ws.givens_count[] gets incremented by 1 inside this function
+            generate_store_apply_rotation!(ws.H, ws.givens_rotations, ws.givens_count)
+        else
+            # NOTE: in this case we increment ws.givens_count[] so as to signal
+            # that we have gathered a new column to solve, but this rotation
+            # is not actually generated/stored, since the Arnoldi breakdown
+            # has given us a triangular principal subblock of ws.H
+            # even without it
+            ws.givens_count[] += 1
+        end
+    end
+end
+
+
 """
 In our framing of the FOM as an affine operator with generally varying
 dynamics, we want to apply the operator concurrently to two vectors.
