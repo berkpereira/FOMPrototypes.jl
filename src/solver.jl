@@ -899,8 +899,8 @@ function optimise!(
                 # we also reinit the Krylov orthogonal basis 
                 if ws.k[] == 0 # special case in initial iteration
                     # TODO sort carefully what to with these separate scratch vectors
-                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], ws.scratch.temp_mn_vec1, true)
-                    @views ws.vars.xy_q[:, 1] .= ws.scratch.temp_mn_vec1
+                    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], ws.scratch.initial_vec, true)
+                    @views ws.vars.xy_q[:, 1] .= ws.scratch.initial_vec
 
                     # fills in first column of ws.krylov_basis
                     init_krylov_basis!(ws) # ws.H is zeros at this point still
@@ -1019,9 +1019,9 @@ function optimise!(
                     ws.vars.xy .= ws.scratch.xy_recycled
                 else
                     # TODO sort carefully what to with these separate scratch vectors
-                    onecol_method_operator!(ws, ws.vars.xy, ws.scratch.temp_mn_vec1, true)
-                    # swap contents of ws.vars.xy and ws.scratch.temp_mn_vec1
-                    custom_swap!(ws.vars.xy, ws.scratch.temp_mn_vec1, ws.scratch.temp_mn_vec2)
+                    onecol_method_operator!(ws, ws.vars.xy, ws.scratch.swap_vec, true)
+                    # swap contents of ws.vars.xy and ws.scratch.swap_vec
+                    custom_swap!(ws.vars.xy, ws.scratch.swap_vec, ws.scratch.temp_mn_vec1)
                 end
 
                 # just applied onecol operator, so we increment
@@ -1048,14 +1048,14 @@ function optimise!(
             ws.vars.xy_prev .= ws.vars.xy
 
             # TODO sort carefully what to with these separate scratch vectors
-            onecol_method_operator!(ws, ws.vars.xy, ws.scratch.temp_mn_vec1, true)
-            # swap contents of ws.vars.xy and ws.scratch.temp_mn_vec1
-            custom_swap!(ws.vars.xy, ws.scratch.temp_mn_vec1, ws.scratch.temp_mn_vec2)
+            onecol_method_operator!(ws, ws.vars.xy, ws.scratch.swap_vec, true)
+            # swap contents of ws.vars.xy and ws.scratch.swap_vec
+            custom_swap!(ws.vars.xy, ws.scratch.swap_vec, ws.scratch.temp_mn_vec1)
             # now ws.vars.xy contains newer iterate,  while
-            # ws.scratch.temp_mn_vec1 contains older one
+            # ws.scratch.swap_vec contains older one
 
             if !args["run-fast"]
-                curr_xy_update .= ws.vars.xy - ws.scratch.temp_mn_vec1
+                curr_xy_update .= ws.vars.xy - ws.scratch.swap_vec
 
                 # record iteration data here
                 push!(record.xy_step_norms, norm(curr_xy_update))

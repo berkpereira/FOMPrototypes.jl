@@ -151,6 +151,9 @@ struct VanillaScratch{T} <: AbstractWorkspaceScratch{T}
     temp_m_vec::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
+    
+    # when using onecol_method_operator!
+    swap_vec::Vector{T}
 end
 
 function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -159,6 +162,7 @@ function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, n),
         zeros(T, n),
         zeros(T, m),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
     )
@@ -172,6 +176,9 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
     temp_m_vec::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
+
+    # when using onecol_method_operator!
+    swap_vec::Vector{T}
 
     # acceleration and safeguarding
     accelerated_point::Vector{T}
@@ -198,6 +205,7 @@ function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
+        zeros(T, m + n),
     )
 end
 
@@ -216,6 +224,9 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     temp_n_vec_complex1::Vector{Complex{T}}
     temp_n_vec_complex2::Vector{Complex{T}}
     temp_m_vec_complex::Vector{Complex{T}}
+
+    # briefly holds initial iterate
+    initial_vec::Vector{T}
     
     accelerated_point::Vector{T}
     # recycled iterate --- to recycle work done when computing fixed-point
@@ -241,6 +252,7 @@ function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(Complex{T}, n),
         zeros(Complex{T}, n),
         zeros(Complex{T}, m),
+        zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
