@@ -75,24 +75,6 @@ function tilde_A_prod(ws::AbstractWorkspace,
     return [top_left + top_right; bot_left + bot_right]
 end
 
-function acceleration_candidate(tilde_A::AbstractMatrix{Float64},
-    tilde_b::AbstractVector{Float64}, x::AbstractVector{Float64},
-    v::AbstractVector{Float64}, n::Integer, m::Integer,
-    use_package_krylov::Bool = true,
-    krylov_basis::AbstractMatrix{Float64} = zeros(Float64, n + m, 0))
-    if use_package_krylov
-        krylov_iterate = copy([x; v])
-        
-        # NOTE: may want to set maxiter argument in call to gmres! below.
-        gmres!(krylov_iterate, I(n + m) - tilde_A, tilde_b, maxiter = 20)
-
-        return tilde_A * krylov_iterate + tilde_b
-    else
-        # Throw exception because this is not yet implemented.
-        throw(ArgumentError("Non-package acceleration not yet implemented."))
-    end
-end
-
 
 """
 Compute the Krylov accelerant candidate, write to result_vec.
