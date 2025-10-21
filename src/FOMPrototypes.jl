@@ -26,6 +26,7 @@ include(joinpath(@__DIR__, "linops/types_utils.jl"))
 include(joinpath(@__DIR__, "alg/cones.jl"))
 include(joinpath(@__DIR__, "linops/alg_utils.jl"))
 include(joinpath(@__DIR__, "linops/residuals.jl"))
+include(joinpath(@__DIR__, "alg/record.jl"))
 include(joinpath(@__DIR__, "alg/vanilla.jl"))
 include(joinpath(@__DIR__, "alg/krylov.jl"))
 include(joinpath(@__DIR__, "alg/anderson.jl"))
@@ -474,7 +475,7 @@ function plot_results(
     add_vlines!(dres_plot)
     display(dres_plot)
 
-    if results.metrics_history[:x_dist_to_sol] !== nothing
+    if length(results.metrics_history[:x_dist_to_sol]) != 0
         # (x, y) distance to solution plot.
         xy_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
         xy_dist_plot = plot(0:k_final, xy_dist_to_sol, linewidth=LINEWIDTH,

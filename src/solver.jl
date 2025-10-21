@@ -220,36 +220,6 @@ function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
     end
 end
 
-function push_to_record!(ws::AbstractWorkspace, record::NamedTuple, run_fast::Bool,
-    x_sol::Union{Nothing, AbstractVector{Float64}},
-    curr_x_dist::Union{Nothing, Float64},
-    curr_y_dist::Union{Nothing, Float64},
-    curr_xy_chardist::Union{Nothing, Float64})
-    
-    if run_fast
-        return nothing
-    else
-        if ws.k[] > 0
-            # NB: effective rank counts number of normalised singular values
-            # larger than a specified small tolerance (eg 1e-8).
-            # curr_effective_rank, curr_singval_ratio = effective_rank(record.updates_matrix, 1e-8)
-            # push!(record.update_mat_ranks, curr_effective_rank)
-            # push!(record.update_mat_singval_ratios, curr_singval_ratio)
-            # push!(record.update_mat_iters, ws.k[])
-
-            push!(record.pri_res_norms, ws.res.rp_abs)
-            push!(record.dual_res_norms, ws.res.rd_abs)
-            push!(record.primal_obj_vals, ws.res.obj_primal)
-            push!(record.dual_obj_vals, ws.res.obj_dual)
-        end
-        if !isnothing(x_sol)
-            push!(record.x_dist_to_sol, curr_x_dist)
-            push!(record.y_dist_to_sol, curr_y_dist)
-            push!(record.xy_chardist, curr_xy_chardist)
-        end
-    end
-end
-
 """
 This function returns a Boolean indicating whether the KKT relative error
 has gone below the require tolerance, a common termination criterion.
@@ -384,23 +354,23 @@ function optimise!(
     # the krylov basis --- NOT attempt acceleration again. to distinguish these
     # cases we use ws.control_flags.back_to_building_krylov_basis
     # ws.control_flags.back_to_building_krylov_basis = true
-    
-    # allocate storage for current and previous updates
-    curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
-    prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
 
-    # characteristic PPM preconditioner of the method
-    if !args["run-fast"]
-        char_norm_mat = [(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
-        function char_norm_func(vector::AbstractArray{Float64})
-            return sqrt(dot(vector, char_norm_mat * vector))
-        end
-    else
-        char_norm_func = nothing
-    end
+    # # characteristic PPM preconditioner of the method
+    # if !args["run-fast"]
+    #     char_norm_mat = [(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
+    #     function char_norm_func(vector::AbstractArray{Float64})
+    #         return sqrt(dot(vector, char_norm_mat * vector))
+    #     end
+    # else
+    #     char_norm_func = nothing
+    # end
 
     # data containers for metrics (if return_run_data == true).
-    record = preallocate_record(ws, args["run-fast"], x_sol)
+    if args["run-fast"]
+        record = NullRecord()
+    else
+        record = IterationRecord(ws)
+    end
 
     # notion of iteration for COSMOAccelerators may differ!
     # we shall increment it manually only when appropriate, for use
@@ -413,30 +383,11 @@ function optimise!(
     loop_start_ns = time_ns()
 
     while !termination
-        # compute distance to real solution
-        if !args["run-fast"]
-            if x_sol !== nothing
-                ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
-                ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
-                curr_xy_chardist = char_norm_func(ws.scratch.temp_mn_vec1)
+        # print info and save data if requested
+        push_res_to_record!(ws, record)
+        push_ref_dist_to_record!(ws, record, view_x, view_y, x_sol, y_sol)
 
-                @views curr_x_dist = norm(ws.scratch.temp_mn_vec1[1:ws.p.n])
-                @views curr_y_dist = norm(ws.scratch.temp_mn_vec1[ws.p.n+1:end])
-                curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
-            else
-                curr_x_dist = NaN
-                curr_y_dist = NaN
-                curr_xy_dist = NaN
-                curr_xy_chardist = NaN
-            end
-
-            # print info and save data if requested
-            print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"])
-            push_to_record!(ws, record, args["run-fast"], x_sol, curr_x_dist, curr_y_dist, curr_xy_chardist)
-
-        else
-            print_results(ws, args["print-mod"], relative = args["print-res-rel"])
-        end
+        print_results(ws, args["print-mod"], relative = args["print-res-rel"])
 
         # krylov setup
         if args["acceleration"] == :krylov
@@ -447,18 +398,7 @@ function optimise!(
             vanilla_step!(ws, args, record)
         end
         
-        if !args["run-fast"]
-            # store cosine between last two iterate updates
-            if ws.k[] >= 1
-                xy_prev_updates_cos = abs(dot(curr_xy_update, prev_xy_update) / (norm(curr_xy_update) * norm(prev_xy_update)))
-                push!(record.xy_update_cosines, xy_prev_updates_cos)
-            end
-            prev_xy_update .= curr_xy_update
-
-            # store active set flags
-            push!(record.record_proj_flags, ws.proj_flags)
-        end
-
+        push_cosines_projs!(ws, record)
         
         if full_diagnostics && ws.k[] % spectrum_plot_period == 0
             # construct explicit operator for spectrum plotting
@@ -502,23 +442,12 @@ function optimise!(
     results = Results(Dict{Symbol, Any}(), metrics_final, exit_status, ws.k[], ws isa VanillaWorkspace ? ws.k[] : ws.k_operator[])
 
     # store final records if run-fast is set to true
+    # TODO perhaps refactor to use record structs for later plots?
     if !args["run-fast"]
-        curr_xy_chardist = !isnothing(x_sol) ? char_norm_func([view_x - x_sol; view_y + y_sol]) : nothing
-        curr_x_dist = !isnothing(x_sol) ? norm(view_x - x_sol) : nothing
-        curr_y_dist = !isnothing(y_sol) ? norm(view_y - (-y_sol)) : nothing
-
-        push!(record.primal_obj_vals, ws.res.obj_primal)
-        push!(record.dual_obj_vals, ws.res.obj_dual)
-        push!(record.pri_res_norms, ws.res.rp_abs)
-        push!(record.dual_res_norms, ws.res.rd_abs)
-        if !isnothing(x_sol)
-            push!(record.x_dist_to_sol, curr_x_dist)
-            push!(record.y_dist_to_sol, curr_y_dist)
-            push!(record.xy_chardist, curr_xy_chardist)
-            curr_xy_dist = sqrt.(curr_x_dist .^ 2 .+ curr_y_dist .^ 2)
-        end
+        push_res_to_record!(ws, record)
+        push_ref_dist_to_record!(ws, record, view_x, view_y, x_sol, y_sol)
         
-        print_results(ws, args["print-mod"], curr_xy_dist=curr_xy_dist, relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
+        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
 
         # assign results
         for key in HISTORY_KEYS

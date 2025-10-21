@@ -8,7 +8,7 @@ function anderson_step!(
     ws::AndersonWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
     args::Dict{String, Any},
-    record::Union{NamedTuple, Nothing},
+    record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
@@ -44,20 +44,13 @@ function anderson_step!(
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
 
                 if !args["run-fast"]
-                    curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy
-                    push!(record.acc_step_iters, ws.k[])
-                    record.updates_matrix .= 0.0
-                    record.current_update_mat_col[] = 1
-
-                    push!(record.xy_step_norms, norm(curr_xy_update))
-                    push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
+                    push_update_to_record!(ws, record, false)
                 end
 
                 # assign actually
                 ws.vars.xy .= ws.scratch.accelerated_point
             elseif !args["run-fast"] # prevent recording zero update norm
-                push!(record.xy_step_norms, NaN)
-                push!(record.xy_step_char_norms, NaN)
+                push_update_to_record!(ws, record, false)
             end
 
 
@@ -66,8 +59,7 @@ function anderson_step!(
             # the next iteration comes around
             ws.control_flags.just_tried_accel = true
         elseif !args["run-fast"] # prevent recording zero update norm
-            push!(record.xy_step_norms, NaN)
-            push!(record.xy_step_char_norms, NaN)
+            push_update_to_record!(ws, record, false)
         end
 
         # set up the first x to be composed anderon-interval times
@@ -102,11 +94,7 @@ function anderson_step!(
         end
 
         if !args["run-fast"]
-            curr_xy_update .= ws.vars.xy - ws.vars.xy_prev
-
-            # record iteration data here
-            push!(record.xy_step_norms, norm(curr_xy_update))
-            push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
+            push_update_to_record!(ws, record, true)
         end
 
         # cannot recycle anything at next iteration

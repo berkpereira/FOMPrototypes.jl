@@ -291,7 +291,7 @@ function krylov_step!(
     ws::KrylovWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
     args::Dict{String, Any},
-    record::Union{NamedTuple, Nothing},
+    record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,    
     )
@@ -345,22 +345,14 @@ function krylov_step!(
             ws.k_eff[] += 1
             
             if !args["run-fast"]
-                @views curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy_q[:, 1]
-                push!(record.acc_step_iters, ws.k[])
-                record.updates_matrix .= 0.0
-                record.current_update_mat_col[] = 1
-
-                push!(record.xy_step_norms, norm(curr_xy_update))
-                push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
+                push_update_to_record!(ws, record, false)
             end
 
             # assign actually
             ws.vars.xy_q[:, 1] .= ws.scratch.accelerated_point
         else
             if !args["run-fast"]
-                @views curr_xy_update .= 0.0
-                push!(record.xy_step_norms, NaN)
-                push!(record.xy_step_char_norms, NaN)
+                push_update_to_record!(ws, record, false)
             end
         end
 
@@ -426,10 +418,7 @@ function krylov_step!(
 
         # record iteration data if requested
         if !args["run-fast"]
-            @views curr_xy_update .= ws.vars.xy_q[:, 1] - ws.vars.xy_prev
-            push!(record.xy_step_norms, norm(curr_xy_update))
-            push!(record.xy_step_char_norms, char_norm_func(curr_xy_update))
-            insert_update_into_matrix!(record.updates_matrix, curr_xy_update, record.current_update_mat_col)
+            push_update_to_record!(ws, record, true)
         end
 
         # reset krylov acceleration flag

@@ -76,7 +76,7 @@ function accel_fp_safeguard!(
     current_xy::AbstractVector{Float64},
     accelerated_xy::AbstractVector{Float64},
     safeguard_factor::Float64,
-    record::Union{NamedTuple, Nothing} = nothing,
+    record::AbstractRecord,
     full_diagnostics::Bool = false,
     )
     # Unguarded (fast) path
@@ -169,7 +169,7 @@ function accel_fp_safeguard!(
     # ratio and record keeping
     metric_ratio = fp_metric_acc / fp_metric_vanilla
 
-    if record !== nothing
+    if !(record isa NullRecord)
         push!(record.acc_attempt_iters, ws.k[])
         push!(record.fp_metric_ratios, metric_ratio)
     end
