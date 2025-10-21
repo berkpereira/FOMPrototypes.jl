@@ -176,24 +176,6 @@ function iter_y!(
     return
 end
 
-"""
-Compute FOM(xy) into `fom_out` and set `fp_out .= fom_out - xy`.
-Both `fom_out` and `fp_out` must be preallocated vectors of length m+n.
-This centralises the small sequence of operations and the associated scratch usage.
-"""
-function compute_fom_and_fp!(
-    ws::AbstractWorkspace,
-    xy_in::AbstractVector{Float64},
-    fom_out::AbstractVector{Float64},
-    fp_out::AbstractVector{Float64},
-    )
-    # compute FOM(xy_in) into fom_out (in-place)
-    onecol_method_operator!(ws, xy_in, fom_out)
-    # fp_out := FOM(xy_in) - xy_in
-    fp_out .= fom_out .- xy_in
-    return nothing
-end
-
 function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     cumsum_angles::Float64...)
     if restart_period == Inf
