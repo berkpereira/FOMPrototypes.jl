@@ -403,9 +403,6 @@ function optimise!(
     # cases we use ws.control_flags.back_to_building_krylov_basis
     # ws.control_flags.back_to_building_krylov_basis = true
     
-    # set restart counter
-    j_restart = 0
-    
     # allocate storage for current and previous updates
     curr_xy_update = zeros(Float64, ws.p.n + ws.p.m)
     prev_xy_update = zeros(Float64, ws.p.n + ws.p.m)
@@ -434,12 +431,6 @@ function optimise!(
     loop_start_ns = time_ns()
 
     while !termination
-        # Update average iterates
-        # if args["restart-period"] != Inf
-        #     x_avg .= (j_restart * x_avg + view_x) / (j_restart + 1)
-        #     y_avg .= (j_restart * y_avg + view_y) / (j_restart + 1)
-        # end
-
         # compute distance to real solution
         if !args["run-fast"]
             if x_sol !== nothing
@@ -606,7 +597,6 @@ function optimise!(
 
                 # reset krylov acceleration flag
                 ws.control_flags.just_tried_accel = false
-                j_restart += 1
             end
         elseif args["acceleration"] == :anderson
             # Anderson acceleration attempt
