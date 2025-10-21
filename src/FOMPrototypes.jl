@@ -19,19 +19,19 @@ using JLD2
 
 # Include all project source files.
 include(joinpath(@__DIR__, "core/types.jl"))
+include(joinpath(@__DIR__, "core/problem_data.jl"))
+include(joinpath(@__DIR__, "core/utils.jl"))
 include(joinpath(@__DIR__, "linops/custom_nla.jl"))
 include(joinpath(@__DIR__, "linops/types_utils.jl"))
 include(joinpath(@__DIR__, "alg/cones.jl"))
 include(joinpath(@__DIR__, "linops/alg_utils.jl"))
-include(joinpath(@__DIR__, "core/utils.jl"))
-include(joinpath(@__DIR__, "residuals.jl"))
-include(joinpath(@__DIR__, "krylov_utils.jl"))
-include(joinpath(@__DIR__, "linesearch.jl"))
-include(joinpath(@__DIR__, "printing.jl"))
-include(joinpath(@__DIR__, "alg/acceleration.jl"))
+include(joinpath(@__DIR__, "linops/residuals.jl"))
+include(joinpath(@__DIR__, "alg/krylov.jl"))
+include(joinpath(@__DIR__, "alg/linesearch.jl"))
+include(joinpath(@__DIR__, "alg/safeguard.jl"))
+include(joinpath(@__DIR__, "diagnostics/printing.jl"))
+include(joinpath(@__DIR__, "diagnostics/plotting.jl"))
 include(joinpath(@__DIR__, "solver.jl"))
-include(joinpath(@__DIR__, "problem_data.jl"))
-include(joinpath(@__DIR__, "plotting.jl"))
 
 ########################
 # Initialization Block #
