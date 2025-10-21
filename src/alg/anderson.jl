@@ -88,7 +88,6 @@ function anderson_step!(
         if ws.control_flags.just_tried_accel
             ws.vars.xy .= ws.scratch.xy_recycled
         else
-            # TODO sort carefully what to with these separate scratch vectors
             onecol_method_operator!(ws, ws.vars.xy, ws.scratch.swap_vec, true)
             # swap contents of ws.vars.xy and ws.scratch.swap_vec
             custom_swap!(ws.vars.xy, ws.scratch.swap_vec, ws.scratch.temp_mn_vec1)

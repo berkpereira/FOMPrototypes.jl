@@ -3,14 +3,15 @@ using SparseArrays
 using IterativeSolvers
 using Clarabel
 
-
 """
 For LINEAR CONSTRAINTS DO ENTRY BY ENTRY, not cone by cone. Check for
 entry-wise equality/inequality.
 """
-function update_proj_flags!(proj_flags::BitVector,
+function update_proj_flags!(
+    proj_flags::BitVector,
     preproj_y::AbstractVector{Float64},
-    postproj_y::AbstractVector{Float64})
+    postproj_y::AbstractVector{Float64}
+    )
 
     proj_flags .= (preproj_y .== postproj_y)
 end
@@ -104,7 +105,6 @@ function compute_krylov_accelerant!(
     # is used
 
     # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
-
 
     # compute FOM(xy_q[:, 1]) and store it in result_vec
     @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec)
@@ -393,7 +393,7 @@ function krylov_step!(
         # during the acceleration acceptance criterion check
         # we also reinit the Krylov orthogonal basis 
         if ws.k[] == 0 # special case in initial iteration
-            # TODO sort carefully what to with these separate scratch vectors
+
             @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], ws.scratch.initial_vec, true)
             @views ws.vars.xy_q[:, 1] .= ws.scratch.initial_vec
 
