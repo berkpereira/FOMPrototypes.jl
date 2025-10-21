@@ -21,6 +21,7 @@ using JLD2
 include(joinpath(@__DIR__, "types.jl"))
 include(joinpath(@__DIR__, "custom_nla.jl"))
 include(joinpath(@__DIR__, "types_utils.jl"))
+include(joinpath(@__DIR__, "cones.jl"))
 include(joinpath(@__DIR__, "utils.jl"))
 include(joinpath(@__DIR__, "residuals.jl"))
 include(joinpath(@__DIR__, "krylov_acceleration.jl"))

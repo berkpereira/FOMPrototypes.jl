@@ -1,6 +1,7 @@
 include("problem_data.jl")
 include("types.jl")
 include("optimal_diagonal_shift.jl")
+include("cones.jl")
 include("utils.jl")
 using CSV, DataFrames, Clarabel, ClarabelBenchmarks
 using Printf
