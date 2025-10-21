@@ -18,11 +18,12 @@ using Random
 using JLD2
 
 # Include all project source files.
-include(joinpath(@__DIR__, "types.jl"))
-include(joinpath(@__DIR__, "custom_nla.jl"))
-include(joinpath(@__DIR__, "types_utils.jl"))
-include(joinpath(@__DIR__, "cones.jl"))
-include(joinpath(@__DIR__, "utils.jl"))
+include(joinpath(@__DIR__, "core/types.jl"))
+include(joinpath(@__DIR__, "linops/custom_nla.jl"))
+include(joinpath(@__DIR__, "linops/types_utils.jl"))
+include(joinpath(@__DIR__, "alg/cones.jl"))
+include(joinpath(@__DIR__, "linops/alg_utils.jl"))
+include(joinpath(@__DIR__, "core/utils.jl"))
 include(joinpath(@__DIR__, "residuals.jl"))
 include(joinpath(@__DIR__, "krylov_utils.jl"))
 include(joinpath(@__DIR__, "linesearch.jl"))
