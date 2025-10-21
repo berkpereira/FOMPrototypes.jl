@@ -367,7 +367,7 @@ function run_prototype(problem::ProblemData,
 
     @timeit to "solver" begin
         # Run the solver
-        results, tilde_A, tilde_b, H_unmod = optimise!(
+        results, ws_diag = optimise!(
             ws,
             args,
             setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
@@ -378,7 +378,7 @@ function run_prototype(problem::ProblemData,
             spectrum_plot_period = spec_plot_period)
     end
 
-    return ws, results, to, tilde_A, tilde_b, H_unmod
+    return ws, ws_diag, results, to
 end
 
 #############################
@@ -559,7 +559,7 @@ Parse `ARGS`, call `parse_command_line`, then `main`, and exit.
 """
 function run_cli()
     config = parse_command_line()
-    ws, results, x_ref, y_ref = main(config)
+    ws, ws_diag, results, x_ref, y_ref = main(config)
 
     # maybe print a summary, write outputs, etc.
     return
@@ -587,7 +587,7 @@ function main(config::Dict{String, Any})
     println()
     println("About to run prototype solver...")
     
-    ws, results, to = run_prototype(problem,
+    ws, ws_diag, results, to = run_prototype(problem,
     config["problem-set"], config["problem-name"],
     config, x_ref = x_ref, y_ref = y_ref)
 
@@ -598,7 +598,7 @@ function main(config::Dict{String, Any})
     end
     
     #return data of interest to inspect
-    return ws, results, to, x_ref, y_ref
+    return ws, ws_diag, results, to, x_ref, y_ref
 end
 
 end # module FOMPrototypes
