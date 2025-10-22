@@ -307,6 +307,9 @@ struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
     W::AbstractMatrix{T} # all initialised when constructing workspace
     W_inv::AbstractInvOp
 
+    dP::Vector{T} # diagonal of P
+    dA::Vector{T} # diagonal of A' * A
+
     function PrePPM{T, I}(
         variant::Symbol,
         ρ::T,
@@ -314,6 +317,8 @@ struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
         θ::T,
         W::AbstractMatrix{T},
         W_inv::AbstractInvOp,
+        dP::Vector{T},
+        dA::Vector{T},
         ) where {T <: AbstractFloat, I <: Integer}
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
@@ -323,7 +328,7 @@ struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
             throw(ArgumentError("ρ must be positive"))
         end
 
-        new{T, I}(variant, ρ, τ, θ, W, W_inv)
+        new{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
     end
 end
 
@@ -401,6 +406,8 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
     end 
 end
 
+# dispatch on method type to construct method alongside
+# just before workspace
 function VanillaWorkspace{T, I}(
     p::ProblemData{T},
     ::Type{PrePPM}, # note dispatch on PrePPM type
@@ -420,9 +427,16 @@ function VanillaWorkspace{T, I}(
 
     W_inv = prepare_inv(W, to)
 
+    @timeit to "dP prep" begin
+        dP = Vector(diag(p.P))
+    end
+    @timeit to "dA prep" begin
+        dA = vec(sum(abs2, p.A; dims=1))
+    end
+
     # construct method object
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv)
-    
+    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+
     # delegate to the inner constructor
     return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, vars, A_gram)
 end
@@ -443,12 +457,13 @@ end
 
 # workspace type for when Krylov acceleration is used
 struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, KrylovVariables{T}, M}
+    @common_workspace_fields()
+
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     scratch::KrylovScratch{T}
 
-    @common_workspace_fields()
 
     control_flags::KrylovControlFlags
 
@@ -457,8 +472,8 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     # depends on safeguard norm used, as well as the variant, but
     # not always needed!
     # see src/utils.jl for more details
-    dP::Vector{T} # diagonal of P
-    dA::Vector{T} # diagonal of A' * A
+    # dP::Vector{T} # diagonal of P
+    # dA::Vector{T} # diagonal of A' * A
 
     # additional Krylov-related fields
     mem::Int # memory for Krylov acceleration
@@ -479,19 +494,15 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     # ie plainly the number of columns allocated for krylov basis vectors
 
     # constructor where initial iterates are not passed (default set to zero)
-    function KrylovWorkspace{T, I}(
+    function KrylovWorkspace{T, I, M}(
         p::ProblemData{T},
+        method::M,
         vars::Union{KrylovVariables{T}, Nothing},
-        variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
-        τ::T,
-        ρ::T,
-        θ::T,
-        to::Union{TimerOutput, Nothing},
         mem::Int,
         tries_per_mem::Int,
         safeguard_norm::Symbol,
-        krylov_operator::Symbol) where {T <: AbstractFloat, I <: Integer}
+        krylov_operator::Symbol) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         if (mem - 1) >= p.m + p.n
             throw(ArgumentError("(mem - 1) must be less than m + n."))
@@ -509,19 +520,14 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
         end
 
-        scratch = KrylovScratch(p)
-
         # make vector of trigger_givens_counts
         trigger_givens_counts = Vector{Int}(undef, tries_per_mem)
         for i in eachindex(trigger_givens_counts)
             trigger_givens_counts[i] = Int(floor(i * (mem - 1) / tries_per_mem))
         end
 
-        if θ != 1.0
-            throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
-        end
-
         m, n = p.m, p.n
+        scratch = KrylovScratch(p)
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
             vars = KrylovVariables(m, n)
@@ -530,29 +536,56 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
 
-        # TODO: get rid of duplication of 
-        # code generating dP and dA, search in utils
-        @timeit to "dP prep" begin
-            dP = Vector(diag(p.P))
-        end
-        @timeit to "dA prep" begin
-            dA = vec(sum(abs2, p.A; dims=1))
-        end
-        @timeit to "W op prep" begin
-            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        end
+        # # TODO: get rid of duplication of 
+        # # code generating dP and dA, search in utils
+        # @timeit to "dP prep" begin
+        #     dP = Vector(diag(p.P))
+        # end
+        # @timeit to "dA prep" begin
+        #     dA = vec(sum(abs2, p.A; dims=1))
+        # end
+        # @timeit to "W op prep" begin
+        #     W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        # end
 
-        W_inv = prepare_inv(W, to)
+        # W_inv = prepare_inv(W, to)
 
-        new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        # new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+
+        new{T, I, M}(
+            p,
+            method,
+            vars,
+            A_gram,
+            res,
+            falses(m),
+            Ref(0),
+            Ref(0),
+            Ref(0),
+            scratch,
+            KrylovControlFlags(),
+            mem,
+            tries_per_mem,
+            safeguard_norm,
+            trigger_givens_counts,
+            krylov_operator,
+            UpperHessenberg(zeros(mem, mem-1)),
+            zeros(m + n, mem),
+            Vector{GivensRotation{Float64}}(undef, mem-1),
+            Ref(0),
+            Ref(false),
+            Ref(false)
+        )
     end
 end
 
-# thin wrapper to allow default constructor arguments
-function KrylovWorkspace(
+# dispatch on method type to construct method alongside
+# just before workspace
+function KrylovWorkspace{T, I}(
     p::ProblemData{T},
-    variant::Symbol,
-    τ::T,
+    ::Type{PrePPM}, # note dispatch on PrePPM type
+    variant::Symbol, # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
+    τ::Union{T, Nothing},
     ρ::T,
     θ::T,
     mem::Int,
@@ -561,10 +594,37 @@ function KrylovWorkspace(
     krylov_operator::Symbol;
     vars::Union{KrylovVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
-    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
+    to::Union{TimerOutput, Nothing} = nothing
+    ) where {T <: AbstractFloat, I <: Integer}
+
+    # TODO simplify syntax of call to W_operator using method struct
+    @timeit to "W op prep" begin
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+    end
+
+    W_inv = prepare_inv(W, to)
+
+    @timeit to "dP prep" begin
+        dP = Vector(diag(p.P))
+    end
+
+    @timeit to "dA prep" begin
+        dA = vec(sum(abs2, p.A; dims=1))
+    end
+
+    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
     
     # delegate to the inner constructor
-    return KrylovWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, tries_per_mem, safeguard_norm, krylov_operator)
+    return KrylovWorkspace{T, I, PrePPM{T, I}}(
+        p,
+        method,
+        vars,
+        A_gram,
+        mem,
+        tries_per_mem,
+        safeguard_norm,
+        krylov_operator
+    )
 end
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 

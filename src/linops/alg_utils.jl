@@ -75,15 +75,16 @@ This function efficiently computes R(P) * x, where R(P) denotes the matrix
 obtained from P by setting the diagonal to zero. Done in place.
 Assumes ws has a field dP storing diag(P), and ws.p.P storing Hessian P.
 """
-function mul_P_nodiag!(in_vec::AbstractVector{Float64},
+function mul_P_nodiag!(
+    in_vec::AbstractVector{Float64},
     result_vec::AbstractVector{Float64},
     ws::AbstractWorkspace,)
     # compute P * x
     mul!(result_vec, ws.p.P, in_vec)
 
-    # subtract ws.dP * x
+    # subtract ws.method.dP * x
     @inbounds for i in eachindex(result_vec)
-        result_vec[i] -= ws.dP[i] * in_vec[i]
+        result_vec[i] -= ws.method.dP[i] * in_vec[i]
     end
     return nothing
 end
@@ -193,7 +194,7 @@ function M1_op!(
         mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
         result_vec .*= -1.0 # result_vec = -R(P) * x
         
-        broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
+        broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
         temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
 
         result_vec .+= temp_n_vec # result_vec = -R(P) * x + ρ * D(A' * A) * x
@@ -214,7 +215,7 @@ function M1_op!(
         mul!(result_vec, ws.p.P, x)
         result_vec .*= -1.0 # result_vec = -P * x
 
-        broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
+        broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
         temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
         result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x
 
