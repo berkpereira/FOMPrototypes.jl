@@ -464,16 +464,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     scratch::KrylovScratch{T}
 
-
     control_flags::KrylovControlFlags
-
-    # precomputed diagonals
-    # TODO get rid of these when they are not needed
-    # depends on safeguard norm used, as well as the variant, but
-    # not always needed!
-    # see src/utils.jl for more details
-    # dP::Vector{T} # diagonal of P
-    # dA::Vector{T} # diagonal of A' * A
 
     # additional Krylov-related fields
     mem::Int # memory for Krylov acceleration
@@ -486,7 +477,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     givens_rotations::Vector{GivensRotation{T}}
     givens_count::Base.RefValue{Int}
     arnoldi_breakdown::Base.RefValue{Bool}
-    fp_found::Base.RefValue{Bool} # used to trigger a termination condition when stuff goes wrong initialising Krylov basis (with NaNs due to a zero fixed-point residual having been found!)
+    fp_found::Base.RefValue{Bool} # used to trigger a termination condition when stuff goes wrong initialising Krylov basis (with NaNs due to a zero fixed-point residual having been found!) TODO move to AndersonControlFlags?
     
     # NOTE that mem is (k+1) in the usual Arnoldi relation written
     # at the point of maximum memory usage as
@@ -535,22 +526,6 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
-
-        # # TODO: get rid of duplication of 
-        # # code generating dP and dA, search in utils
-        # @timeit to "dP prep" begin
-        #     dP = Vector(diag(p.P))
-        # end
-        # @timeit to "dA prep" begin
-        #     dA = vec(sum(abs2, p.A; dims=1))
-        # end
-        # @timeit to "W op prep" begin
-        #     W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        # end
-
-        # W_inv = prepare_inv(W, to)
-
-        # new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
 
         new{T, I, M}(
             p,
@@ -630,6 +605,8 @@ KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(
 
 # workspace type for when Anderson acceleration is used
 struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, AndersonVariables{T}, M}
+    @common_workspace_fields()
+    
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
@@ -637,17 +614,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     scratch::AndersonScratch{T}
 
-    @common_workspace_fields()
-
     control_flags::AndersonControlFlags
-
-    # precomputed diagonals
-    # TODO get rid of these when they are not needed
-    # depends on safeguard norm used, as well as the variant, but
-    # not always needed!
-    # see src/utils.jl for more details
-    dP::Vector{T} # diagonal of P
-    dA::Vector{T} # diagonal of A' * A
 
     # additional Anderson acceleration-related fields
     mem::Int # memory for Anderson accelerator
@@ -655,22 +622,19 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
     safeguard_norm::Symbol # in {:euclid, :char, :none}
     accelerator::AndersonAccelerator
 
-    function AndersonWorkspace{T, I}(
+    function AndersonWorkspace{T, I, M}(
         p::ProblemData{T},
+        method::M,
         vars::Union{AndersonVariables{T}, Nothing},
-        variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
-        τ::T,
-        ρ::T,
-        θ::T,
-        to::Union{TimerOutput, Nothing},
         mem::Int,
         anderson_interval::Int,
         safeguard_norm::Symbol,
         broyden_type::Type{<:COSMOAccelerators.AbstractBroydenType},
         memory_type::Type{<:COSMOAccelerators.AbstractMemory},
         regulariser_type::Type{<:COSMOAccelerators.AbstractRegularizer},
-        anderson_log::Bool) where {T <: AbstractFloat, I <: Integer}
+        anderson_log::Bool
+        ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
 
@@ -678,28 +642,9 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
             throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
         end
 
-        if θ != 1.0
-            throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
-        end
-
         m, n = p.m, p.n
         scratch = AndersonScratch(p)
         res = ProgressMetrics{T}(m, n)
-
-        # TODO: get rid of duplication of 
-        # code generating dP and dA, search in utils
-        @timeit to "dP prep" begin
-            dP = Vector(diag(p.P))
-        end
-        @timeit to "dA prep" begin
-            dA = vec(sum(abs2, p.A; dims=1))
-        end
-        @timeit to "W op prep" begin
-            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        end
-        
-        W_inv = prepare_inv(W, to)
-
         if vars === nothing
             vars = AndersonVariables(m, n)
         end
@@ -712,17 +657,35 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), AndersonControlFlags(), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I, M}(
+            p,
+            method,
+            vars,
+            A_gram,
+            res,
+            falses(m),
+            Ref(0),
+            Ref(0),
+            Ref(0),
+            Ref(0),
+            Ref(0),
+            scratch,
+            AndersonControlFlags(),
+            mem,
+            anderson_interval,
+            safeguard_norm,
+            aa
+        )
     end
-
 end
-AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
-# thin wrapper to allow default constructor arguments
-function AndersonWorkspace(
+# dispatch on method type to construct method alongside
+# just before workspace
+function AndersonWorkspace{T, I}(
     p::ProblemData{T},
+    ::Type{PrePPM}, # note dispatch on PrePPM type
     variant::Symbol,
-    τ::T,
+    τ::Union{T, Nothing},
     ρ::T,
     θ::T,
     mem::Int,
@@ -734,7 +697,8 @@ function AndersonWorkspace(
     memory_type::Symbol = :rolling,
     regulariser_type::Symbol = :none,
     anderson_log::Bool = false,
-    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
+    to::Union{TimerOutput, Nothing} = nothing
+    ) where {T <: AbstractFloat, I <: Integer}
 
     if broyden_type == :normal2
         broyden_type = Type2{NormalEquations}
@@ -763,10 +727,42 @@ function AndersonWorkspace(
     else
         throw(ArgumentError("Unknown regulariser type: $regulariser_type."))
     end
+
+    # TODO simplify syntax of call to W_operator using method struct
+    @timeit to "W op prep" begin
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+    end
+
+    W_inv = prepare_inv(W, to)
+
+    @timeit to "dP prep" begin
+        dP = Vector(diag(p.P))
+    end
+
+    @timeit to "dA prep" begin
+        dA = vec(sum(abs2, p.A; dims=1))
+    end
+
+    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+
     
     # delegate to the inner constructor
-    return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, safeguard_norm, broyden_type, memory_type, regulariser_type, anderson_log)
+    return AndersonWorkspace{T, I, PrePPM{T, I}}(
+        p,
+        method,
+        vars,
+        A_gram,
+        mem,
+        anderson_interval,
+        safeguard_norm,
+        broyden_type,
+        memory_type,
+        regulariser_type,
+        anderson_log
+        )
 end
+
+AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 
 # Results structs
