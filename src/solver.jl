@@ -247,6 +247,44 @@ function construct_explicit_operator!(
 end
 
 """
+We use multiple dispatch to avoid branching at run time in the main loop
+in optimise!.
+"""
+# anderson_step!(ws, ws_diag, args, record, full_diagnostics, timer)
+function step!(
+    ws::VanillaWorkspace,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    args::Dict{String, Any},
+    record::AbstractRecord,
+    full_diagnostics::Bool,
+    timer::TimerOutput,
+    )
+    vanilla_step!(ws, args, record)
+end
+
+function step!(
+    ws::KrylovWorkspace,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    args::Dict{String, Any},
+    record::AbstractRecord,
+    full_diagnostics::Bool,
+    timer::TimerOutput,
+    )
+    krylov_step!(ws, ws_diag, args, record, full_diagnostics, timer)
+end
+
+function step!(
+    ws::AndersonWorkspace,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    args::Dict{String, Any},
+    record::AbstractRecord,
+    full_diagnostics::Bool,
+    timer::TimerOutput,
+    )
+    anderson_step!(ws, ws_diag, args, record, full_diagnostics, timer)
+end
+
+"""
 Run the optimiser for the initial inputs and solver options given.
 acceleration is a Symbol in {:none, :krylov, :anderson}
 """
@@ -299,14 +337,10 @@ function optimise!(
 
         print_results(ws, args["print-mod"], relative = args["print-res-rel"])
 
-        # krylov setup
-        if args["acceleration"] == :krylov
-            krylov_step!(ws, ws_diag, args, record, full_diagnostics, timer)
-        elseif args["acceleration"] == :anderson
-            anderson_step!(ws, ws_diag, args, record, full_diagnostics, timer)
-        else # no acceleration!
-            vanilla_step!(ws, args, record)
-        end
+        # iteration update
+        # dispatches to appropriate step function,
+        # which handles all logic internally
+        step!(ws, ws_diag, args, record, full_diagnostics, timer)
         
         push_cosines_projs!(ws, record)
         
