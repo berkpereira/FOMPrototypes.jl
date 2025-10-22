@@ -362,16 +362,6 @@ function krylov_step!(
 
             if full_diagnostics # best to update for use here
                 construct_explicit_operator!(ws, ws_diag)
-
-                # NOTE CARE might want to override with true fixed point!
-                # @warn "trying override Krylov with (PINV?) true fixed-point of current affine operation!"
-                # try
-                #     # ws.scratch.accelerated_point .= (ws_diag.tilde_A - I) \ (-ws_diag.tilde_b)
-                #     ws.scratch.accelerated_point .= pinv(ws_diag.tilde_A - I) * (-ws_diag.tilde_b)
-                #     @info "✅ successful override"
-                # catch e
-                #     @info "❌ unsuccessful override, proceeding w GNRES candidate"
-                # end
                 
                 BQ = (ws_diag.tilde_A - I) * ws.krylov_basis[:, 1:ws.givens_count[]]
                 arnoldi_relation_err = BQ - ws.krylov_basis[:, 1:ws.givens_count[] + 1] * ws_diag.H_unmod[1:ws.givens_count[] + 1, 1:ws.givens_count[]]
@@ -397,23 +387,13 @@ function krylov_step!(
             # increment effective iter counter (ie excluding unsuccessful acc attempts)
             ws.k_eff[] += 1
             
-            if !args["run-fast"]
-                push_update_to_record!(ws, record, false)
-            end
+            push_update_to_record!(ws, record, false)
 
             # assign actually
             ws.vars.xy_q[:, 1] .= ws.scratch.accelerated_point
         else
-            if !args["run-fast"]
-                push_update_to_record!(ws, record, false)
-            end
+            push_update_to_record!(ws, record, false)
         end
-
-        # # prevent recording 0 or very large update norm in any case
-        # if !args["run-fast"]
-        #     push!(record.xy_step_norms, NaN)
-        #     push!(record.xy_step_char_norms, NaN)
-        # end
 
         # reset krylov acceleration data when memory is fully
         # populated, regardless of success/failure
@@ -425,9 +405,8 @@ function krylov_step!(
             ws.arnoldi_breakdown[] = false
         end
 
-        ws.control_flags.just_tried_accel = true
         ws.control_flags.back_to_building_krylov_basis = true
-    # standard step in the krylov setup (two columns)
+    # vanilla step
     else
         # increment effective iter counter (ie excluding unsuccessful acc attempts)
         ws.k_eff[] += 1
@@ -445,8 +424,8 @@ function krylov_step!(
             # fills in first column of ws.krylov_basis
             init_krylov_basis!(ws) # ws.H is zeros at this point still
         
-        elseif ws.control_flags.just_tried_accel
-            # recycle working (x, y) iterate
+        elseif ws.control_flags.recycle_next
+            # RECYCLE working (x, y) iterate
             ws.vars.xy_q[:, 1] .= ws.scratch.xy_recycled
             
             # also re-initialise Krylov basis IF we'd filled up
@@ -470,11 +449,9 @@ function krylov_step!(
         end
 
         # record iteration data if requested
-        if !args["run-fast"]
-            push_update_to_record!(ws, record, true)
-        end
+        push_update_to_record!(ws, record, true)
 
-        # reset krylov acceleration flag
-        ws.control_flags.just_tried_accel = false
+        # reset flag for recycling
+        ws.control_flags.recycle_next = false
     end
 end

@@ -146,7 +146,7 @@ ReturnMetrics(pm::ProgressMetrics{T}) where {T<:AbstractFloat} =
 abstract type AbstractControlFlags end
 
 mutable struct KrylovControlFlags <: AbstractControlFlags
-    just_tried_accel::Bool
+    recycle_next::Bool
     accepted_accel::Bool
     back_to_building_krylov_basis::Bool
     krylov_status::Symbol
@@ -156,7 +156,7 @@ end
 KrylovControlFlags() = KrylovControlFlags(false, false, true, :init)
 
 mutable struct AndersonControlFlags <: AbstractControlFlags
-    just_tried_accel::Bool
+    recycle_next::Bool
     accepted_accel::Bool
 end
 

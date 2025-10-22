@@ -278,27 +278,6 @@ function optimise!(
     else
         ws_diag = nothing
     end
-    
-
-    # we use ws.control_flags.back_to_building_krylov_basis as follows
-    # as we build Krylov basis up, ws.givens_count is incremented
-    # when it gets to a given trigger point, we attempt acceleration and set
-    # ws.control_flags.just_tried_accel = true. after the following, recycling iteration, 
-    # the counter ws.givens_count will still be at the trigger point and
-    # ws.control_flags.just_tried_accel is false. however, we wish to keep builing
-    # the krylov basis --- NOT attempt acceleration again. to distinguish these
-    # cases we use ws.control_flags.back_to_building_krylov_basis
-    # ws.control_flags.back_to_building_krylov_basis = true
-
-    # # characteristic PPM preconditioner of the method
-    # if !args["run-fast"]
-    #     char_norm_mat = [(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
-    #     function char_norm_func(vector::AbstractArray{Float64})
-    #         return sqrt(dot(vector, char_norm_mat * vector))
-    #     end
-    # else
-    #     char_norm_func = nothing
-    # end
 
     # data containers for metrics (if return_run_data == true).
     if args["run-fast"]
@@ -306,10 +285,6 @@ function optimise!(
     else
         record = IterationRecord(ws)
     end
-
-    # notion of iteration for COSMOAccelerators may differ!
-    # we shall increment it manually only when appropriate, for use
-    # with functions from COSMOAccelerators
 
     # start main loop
     termination = false

@@ -181,5 +181,10 @@ function accel_fp_safeguard!(
         ws.scratch.xy_recycled .= ws.scratch.xy_lookahead    # ws.scratch.xy_lookahead == FOM(accelerated_xy)
     end
 
+    # note this flag serves to indicate that we should recycle
+    # ws.scratch.xy_recycled at the next iteration
+    # (NOT set to true when safeguard is off)
+    ws.control_flags.recycle_next = true
+
     return acceleration_success
 end

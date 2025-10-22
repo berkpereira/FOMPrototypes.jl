@@ -35,38 +35,28 @@ function anderson_step!(
             # when we began to pull the accelerate! levers;
             # ws.scratch.accelerated_point contains the candidate
             # acceleration point, which is legitimately different
-            # from ws.vars.xy
+            # from ws.vars.xy in this branch
             @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy, ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
-
+            
             if ws.control_flags.accepted_accel
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
 
-                if !args["run-fast"]
-                    push_update_to_record!(ws, record, false)
-                end
-
                 # assign actually
                 ws.vars.xy .= ws.scratch.accelerated_point
-            elseif !args["run-fast"] # prevent recording zero update norm
-                push_update_to_record!(ws, record, false)
             end
-
-
-            # note that this flag serves for us to use recycled
-            # work from the fixed-point safeguard step when
-            # the next iteration comes around
-            ws.control_flags.just_tried_accel = true
-        elseif !args["run-fast"] # prevent recording zero update norm
-            push_update_to_record!(ws, record, false)
         end
+
+        # note: uses ws.scratch.xy_pre_overwrite if acceleration
+        # was proper successful
+        push_update_to_record!(ws, record, false)
 
         # set up the first x to be composed anderon-interval times
         # before being fed to accelerator's update! method
         ws.vars.xy_into_accelerator .= ws.vars.xy # this is T^0(ws.vars.xy)
         ws.composition_counter[] = 0
-    else # standard iteration with Anderson acceleration
+    else # vanilla iteration
         ws.k_eff[] += 1
         ws.k_vanilla[] += 1
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
@@ -77,7 +67,7 @@ function anderson_step!(
         # we compute new iterate: if we just tried acceleration,
         # we use the recycled variable stored during the fixed-point
         # safeguarding step
-        if ws.control_flags.just_tried_accel
+        if ws.control_flags.recycle_next
             ws.vars.xy .= ws.scratch.xy_recycled
         else
             onecol_method_operator!(ws, ws.vars.xy, ws.scratch.swap_vec, true)
@@ -93,11 +83,9 @@ function anderson_step!(
             @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.xy, ws.vars.xy_into_accelerator, 0)
         end
 
-        if !args["run-fast"]
-            push_update_to_record!(ws, record, true)
-        end
+        push_update_to_record!(ws, record, true)
 
         # cannot recycle anything at next iteration
-        ws.control_flags.just_tried_accel = false
+        ws.control_flags.recycle_next = false
     end
 end

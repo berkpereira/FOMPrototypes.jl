@@ -80,7 +80,7 @@ function push_update_to_record!(
     # numerical blowup in the COSMOAccelerators.accelerate!
     # internals
     if ws.accelerator.success && ws.control_flags.accepted_accel
-        record.curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy
+        record.curr_xy_update .= ws.vars.xy - ws.scratch.xy_pre_overwrite
         push!(record.acc_step_iters, ws.k[])
         record.updates_matrix .= 0.0
         record.current_update_mat_col[] = 1

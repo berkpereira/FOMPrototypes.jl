@@ -16,7 +16,5 @@ function vanilla_step!(
     # now ws.vars.xy contains newer iterate,  while
     # ws.scratch.swap_vec contains older one
 
-    if !args["run-fast"]
-        push_update_to_record!(ws, record)
-    end
+    push_update_to_record!(ws, record)
 end
