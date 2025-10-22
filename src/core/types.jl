@@ -761,11 +761,11 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
     dense_I = Matrix{Float64}(I, ws.p.n, ws.p.n)
 
     # form matrix inverse of W (= P + M_1)
-    if ws.W_inv isa CholeskyInvOp
-        W_inv_mat = ws.W_inv.F \ dense_I
+    if ws.method.W_inv isa CholeskyInvOp
+        W_inv_mat = ws.method.W_inv.F \ dense_I
         W_inv_mat = Symmetric(W_inv_mat)
-    elseif ws.W_inv isa DiagInvOp
-        W_inv_mat = Diagonal(ws.W_inv.inv_diag)
+    elseif ws.method.W_inv isa DiagInvOp
+        W_inv_mat = Diagonal(ws.method.W_inv.inv_diag)
     end
 
     DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod)

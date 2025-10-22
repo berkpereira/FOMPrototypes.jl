@@ -73,19 +73,19 @@ function fixed_point_linesearch!(ws::AbstractWorkspace, α_max::Float64,
         candidate_enforced_constraints = similar(vanilla_enforced_constraints)
     elseif LINES == :xsy
         curr_iterate_s = project_to_K(ws.vars.x_v_q[ws.p.n+1:end, 1], ws.p.K)
-        curr_iterate_y = ws.ρ * (curr_iterate_s - ws.vars.x_v_q[ws.p.n+1:end, 1])
+        curr_iterate_y = ws.method.ρ * (curr_iterate_s - ws.vars.x_v_q[ws.p.n+1:end, 1])
         curr_iterate_xsy = [ws.vars.x_v_q[1:ws.p.n, 1]; curr_iterate_s; curr_iterate_y]
 
         vanilla_iterate_s = project_to_K(vanilla_iterate_x_v_q[ws.p.n+1:end, 1], ws.p.K)
-        vanilla_iterate_y = ws.ρ * (vanilla_iterate_s - vanilla_iterate_x_v_q[ws.p.n+1:end, 1])
+        vanilla_iterate_y = ws.method.ρ * (vanilla_iterate_s - vanilla_iterate_x_v_q[ws.p.n+1:end, 1])
         vanilla_iterate_xsy = [vanilla_iterate_x_v_q[1:ws.p.n, 1]; vanilla_iterate_s; vanilla_iterate_y]
         
         curr_fp_residual = vanilla_iterate_xsy - curr_iterate_xsy
 
         # Now need fixed-point residual AT the vanilla point.
-        vanilla_lookahead_x = iter_x(vanilla_iterate_xsy[1:ws.p.n], ws.W_inv, ws.p.P, ws.p.c, ws.p.A, vanilla_iterate_y, curr_iterate_y)
-        vanilla_lookahead_s = iter_s(vanilla_iterate_s, ws.p.A, vanilla_lookahead_x, ws.p.b, vanilla_iterate_y, ws.p.K, ws.ρ)
-        vanilla_lookahead_y = iter_y(vanilla_iterate_y, ws.p.A, vanilla_lookahead_x, vanilla_lookahead_s, ws.p.b, ws.ρ)
+        vanilla_lookahead_x = iter_x(vanilla_iterate_xsy[1:ws.p.n], ws.method.W_inv, ws.p.P, ws.p.c, ws.p.A, vanilla_iterate_y, curr_iterate_y)
+        vanilla_lookahead_s = iter_s(vanilla_iterate_s, ws.p.A, vanilla_lookahead_x, ws.p.b, vanilla_iterate_y, ws.p.K, ws.method.ρ)
+        vanilla_lookahead_y = iter_y(vanilla_iterate_y, ws.p.A, vanilla_lookahead_x, vanilla_lookahead_s, ws.p.b, ws.method.ρ)
         
         vanilla_lookahead = [vanilla_lookahead_x; vanilla_lookahead_s; vanilla_lookahead_y]
 
@@ -134,12 +134,12 @@ function fixed_point_linesearch!(ws::AbstractWorkspace, α_max::Float64,
             candidate .= curr_iterate_xsy + α * curr_fp_residual
 
             # # Compute lookahead iterate FROM the candidate.
-            # prev_y_artificial = candidate[ws.p.n+ws.p.m+1:end] - ws.ρ * (ws.p.A * candidate[1:ws.p.n] + candidate[ws.p.n+1:ws.p.n+ws.p.m] - ws.p.b)
-            # candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.W_inv, ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], prev_y_artificial)
+            # prev_y_artificial = candidate[ws.p.n+ws.p.m+1:end] - ws.method.ρ * (ws.p.A * candidate[1:ws.p.n] + candidate[ws.p.n+1:ws.p.n+ws.p.m] - ws.p.b)
+            # candidate_lookahead[1:ws.p.n] .= iter_x(candidate[1:ws.p.n], ws.method.W_inv, ws.p.P, ws.p.c, ws.p.A, candidate[ws.p.n+ws.p.m+1:end], prev_y_artificial)
 
-            # candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m] .= iter_s(candidate[ws.p.n+1:ws.p.n+ws.p.m], ws.p.A, candidate_lookahead[1:ws.p.n], ws.p.b, candidate[ws.p.n+ws.p.m+1:end], ws.p.K, ws.ρ)
+            # candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m] .= iter_s(candidate[ws.p.n+1:ws.p.n+ws.p.m], ws.p.A, candidate_lookahead[1:ws.p.n], ws.p.b, candidate[ws.p.n+ws.p.m+1:end], ws.p.K, ws.method.ρ)
             
-            # candidate_lookahead[ws.p.n+ws.p.m+1:end] .= iter_y(candidate[ws.p.n+ws.p.m+1:end], ws.p.A, candidate_lookahead[1:ws.p.n], candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m], ws.p.b, ws.ρ)
+            # candidate_lookahead[ws.p.n+ws.p.m+1:end] .= iter_y(candidate[ws.p.n+ws.p.m+1:end], ws.p.A, candidate_lookahead[1:ws.p.n], candidate_lookahead[ws.p.n+1:ws.p.n+ws.p.m], ws.p.b, ws.method.ρ)
 
             # # Hence compute fixed-point residual norm at candidate.
             # #note we disregard s here, hence the slicing
@@ -149,9 +149,9 @@ function fixed_point_linesearch!(ws::AbstractWorkspace, α_max::Float64,
             #idea is to trace out steps we would've carried out in the
             #subsequent vanilla iteration in the main loop. This should give
             #the expected results, nothing else!
-            candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.ρ
+            candidate_v = candidate[ws.p.n+1:ws.p.m+ws.p.n] - candidate[ws.p.m+ws.p.n+1:end] / ws.method.ρ
             reconverted_s = recover_s(candidate_v, ws.p.K)
-            reconverted_y = recover_y(candidate_v, ws.ρ, ws.p.K)
+            reconverted_y = recover_y(candidate_v, ws.method.ρ, ws.p.K)
 
             candidate_enforced_constraints = enforced_contraints_bitvec(ws, candidate_v, reconverted_s)
             
@@ -159,7 +159,7 @@ function fixed_point_linesearch!(ws::AbstractWorkspace, α_max::Float64,
             candidate_lookahead_xv = tilde_A_prod(ws, candidate_enforced_constraints, [candidate[1:ws.p.n]; candidate_v]) + ws.tilde_b
             
             #recover y to compute merit function at lookahead
-            candidate_lookahead_y = recover_y(candidate_lookahead_xv[ws.p.n+1:end], ws.ρ, ws.p.K)
+            candidate_lookahead_y = recover_y(candidate_lookahead_xv[ws.p.n+1:end], ws.method.ρ, ws.p.K)
             
             #compute fp merit function
             candidate_fp_merit = norm_func([candidate_lookahead_xv[1:ws.p.n]; candidate_lookahead_y] - [candidate[1:ws.p.n]; reconverted_y])

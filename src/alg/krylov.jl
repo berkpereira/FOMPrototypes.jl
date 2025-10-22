@@ -65,9 +65,9 @@ function tilde_A_prod(ws::AbstractWorkspace,
     enforced_constraints::BitVector,
     q::AbstractArray{Float64})
 
-    @views top_left = q[1:ws.p.n, :] - (ws.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.ρ * ws.A_gram * q[1:ws.p.n, :]))
+    @views top_left = q[1:ws.p.n, :] - (ws.method.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.method.ρ * ws.A_gram * q[1:ws.p.n, :]))
     bot_left = - ws.p.A * top_left
-    @views top_right = ws.ρ * ws.W_inv * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
+    @views top_right = ws.method.ρ * ws.method.W_inv * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
     @views bot_right = - ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
 
     # NB: matrix, NOT vector, is returned.
@@ -250,7 +250,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    ws.scratch.temp_m_mat .*= ws.ρ
+    ws.scratch.temp_m_mat .*= ws.method.ρ
     @views ws.scratch.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_vec .= ws.scratch.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.temp_m_mat[:, 1], ws.p.K) # ws.scratch.temp_m_mat[:, 1] now stores y_{k+1}
@@ -267,8 +267,8 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line...
     ws.vars.y_qm_bar .= ws.scratch.temp_m_mat
-    ws.vars.y_qm_bar .*= (1 + ws.θ)
-    @views ws.vars.y_qm_bar .+= -ws.θ .* ws.vars.state_q[ws.p.n+1:end, :]
+    ws.vars.y_qm_bar .*= (1 + ws.method.θ)
+    @views ws.vars.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :]
 
     if ws.krylov_operator == :B # ie use B = A - I as krylov operator
         @views ws.scratch.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
@@ -318,13 +318,13 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     end
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to temp_n_mat1
-    if ws.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
+    if ws.method.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
         # need a working complex vector for efficient Cholesky inversion
         # of two columns simultaneously
-        apply_inv!(ws.W_inv, ws.scratch.temp_n_mat1, ws.scratch.temp_n_vec_complex1)
+        apply_inv!(ws.method.W_inv, ws.scratch.temp_n_mat1, ws.scratch.temp_n_vec_complex1)
     else
         # diagonal inversion is simpler
-        apply_inv!(ws.W_inv, ws.scratch.temp_n_mat1)
+        apply_inv!(ws.method.W_inv, ws.scratch.temp_n_mat1)
     end
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns

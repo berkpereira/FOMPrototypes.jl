@@ -184,22 +184,22 @@ function M1_op!(
     result_vec .= x
 
     if variant == :PDHG # M1 = 1/τ * I
-        result_vec ./= ws.τ
+        result_vec ./= ws.method.τ
     elseif variant == :ADMM # M1 = ρ * A' * A
         temp_n_vec .= x
         mul!(result_vec, A_gram, temp_n_vec)
-        result_vec .*= ws.ρ
+        result_vec .*= ws.method.ρ
     elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
         mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
         result_vec .*= -1.0 # result_vec = -R(P) * x
         
         broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.ρ # temp_n_vec = ρ * D(A' * A) * x
+        temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
 
         result_vec .+= temp_n_vec # result_vec = -R(P) * x + ρ * D(A' * A) * x
 
         temp_n_vec .= x
-        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+        temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
 
         result_vec .+= temp_n_vec
     elseif variant == Symbol(2) # M1 = 1/τ * I - P
@@ -207,7 +207,7 @@ function M1_op!(
         result_vec .*= -1.0 # result_vec = -P * x
 
         temp_n_vec .= x
-        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+        temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
         
         result_vec .+= temp_n_vec # result_vec = -P * x + 1/τ * I * x
     elseif variant == Symbol(3) # M1 = 1/τ * I - P + ρ * D(A' * A)
@@ -215,11 +215,11 @@ function M1_op!(
         result_vec .*= -1.0 # result_vec = -P * x
 
         broadcast!(*, temp_n_vec, ws.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.ρ # temp_n_vec = ρ * D(A' * A) * x
+        temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
         result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x
 
         temp_n_vec .= x
-        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+        temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
 
         result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x + 1/τ * I * x
     elseif variant == Symbol(4) # M1 = 1/τ * I - R(P)
@@ -227,7 +227,7 @@ function M1_op!(
         result_vec .*= -1.0 # result_vec = -R(P) * x
 
         temp_n_vec .= x
-        temp_n_vec ./= ws.τ # temp_n_vec = 1/τ * I * x
+        temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
 
         result_vec .+= temp_n_vec # result_vec = -R(P) * x + 1/τ * I * x
     else

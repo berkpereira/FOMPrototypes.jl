@@ -36,7 +36,7 @@ end
 
 function IterationRecord(ws::AbstractWorkspace)
     
-    char_norm_mat = [(ws.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.ρ]
+    char_norm_mat = [(ws.method.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.method.ρ]
     function char_norm(vector::AbstractArray{Float64})
         return sqrt(dot(vector, char_norm_mat * vector))
     end

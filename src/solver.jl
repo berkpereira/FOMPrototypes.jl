@@ -73,7 +73,7 @@ function onecol_method_operator!(
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    ws.scratch.temp_m_vec .*= ws.ρ
+    ws.scratch.temp_m_vec .*= ws.method.ρ
     @views ws.scratch.temp_m_vec .+= state_in[ws.p.n+1:end] # add current
     if update_res_flags
         @views ws.vars.preproj_vec .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
@@ -108,7 +108,7 @@ function onecol_method_operator!(
     # TODO reduce allocations in this mul! call: pass another temp vector?
     # consider dedicated scratch storage for y_bar, akin to what
     # we do in twocol_method_operator!
-    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * state_in[ws.p.n+1:end]) # compute A' * y_bar
+    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.method.θ) * ws.scratch.temp_m_vec - ws.method.θ * state_in[ws.p.n+1:end]) # compute A' * y_bar
 
     if update_res_flags
         ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
@@ -129,7 +129,7 @@ function onecol_method_operator!(
     end
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to ws.scratch.temp_n_vec1
-    apply_inv!(ws.W_inv, ws.scratch.temp_n_vec1)
+    apply_inv!(ws.method.W_inv, ws.scratch.temp_n_vec1)
 
     # assign new iterates
     @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.temp_n_vec1
@@ -200,13 +200,13 @@ function construct_explicit_operator!(
     
     D_A = Diagonal(ws.proj_flags)
 
-    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= I(ws.p.n) - ws_diag.W_inv_mat * ws.p.P - 2 * ws.ρ * ws_diag.W_inv_mat * ws.p.A' * D_A * ws.p.A
+    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= I(ws.p.n) - ws_diag.W_inv_mat * ws.p.P - 2 * ws.method.ρ * ws_diag.W_inv_mat * ws.p.A' * D_A * ws.p.A
     ws_diag.tilde_A[1:ws.p.n, ws.p.n+1:end] .= - ws_diag.W_inv_mat * ws.p.A' * (2 * D_A - I(ws.p.m))
-    ws_diag.tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.ρ * D_A * ws.p.A
+    ws_diag.tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.method.ρ * D_A * ws.p.A
     ws_diag.tilde_A[ws.p.n+1:end, ws.p.n+1:end] .= D_A
 
-    ws_diag.tilde_b[1:ws.p.n] .= ws_diag.W_inv_mat * (2 * ws.ρ * ws.p.A' * D_A * ws.p.b - ws.p.c)
-    @views ws_diag.tilde_b[ws.p.n+1:end] .= - ws.ρ * D_A * ws.p.b
+    ws_diag.tilde_b[1:ws.p.n] .= ws_diag.W_inv_mat * (2 * ws.method.ρ * ws.p.A' * D_A * ws.p.b - ws.p.c)
+    @views ws_diag.tilde_b[ws.p.n+1:end] .= - ws.method.ρ * D_A * ws.p.b
 
     # # compute fixed-points, ie solutions (if existing, and potentially
     # # non-unique) to the system (tilde_A - I) z = -tilde_b
