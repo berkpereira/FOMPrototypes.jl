@@ -225,8 +225,10 @@ temp_n_mat1 should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
-function twocol_method_operator!(ws::KrylovWorkspace,
-    update_res_flags::Bool = false)
+function twocol_method_operator!(
+    ws::KrylovWorkspace{T, I, M},
+    update_res_flags::Bool = false
+    ) where {T, I, M <: PrePPM} # note dispatch on PrePPM
     
     # working variable is ws.vars.state_q, with two columns
 

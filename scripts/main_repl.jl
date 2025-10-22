@@ -25,7 +25,7 @@ args = Dict(
     "rel-kkt-tol"  => 1e-9,
 
     "accel-memory" => 15,
-    "acceleration" => :none, # in {:none, :krylov, :anderson}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 

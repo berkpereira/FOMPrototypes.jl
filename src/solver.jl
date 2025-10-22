@@ -49,11 +49,11 @@ Note that state_in is the "current" iterate as a single vector in R^{n+m}.
 New iterate is written (in-place) into state_out input vector.
 """
 function onecol_method_operator!(
-    ws::AbstractWorkspace,
+    ws::AbstractWorkspace{T, I, V, M},
     state_in::AbstractVector{Float64},
     state_out::AbstractVector{Float64},
     update_res_flags::Bool = false
-    )
+    ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
 
     @views mul!(ws.scratch.temp_m_vec, ws.p.A, state_in[1:ws.p.n]) # compute A * x
 
