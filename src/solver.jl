@@ -76,14 +76,14 @@ function onecol_method_operator!(
     ws.scratch.temp_m_vec .*= ws.ρ
     @views ws.scratch.temp_m_vec .+= state_in[ws.p.n+1:end] # add current
     if update_res_flags
-        @views ws.vars.preproj_y .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
+        @views ws.vars.preproj_vec .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
     end
     @views project_to_dual_K!(ws.scratch.temp_m_vec, ws.p.K) # ws.scratch.temp_m_vec now stores y_{k+1}
 
     if update_res_flags
         # update in-place flags switching affine dynamics based on projection action
         # ws.proj_flags = D_k in Goodnotes handwritten notes
-        update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, ws.scratch.temp_m_vec)
+        update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.temp_m_vec)
     end
 
     # now we go to "bulk of" x and q_n update

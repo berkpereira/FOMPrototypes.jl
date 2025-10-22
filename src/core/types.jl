@@ -41,6 +41,15 @@ abstract type AbstractInvOp end
 end
 ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
 
+# Variables structs
+
+macro common_var_fields()
+    return esc(quote
+        state_prev::Vector{T}
+        preproj_vec::Vector{T} # of interest just for recording active set
+    end)
+end
+
 abstract type AbstractVariables{T<:AbstractFloat} end
 
 struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
@@ -50,12 +59,10 @@ struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
     # Convenient for when we use the linearisation technique
     # for Anderson/Krylov acceleration.
     state_q::Matrix{T}
-    # to store "previous" working iterate for misc purposes
-    state_prev::Vector{T}
-
-    preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
+    
+    @common_var_fields()
+    
     y_qm_bar::Matrix{T} # Extrapolated primal variable
-
 
     # default (zeros) initialisation of variables
     function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
@@ -66,8 +73,8 @@ KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
 
 struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
     state::Vector{T}
-    state_prev::Vector{T}
-    preproj_y::Vector{T} # of interest just for recording active set
+    
+    @common_var_fields()
     
     state_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
     
@@ -81,8 +88,8 @@ AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
 
 struct VanillaVariables{T <: AbstractFloat} <: AbstractVariables{T}
     state::Vector{T}
-    state_prev::Vector{T}
-    preproj_y::Vector{T} # of interest just for recording active set
+
+    @common_var_fields()
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
     function VanillaVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
@@ -285,6 +292,8 @@ function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
 end
 
 KrylovScratch(p::ProblemData) = KrylovScratch{DefaultFloat}(p)
+
+# Workspace structs
 
 abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}} end
 
@@ -652,6 +661,7 @@ function AndersonWorkspace(
     return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, safeguard_norm, broyden_type, memory_type, regulariser_type, anderson_log)
 end
 
+# Results structs
 
 mutable struct Results{T <: AbstractFloat, I <: Integer}
     metrics_history::Dict{Symbol, Any}

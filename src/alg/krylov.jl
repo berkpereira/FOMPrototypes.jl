@@ -9,11 +9,11 @@ entry-wise equality/inequality.
 """
 function update_proj_flags!(
     proj_flags::BitVector,
-    preproj_y::AbstractVector{Float64},
+    preproj_vec::AbstractVector{Float64},
     postproj_y::AbstractVector{Float64}
     )
 
-    proj_flags .= (preproj_y .== postproj_y)
+    proj_flags .= (preproj_vec .== postproj_y)
 end
 
 # helper to form and store the first Krylov basis vector
@@ -252,13 +252,13 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     ws.scratch.temp_m_mat .*= ws.ρ
     @views ws.scratch.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
-    @views ws.vars.preproj_y .= ws.scratch.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
+    @views ws.vars.preproj_vec .= ws.scratch.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.temp_m_mat[:, 1], ws.p.K) # ws.scratch.temp_m_mat[:, 1] now stores y_{k+1}
 
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes handwritten notes
     if update_res_flags
-        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_y, ws.scratch.temp_m_mat[:, 1])
+        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.temp_m_mat[:, 1])
     end
 
     # can now compute the bit of q corresponding to the y iterate
