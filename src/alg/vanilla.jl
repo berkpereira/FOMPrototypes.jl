@@ -4,7 +4,6 @@ using Clarabel
 
 function vanilla_step!(
     ws::VanillaWorkspace,
-    args::Dict{String, Any},
     record::AbstractRecord,
     )
     # copy older iterate before iterating
