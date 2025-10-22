@@ -260,20 +260,16 @@ function optimise!(
     ws::AbstractWorkspace,
     args::Dict{String, T};
     setup_time::Float64 = 0.0, # time spent in set-up (seconds)
-    x_sol::Union{Nothing, Vector{Float64}} = nothing,
-    y_sol::Union{Nothing, Vector{Float64}} = nothing,
+    state_ref::Union{Nothing, Vector{Float64}} = nothing,
     timer::TimerOutput,
     full_diagnostics::Bool = false,
     spectrum_plot_period::Real = Inf) where T
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
-        @views view_x = ws.vars.state_q[1:ws.p.n, 1]
-        @views view_y = ws.vars.state_q[ws.p.n+1:end, 1]
-        @views view_q = ws.vars.state_q[:, 2]
+        @views view_state = ws.vars.state_q[:, 1]
     elseif ws.vars isa VanillaVariables || ws.vars isa AndersonVariables
-        @views view_x = ws.vars.state[1:ws.p.n]
-        @views view_y = ws.vars.state[ws.p.n+1:end]
+        view_state = ws.vars.state # point to same place in memory
     else
         error("Unknown variable type in workspace.")
     end
@@ -301,7 +297,7 @@ function optimise!(
     while !termination
         # print info and save data if requested
         push_res_to_record!(ws, record)
-        push_ref_dist_to_record!(ws, record, view_x, view_y, x_sol, y_sol)
+        push_ref_dist_to_record!(ws, record, view_state, state_ref)
 
         print_results(ws, args["print-mod"], relative = args["print-res-rel"])
 
@@ -357,7 +353,7 @@ function optimise!(
     # TODO perhaps refactor to use record structs for later plots?
     if !args["run-fast"]
         push_res_to_record!(ws, record)
-        push_ref_dist_to_record!(ws, record, view_x, view_y, x_sol, y_sol)
+        push_ref_dist_to_record!(ws, record, view_state, state_ref)
         
         print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
 

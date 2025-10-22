@@ -161,14 +161,12 @@ end
 function push_ref_dist_to_record!(
     ws::AbstractWorkspace,
     record::IterationRecord,
-    view_x::AbstractArray{Float64},
-    view_y::AbstractArray{Float64},
-    x_sol::Union{Nothing, Vector{Float64}},
-    y_sol::Union{Nothing, Vector{Float64}}
+    view_state::AbstractArray{Float64},
+    state_ref::Union{Nothing, Vector{Float64}},
     )
-    if !isnothing(x_sol)
-        ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
-        ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
+    if !isnothing(state_ref)
+        @views ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_state[1:ws.p.n] - state_ref[1:ws.p.n]
+        @views ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_state[ws.p.n+1:end] - (-state_ref[ws.p.n+1:end]) # negation due to often opposite sign out of reference solver
         curr_state_chardist = record.char_norm_func(ws.scratch.temp_mn_vec1)
 
         @views curr_x_dist = norm(ws.scratch.temp_mn_vec1[1:ws.p.n])
@@ -183,10 +181,8 @@ end
 function push_ref_dist_to_record!(
     ws::AbstractWorkspace,
     record::NullRecord,
-    view_x::AbstractArray{Float64},
-    view_y::AbstractArray{Float64},
-    x_sol::Union{Nothing, Vector{Float64}},
-    y_sol::Union{Nothing, Vector{Float64}}
+    view_state::AbstractArray{Float64},
+    state_ref::Union{Nothing, Vector{Float64}}
     )
     return
 end

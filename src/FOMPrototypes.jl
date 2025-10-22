@@ -308,7 +308,9 @@ function solve_reference(problem::ProblemData,
     y_ref = dual.(con)  # Dual variables (Lagrange multipliers)
     obj_ref = objective_value(model)
 
-    return model, x_ref, s_ref, y_ref, obj_ref
+    state_ref = [x_ref; y_ref]
+
+    return model, state_ref, obj_ref
 end
 
 #######################################
@@ -319,7 +321,7 @@ function run_prototype(problem::ProblemData,
     problem_set::String,
     problem_name::String,
     args::Dict{String, T};
-    x_ref::Union{Nothing, Vector{Float64}} = nothing, y_ref::Union{Nothing, Vector{Float64}} = nothing,
+    state_ref::Union{Nothing, Vector{Float64}} = nothing,
     full_diagnostics::Bool = false,
     spec_plot_period::Real = Inf) where T
 
@@ -377,8 +379,7 @@ function run_prototype(problem::ProblemData,
             ws,
             args,
             setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
-            x_sol = x_ref,
-            y_sol = y_ref,
+            state_ref = state_ref,
             timer = to,
             full_diagnostics = full_diagnostics,
             spectrum_plot_period = spec_plot_period)
@@ -586,7 +587,7 @@ function main(config::Dict{String, Any})
     println()
     println("About to solve problem with reference solver...")
 
-    x_ref, s_ref, y_ref, obj_ref = solve_reference(problem,
+    model, state_ref, obj_ref = solve_reference(problem,
     config["problem-set"], config["problem-name"], config)
 
     # Run the prototype optimization.
@@ -595,7 +596,7 @@ function main(config::Dict{String, Any})
     
     ws, ws_diag, results, to = run_prototype(problem,
     config["problem-set"], config["problem-name"],
-    config, x_ref = x_ref, y_ref = y_ref)
+    config, state_ref = state_ref)
 
     if !config["run-fast"]
         println()
