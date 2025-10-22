@@ -154,7 +154,7 @@ function krylov_usual_step!(
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
     timer::TimerOutput;
     )
-    # apply method operator (to both (x, y) and Arnoldi (q) vectors)
+    # apply method operator (to both state and Arnoldi (q) vectors)
     twocol_method_operator!(ws, true)
 
     # Arnoldi "step", orthogonalises the incoming basis vector
@@ -425,7 +425,7 @@ function krylov_step!(
             init_krylov_basis!(ws) # ws.H is zeros at this point still
         
         elseif ws.control_flags.recycle_next
-            # RECYCLE working (x, y) iterate
+            # RECYCLE working state iterate
             ws.vars.state_q[:, 1] .= ws.scratch.state_recycled
             
             # also re-initialise Krylov basis IF we'd filled up

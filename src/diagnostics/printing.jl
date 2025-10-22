@@ -62,9 +62,9 @@ function print_results(
         print_output *= @sprintf(" | gap abs: %12.5e", ws.res.gap_abs)
     end
 
-    # (x, y) distance to solution
+    # state distance to solution
     if !isnothing(curr_state_dist) && curr_state_dist !== NaN
-        print_output *= @sprintf(" | (x, y) dist: %12.5e", curr_state_dist)
+        print_output *= @sprintf(" | state dist: %12.5e", curr_state_dist)
     end
 
     # Print the final output

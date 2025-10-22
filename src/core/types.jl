@@ -44,22 +44,22 @@ ProblemData(args...) = ProblemData{DefaultFloat, DefaultInt}(args...)
 abstract type AbstractVariables{T<:AbstractFloat} end
 
 struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
-    # Consolidated (x, y) vector and q vector (for Krylov basis building).
-    # (x, y) is exactly as it sounds. q is for building a basis with an
-    # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
+    # Consolidated state vector and q vector (for Krylov basis building).
+    # state is exactly as it sounds. q is for building a basis with an
+    # Arnoldi-like process simultaneously as we iterate on the state sequence.
     # Convenient for when we use the linearisation technique
     # for Anderson/Krylov acceleration.
     state_q::Matrix{T}
+    # to store "previous" working iterate for misc purposes
+    state_prev::Vector{T}
 
     preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
     y_qm_bar::Matrix{T} # Extrapolated primal variable
 
-    # to store "previous" working iterate for misc purposes
-    state_prev::Vector{T}
 
     # default (zeros) initialisation of variables
     function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m, 2), zeros(m), zeros(m, 2), zeros(n + m))
+        new(zeros(n + m, 2), zeros(n + m), zeros(m), zeros(m, 2))
     end
 end
 KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
@@ -67,12 +67,14 @@ KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
 struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
     state::Vector{T}
     state_prev::Vector{T}
-    state_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
     preproj_y::Vector{T} # of interest just for recording active set
+    
+    state_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
+    
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
     function AndersonVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m), zeros(n + m), zeros(n + m), zeros(m))
+        new(zeros(n + m), zeros(n + m), zeros(m), zeros(n + m))
     end
 end
 AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
