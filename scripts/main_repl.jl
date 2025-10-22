@@ -47,10 +47,10 @@ args = Dict(
 
     "max-iter"           => 1_000, # ONLY relevant with no acceleration!
     "max-k-operator"     => 1_000, # ONLY relevant with Anderson/Krylov
-    "print-mod"          => 1_000,
+    "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
-    "run-fast"           => true,
+    "run-fast"           => false,
     "global-timeout"     => Inf, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
@@ -62,7 +62,7 @@ args = Dict(
 problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
 
 # call reference solver:
-# model_ref, x_ref, s_ref, y_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
+# model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
 
 # call my solver:
 ws, ws_diag, results, to = FOMPrototypes.run_prototype(
@@ -76,6 +76,6 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
 
 # plot results if applicable:
 if !args["run-fast"]
-    FOMPrototypes.plot_results(ws, results, args["problem-set"], args["problem-name"], args, :plotlyjs)
+    FOMPrototypes.plot_results(ws, results, args["problem-set"], args["problem-name"], args, :gr)
 end
 ;
