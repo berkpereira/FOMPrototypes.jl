@@ -188,38 +188,6 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     end
 end
 
-function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
-    x_sol::Union{Nothing, AbstractVector{Float64}})
-    if run_fast
-        return nothing
-    else
-        return (
-            primal_obj_vals = Float64[],
-            pri_res_norms = Float64[],
-            dual_obj_vals = Float64[],
-            dual_res_norms = Float64[],
-            record_proj_flags = Vector{Vector{Bool}}(),
-            update_mat_ranks = Float64[],
-            update_mat_singval_ratios = Float64[],
-            update_mat_iters = Int[],
-            acc_step_iters = Int[],
-            acc_attempt_iters = Int[],
-            linesearch_iters = Int[],
-            state_step_norms = Float64[],
-            state_step_char_norms = Float64[], # record method's "char norm" of the updates
-            state_update_cosines = Float64[],
-            x_dist_to_sol = !isnothing(x_sol) ? Float64[] : nothing,
-            y_dist_to_sol = !isnothing(x_sol) ? Float64[] : nothing,
-            state_chardist = !isnothing(x_sol) ? Float64[] : nothing,
-            current_update_mat_col = Ref(1),
-            updates_matrix = zeros(ws.p.n + ws.p.m, 20),
-
-            fp_metric_ratios = Float64[],
-
-        )
-    end
-end
-
 """
 This function is used to modify the explicitly formed linearised operator of
 the method. This is an expensive computation obviously not to be used when
