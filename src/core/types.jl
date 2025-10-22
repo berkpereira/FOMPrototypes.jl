@@ -293,39 +293,89 @@ end
 
 KrylovScratch(p::ProblemData) = KrylovScratch{DefaultFloat}(p)
 
-# Workspace structs
 
-abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}} end
+# method structs
 
-# workspace type for when :none acceleration is used
-struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, VanillaVariables{T}}
-    k::Base.RefValue{Int} # iter counter
-    scratch::VanillaScratch{T}
-    p::ProblemData{T}
-    vars::VanillaVariables{T}
-    res::ProgressMetrics{T}
-    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
-    W_inv::AbstractInvOp
-    A_gram::LinearMap{T}
-    τ::Union{T, Nothing}
+abstract type AbstractMethod{T <: AbstractFloat, I <: Integer} end
+
+# TODO restate existing code in terms of this new struct in the workspace
+struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
+    variant::Symbol # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
     ρ::T
+    τ::Union{T, Nothing}
     θ::T
-    proj_flags::AbstractVector{Bool}
+    W::AbstractMatrix{T} # all initialised when constructing workspace
+    W_inv::AbstractInvOp
 
-    function VanillaWorkspace{T, I}(
-        p::ProblemData{T},
-        vars::Union{VanillaVariables{T}, Nothing},
+    function PrePPM{T, I}(
         variant::Symbol,
-        A_gram::Union{LinearMap{T}, Nothing},
-        τ::Union{T, Nothing},
         ρ::T,
+        τ::Union{T, Nothing},
         θ::T,
-        to::Union{TimerOutput, Nothing}) where {T <: AbstractFloat, I <: Integer}
-        
+        W::AbstractMatrix{T},
+        W_inv::AbstractInvOp,
+        ) where {T <: AbstractFloat, I <: Integer}
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
         end
+
+        if ρ <= 0.0
+            throw(ArgumentError("ρ must be positive"))
+        end
+
+        new{T, I}(variant, ρ, τ, θ, W, W_inv)
+    end
+end
+
+# TODO incorporate this into code
+struct ADMM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
+    # method-specific fields go here
+    rho::T
+    # ... any more needed?
+
+    function ADMM{T, I}(rho::T) where {T <: AbstractFloat, I <: Integer}
+        new{T, I}(rho)
+    end
+end
+
+
+# Workspace structs
+
+# macro to inject common workspace fields (used inside struct bodies)
+macro common_workspace_fields()
+    return esc(quote
+        p::ProblemData{T}
+        method::AbstractMethod{T, I} # eg PrePPM or ADMM
+        vars::AbstractVariables{T}
+        A_gram::LinearMap{T}
+        res::ProgressMetrics{T}
+        proj_flags::AbstractVector{Bool}
+
+        
+        # variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
+        # W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
+        # W_inv::AbstractInvOp
+        # τ::T
+        # ρ::T
+        # θ::T
+    end)
+end
+
+abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}, M <: AbstractMethod{T, I}} end
+
+# workspace type for when :none acceleration is used
+struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, VanillaVariables{T}, M}
+    @common_workspace_fields()
+    
+    k::Base.RefValue{Int} # iter counter
+    scratch::VanillaScratch{T}
+
+    function VanillaWorkspace{T, I, M}(
+        p::ProblemData{T},
+        method::M,
+        vars::Union{VanillaVariables{T}, Nothing},
+        A_gram::Union{LinearMap{T}, Nothing},
+        ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         m, n = p.m, p.n
         scratch = VanillaScratch(p)
@@ -333,32 +383,48 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T
         if vars === nothing
             vars = VanillaVariables(m, n)
         end
+        
         if A_gram === nothing
             A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
         end
-        
-        @timeit to "W op prep" begin
-            W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-        end
 
-        W_inv = prepare_inv(W, to)
-        new{T, I}(Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m))
+        new{T, I, M}(
+            p,
+            method,
+            vars,
+            A_gram,
+            res,
+            falses(m),
+            Ref(0),
+            scratch
+        )
     end 
 end
 
-# thin wrapper to allow default constructor arguments
-function VanillaWorkspace(
+function VanillaWorkspace{T, I}(
     p::ProblemData{T},
-    variant::Symbol,
+    ::Type{PrePPM}, # note dispatch on PrePPM type
+    variant::Symbol, # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
     τ::Union{T, Nothing},
     ρ::T,
     θ::T;
     vars::Union{VanillaVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
-    to::Union{TimerOutput, Nothing} = nothing) where {T <: AbstractFloat}
+    to::Union{TimerOutput, Nothing} = nothing
+    ) where {T <: AbstractFloat, I <: Integer}
+
+    # TODO simplify syntax of call to W_operator using method struct
+    @timeit to "W op prep" begin
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+    end
+
+    W_inv = prepare_inv(W, to)
+
+    # construct method object
+    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv)
     
     # delegate to the inner constructor
-    return VanillaWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to)
+    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, vars, A_gram)
 end
 
 VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
@@ -376,25 +442,15 @@ struct GivensRotation{T <: AbstractFloat}
 end
 
 # workspace type for when Krylov acceleration is used
-struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, KrylovVariables{T}}
+struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, KrylovVariables{T}, M}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     scratch::KrylovScratch{T}
-    p::ProblemData{T}
-    vars::KrylovVariables{T}
-    res::ProgressMetrics{T}
-    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
-    W_inv::AbstractInvOp
-    A_gram::LinearMap{T}
-    τ::Union{T, Nothing}
-    ρ::T
-    θ::T
-    
-    proj_flags::AbstractVector{Bool}
-    control_flags::KrylovControlFlags
 
+    @common_workspace_fields()
+
+    control_flags::KrylovControlFlags
 
     # precomputed diagonals
     # TODO get rid of these when they are not needed
@@ -428,7 +484,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
         vars::Union{KrylovVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
-        τ::Union{T, Nothing},
+        τ::T,
         ρ::T,
         θ::T,
         to::Union{TimerOutput, Nothing},
@@ -488,7 +544,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T,
 
         W_inv = prepare_inv(W, to)
 
-        new{T, I}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
+        new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), KrylovControlFlags(), dP, dA, mem, tries_per_mem, safeguard_norm, trigger_givens_counts, krylov_operator, UpperHessenberg(zeros(mem, mem-1)), zeros(m + n, mem), Vector{GivensRotation{Float64}}(undef, mem-1), Ref(0), Ref(false), Ref(false))
     end
 end
 
@@ -496,7 +552,7 @@ end
 function KrylovWorkspace(
     p::ProblemData{T},
     variant::Symbol,
-    τ::Union{T, Nothing},
+    τ::T,
     ρ::T,
     θ::T,
     mem::Int,
@@ -513,25 +569,16 @@ end
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # workspace type for when Anderson acceleration is used
-struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{T, I, AndersonVariables{T}}
+struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, AndersonVariables{T}, M}
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     scratch::AndersonScratch{T}
-    p::ProblemData{T}
-    vars::AndersonVariables{T}
-    res::ProgressMetrics{T}
-    variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
-    W::Union{Diagonal{T}, SparseMatrixCSC{T, I}}
-    W_inv::AbstractInvOp
-    A_gram::LinearMap{T}
-    τ::Union{T, Nothing}
-    ρ::T
-    θ::T
 
-    proj_flags::AbstractVector{Bool}
+    @common_workspace_fields()
+
     control_flags::AndersonControlFlags
 
     # precomputed diagonals
@@ -553,7 +600,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
         vars::Union{AndersonVariables{T}, Nothing},
         variant::Symbol,
         A_gram::Union{LinearMap{T}, Nothing},
-        τ::Union{T, Nothing},
+        τ::T,
         ρ::T,
         θ::T,
         to::Union{TimerOutput, Nothing},
@@ -605,7 +652,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer} <: AbstractWorkspace{
 
         aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
-        new{T, I}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), AndersonControlFlags(), dP, dA, mem, anderson_interval, safeguard_norm, aa)
+        new{T, I, PrePPM{T, I}}(Ref(0), Ref(0), Ref(0), Ref(0), Ref(0), scratch, p, vars, res, variant, W, W_inv, A_gram, τ, ρ, θ, falses(m), AndersonControlFlags(), dP, dA, mem, anderson_interval, safeguard_norm, aa)
     end
 
 end
@@ -615,7 +662,7 @@ AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultI
 function AndersonWorkspace(
     p::ProblemData{T},
     variant::Symbol,
-    τ::Union{T, Nothing},
+    τ::T,
     ρ::T,
     θ::T,
     mem::Int,
@@ -660,6 +707,7 @@ function AndersonWorkspace(
     # delegate to the inner constructor
     return AndersonWorkspace(p, vars, variant, A_gram, τ, ρ, θ, to, mem, anderson_interval, safeguard_norm, broyden_type, memory_type, regulariser_type, anderson_log)
 end
+
 
 # Results structs
 
