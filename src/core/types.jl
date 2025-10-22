@@ -49,13 +49,13 @@ struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
     # Arnoldi-like process simultaneously as we iterate on the (x, y) sequence.
     # Convenient for when we use the linearisation technique
     # for Anderson/Krylov acceleration.
-    xy_q::Matrix{T}
+    state_q::Matrix{T}
 
     preproj_y::Vector{T} # thing fed to the projection to dual cone, useful to store
     y_qm_bar::Matrix{T} # Extrapolated primal variable
 
     # to store "previous" working iterate for misc purposes
-    xy_prev::Vector{T}
+    state_prev::Vector{T}
 
     # default (zeros) initialisation of variables
     function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
@@ -65,9 +65,9 @@ end
 KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)
 
 struct AndersonVariables{T <: AbstractFloat} <: AbstractVariables{T}
-    xy::Vector{T}
-    xy_prev::Vector{T}
-    xy_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
+    state::Vector{T}
+    state_prev::Vector{T}
+    state_into_accelerator::Vector{T} # working iterate looking back up to anderson-interval iterations, to be passed into the COSMOAccelerators interface
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
@@ -78,8 +78,8 @@ end
 AndersonVariables(args...) = AndersonVariables{DefaultFloat}(args...)
 
 struct VanillaVariables{T <: AbstractFloat} <: AbstractVariables{T}
-    xy::Vector{T}
-    xy_prev::Vector{T}
+    state::Vector{T}
+    state_prev::Vector{T}
     preproj_y::Vector{T} # of interest just for recording active set
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
     
@@ -205,13 +205,13 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
     # acceleration and safeguarding
     accelerated_point::Vector{T}
     # recycled iterate --- to recycle work done when computing fixed-point
-    xy_recycled::Vector{T}
+    state_recycled::Vector{T}
 
-    xy_lookahead::Vector{T}
+    state_lookahead::Vector{T}
     fp_res::Vector{T}
 
     # to check success after potentially being overwritten
-    xy_pre_overwrite::Vector{T}
+    state_pre_overwrite::Vector{T}
 end
 
 function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -253,9 +253,9 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     accelerated_point::Vector{T}
     # recycled iterate --- to recycle work done when computing fixed-point
     # residuals for acceleration acceptance criteria, then assigned
-    # to the working optimisation variable xy_q[:, 1] in the next iteration
-    xy_recycled::Vector{T}
-    xy_lookahead::Vector{T}
+    # to the working optimisation variable state_q[:, 1] in the next iteration
+    state_recycled::Vector{T}
+    state_lookahead::Vector{T}
     fp_res::Vector{T}
 end
 

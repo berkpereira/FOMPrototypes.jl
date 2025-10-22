@@ -23,16 +23,16 @@ function init_krylov_basis!(
 
     if krylov_status == :success
         # form fixed‐point residual in slot 2
-        @views ws.vars.xy_q[:, 2] .= ws.vars.xy_q[:, 1] .- ws.vars.xy_prev
+        @views ws.vars.state_q[:, 2] .= ws.vars.state_q[:, 1] .- ws.vars.state_prev
         # normalise
-        @views ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
+        @views ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
 
-        if ws.vars.xy_q[1, 2] === NaN
+        if ws.vars.state_q[1, 2] === NaN
             @info "🟢 Have NaNs in initial Krylov basis vector, indicates a fixed-point has been found already!"
             ws.fp_found[] = true
         end
         # store in krylov_basis[:,1]
-        @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
+        @views ws.krylov_basis[:, 1] .= ws.vars.state_q[:, 2]
     elseif krylov_status == :B_nullvec
         # if we have landed on a fp residual which is a null vector of B,
         # ie a 1-eigenvector of tilde_A, this is likely to lead to breakdowns
@@ -41,9 +41,9 @@ function init_krylov_basis!(
         # different from this residual vector, otherwise we can get stuck
         # solving trivial Krylov systems every iteration
         @info "Found a null vector of B in previous Krylov solution, so am initialising Krylov basis with a random vector this time. This is iteration $(ws.k[])."
-        @views ws.vars.xy_q[:, 2] .= randn(ws.p.m + ws.p.n)
-        ws.vars.xy_q[:, 2] ./= norm(ws.vars.xy_q[:, 2])
-        @views ws.krylov_basis[:, 1] .= ws.vars.xy_q[:, 2]
+        @views ws.vars.state_q[:, 2] .= randn(ws.p.m + ws.p.n)
+        ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
+        @views ws.krylov_basis[:, 1] .= ws.vars.state_q[:, 2]
     else
         # throw exception because this is not yet implemented.
         throw(ArgumentError("Non-package Krylov initialisation not yet implemented."))
@@ -106,9 +106,9 @@ function compute_krylov_accelerant!(
 
     # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
 
-    # compute FOM(xy_q[:, 1]) and store it in result_vec
-    @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], result_vec)
-    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.xy_q[:, 1]) # TODO get rid of alloc here
+    # compute FOM(state_q[:, 1]) and store it in result_vec
+    @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], result_vec)
+    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.state_q[:, 1]) # TODO get rid of alloc here
     
     # ws.H is passed as triangular, so we now need to apply the
     # Givens rotations to Q_{krylov + 1}^T * residual
@@ -129,7 +129,7 @@ function compute_krylov_accelerant!(
 
     # compute full-dimension LLS solution
     if lls_status == :success
-        @views gmres_sol = ws.vars.xy_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
+        @views gmres_sol = ws.vars.state_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
 
         # obtain actual acceleration candidate by applying FOM to
         # this, and write candidate to result_vec
@@ -159,7 +159,7 @@ function krylov_usual_step!(
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place
-    @timeit timer "krylov arnoldi" @views ws.arnoldi_breakdown[] = arnoldi_step!(ws.krylov_basis, ws.vars.xy_q[:, 2], ws.H, ws.givens_count)
+    @timeit timer "krylov arnoldi" @views ws.arnoldi_breakdown[] = arnoldi_step!(ws.krylov_basis, ws.vars.state_q[:, 2], ws.H, ws.givens_count)
 
     # if ws.krylov_operator == :tilde_A, the QR factorisation   
     # we require for the Krylov LLS subproblem is that of
@@ -228,9 +228,9 @@ temp_m_vec should be of dimension m
 function twocol_method_operator!(ws::KrylovWorkspace,
     update_res_flags::Bool = false)
     
-    # working variable is ws.vars.xy_q, with two columns
+    # working variable is ws.vars.state_q, with two columns
 
-    @views two_col_mul!(ws.scratch.temp_m_mat, ws.p.A, ws.vars.xy_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_m_vec_complex) # compute A * [x, q_n]
+    @views two_col_mul!(ws.scratch.temp_m_mat, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_m_vec_complex) # compute A * [x, q_n]
 
     if update_res_flags
         @views Ax_norm = norm(ws.scratch.temp_m_mat[:, 1], Inf)
@@ -251,7 +251,7 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     end
 
     ws.scratch.temp_m_mat .*= ws.ρ
-    @views ws.scratch.temp_m_mat .+= ws.vars.xy_q[ws.p.n+1:end, :] # add current y
+    @views ws.scratch.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_y .= ws.scratch.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.temp_m_mat[:, 1], ws.p.K) # ws.scratch.temp_m_mat[:, 1] now stores y_{k+1}
 
@@ -268,25 +268,25 @@ function twocol_method_operator!(ws::KrylovWorkspace,
     # TODO reduce memory allocation in this line...
     ws.vars.y_qm_bar .= ws.scratch.temp_m_mat
     ws.vars.y_qm_bar .*= (1 + ws.θ)
-    @views ws.vars.y_qm_bar .+= -ws.θ .* ws.vars.xy_q[ws.p.n+1:end, :]
+    @views ws.vars.y_qm_bar .+= -ws.θ .* ws.vars.state_q[ws.p.n+1:end, :]
 
     if ws.krylov_operator == :B # ie use B = A - I as krylov operator
-        @views ws.scratch.temp_m_mat[:, 2] .-= ws.vars.xy_q[ws.p.n+1:end, 2] # add -I component
+        @views ws.scratch.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
     end
     # NOTE: ws.scratch.temp_m_mat[:, 2] now stores UPDATED q_m
     
     # ASSIGN new y and q_m to ws variables
-    ws.vars.xy_q[ws.p.n+1:end, :] .= ws.scratch.temp_m_mat
+    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.temp_m_mat
 
     # now we go to "bulk of" x and q_n update
-    @views two_col_mul!(ws.scratch.temp_n_mat1, ws.p.P, ws.vars.xy_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_n_vec_complex2) # compute P * [x, q_n]
+    @views two_col_mul!(ws.scratch.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_n_vec_complex2) # compute P * [x, q_n]
 
     if update_res_flags
         @views Px_norm = norm(ws.scratch.temp_n_mat1[:, 1], Inf)
 
-        @views xTPx = dot(ws.vars.xy_q[1:ws.p.n, 1], ws.scratch.temp_n_mat1[:, 1]) # x^T P x
-        @views cTx  = dot(ws.p.c, ws.vars.xy_q[1:ws.p.n, 1]) # c^T x
-        @views bTy  = dot(ws.p.b, ws.vars.xy_q[ws.p.n+1:end, 1]) # b^T y
+        @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.temp_n_mat1[:, 1]) # x^T P x
+        @views cTx  = dot(ws.p.c, ws.vars.state_q[1:ws.p.n, 1]) # c^T x
+        @views bTy  = dot(ws.p.b, ws.vars.state_q[ws.p.n+1:end, 1]) # b^T y
 
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
@@ -329,12 +329,12 @@ function twocol_method_operator!(ws::KrylovWorkspace,
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
     if ws.krylov_operator == :tilde_A
-        # @views ws.vars.xy_q[1:ws.p.n, :] .-= temp_n_mat1 # seems to incur a lot of materialize! calls costs
-        @views ws.vars.xy_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1]
-        @views ws.vars.xy_q[1:ws.p.n, 2] .-= ws.scratch.temp_n_mat1[:, 2]
+        # @views ws.vars.state_q[1:ws.p.n, :] .-= temp_n_mat1 # seems to incur a lot of materialize! calls costs
+        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1]
+        @views ws.vars.state_q[1:ws.p.n, 2] .-= ws.scratch.temp_n_mat1[:, 2]
     else # ie use B = A - I as krylov operator
-        @views ws.vars.xy_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1] # as above
-        @views ws.vars.xy_q[1:ws.p.n, 2] .= -ws.scratch.temp_n_mat1[:, 2] # simpler
+        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1] # as above
+        @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.temp_n_mat1[:, 2] # simpler
     end
 
     return nothing
@@ -349,7 +349,7 @@ function krylov_step!(
     timer::TimerOutput,    
     )
     # copy older iterate
-    @views ws.vars.xy_prev .= ws.vars.xy_q[:, 1]
+    @views ws.vars.state_prev .= ws.vars.state_q[:, 1]
     
     # acceleration attempt step
     if (ws.givens_count[] in ws.trigger_givens_counts && !ws.control_flags.back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
@@ -376,7 +376,7 @@ function krylov_step!(
                 end
             end
 
-            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.xy_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
         else
@@ -390,7 +390,7 @@ function krylov_step!(
             push_update_to_record!(ws, record, false)
 
             # assign actually
-            ws.vars.xy_q[:, 1] .= ws.scratch.accelerated_point
+            ws.vars.state_q[:, 1] .= ws.scratch.accelerated_point
         else
             push_update_to_record!(ws, record, false)
         end
@@ -418,15 +418,15 @@ function krylov_step!(
         # we also reinit the Krylov orthogonal basis 
         if ws.k[] == 0 # special case in initial iteration
 
-            @views onecol_method_operator!(ws, ws.vars.xy_q[:, 1], ws.scratch.initial_vec, true)
-            @views ws.vars.xy_q[:, 1] .= ws.scratch.initial_vec
+            @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], ws.scratch.initial_vec, true)
+            @views ws.vars.state_q[:, 1] .= ws.scratch.initial_vec
 
             # fills in first column of ws.krylov_basis
             init_krylov_basis!(ws) # ws.H is zeros at this point still
         
         elseif ws.control_flags.recycle_next
             # RECYCLE working (x, y) iterate
-            ws.vars.xy_q[:, 1] .= ws.scratch.xy_recycled
+            ws.vars.state_q[:, 1] .= ws.scratch.state_recycled
             
             # also re-initialise Krylov basis IF we'd filled up
             # the entire memory

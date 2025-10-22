@@ -17,19 +17,19 @@ using Base: @kwdef
     acc_step_iters::Vector{Int} = Int[]
     acc_attempt_iters::Vector{Int} = Int[]
     linesearch_iters::Vector{Int} = Int[]
-    xy_step_norms::Vector{Float64} = Float64[]
-    xy_step_char_norms::Vector{Float64} = Float64[]
-    xy_update_cosines::Vector{Float64} = Float64[]
+    state_step_norms::Vector{Float64} = Float64[]
+    state_step_char_norms::Vector{Float64} = Float64[]
+    state_update_cosines::Vector{Float64} = Float64[]
     x_dist_to_sol::Vector{Float64} = Float64[]
     y_dist_to_sol::Vector{Float64} = Float64[]
-    xy_chardist::Vector{Float64} = Float64[]
+    state_chardist::Vector{Float64} = Float64[]
     current_update_mat_col::Ref{Int} = Ref(1)
     fp_metric_ratios::Vector{Float64} = Float64[]
     
 
     updates_matrix::Matrix{Float64} = Matrix{Float64}(undef, 0, 0)
-    curr_xy_update::Vector{Float64} = Vector{Float64}(undef, 0)
-    prev_xy_update::Vector{Float64} = Vector{Float64}(undef, 0)
+    curr_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
+    prev_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
 
     char_norm_func::Function
 end
@@ -44,8 +44,8 @@ function IterationRecord(ws::AbstractWorkspace)
     # fix some number of past updates to monitor here, 20 in this case
     return IterationRecord(
         updates_matrix = zeros(Float64, ws.p.n + ws.p.m, 20),
-        curr_xy_update = zeros(Float64, ws.p.n + ws.p.m),
-        prev_xy_update = zeros(Float64, ws.p.n + ws.p.m),
+        curr_state_update = zeros(Float64, ws.p.n + ws.p.m),
+        prev_state_update = zeros(Float64, ws.p.n + ws.p.m),
         char_norm_func = char_norm,
     )
 end
@@ -55,11 +55,11 @@ function push_update_to_record!(
     ws::VanillaWorkspace,
     record::IterationRecord,
     )
-    @views record.curr_xy_update .= ws.vars.xy - ws.vars.xy_prev
+    @views record.curr_state_update .= ws.vars.state - ws.vars.state_prev
 
-    push!(record.xy_step_norms, norm(record.curr_xy_update))
-    push!(record.xy_step_char_norms, record.char_norm_func(record.curr_xy_update))
-    insert_update_into_matrix!(record.updates_matrix, record.curr_xy_update, record.current_update_mat_col)
+    push!(record.state_step_norms, norm(record.curr_state_update))
+    push!(record.state_step_char_norms, record.char_norm_func(record.curr_state_update))
+    insert_update_into_matrix!(record.updates_matrix, record.curr_state_update, record.current_update_mat_col)
 end
 
 function push_update_to_record!(
@@ -68,11 +68,11 @@ function push_update_to_record!(
     vanilla_step::Bool,
     )
     if vanilla_step
-        record.curr_xy_update .= ws.vars.xy - ws.vars.xy_prev
+        record.curr_state_update .= ws.vars.state - ws.vars.state_prev
 
-        push!(record.xy_step_norms, norm(record.curr_xy_update))
-        push!(record.xy_step_char_norms, record.char_norm_func(record.curr_xy_update))
-        insert_update_into_matrix!(record.updates_matrix, record.curr_xy_update, record.current_update_mat_col)
+        push!(record.state_step_norms, norm(record.curr_state_update))
+        push!(record.state_step_char_norms, record.char_norm_func(record.curr_state_update))
+        insert_update_into_matrix!(record.updates_matrix, record.curr_state_update, record.current_update_mat_col)
         return
     end
 
@@ -80,16 +80,16 @@ function push_update_to_record!(
     # numerical blowup in the COSMOAccelerators.accelerate!
     # internals
     if ws.accelerator.success && ws.control_flags.accepted_accel
-        record.curr_xy_update .= ws.vars.xy - ws.scratch.xy_pre_overwrite
+        record.curr_state_update .= ws.vars.state - ws.scratch.state_pre_overwrite
         push!(record.acc_step_iters, ws.k[])
         record.updates_matrix .= 0.0
         record.current_update_mat_col[] = 1
 
-        push!(record.xy_step_norms, norm(record.curr_xy_update))
-        push!(record.xy_step_char_norms, record.char_norm_func(record.curr_xy_update))
+        push!(record.state_step_norms, norm(record.curr_state_update))
+        push!(record.state_step_char_norms, record.char_norm_func(record.curr_state_update))
     else # prevent recording nonsense
-        push!(record.xy_step_norms, NaN)
-        push!(record.xy_step_char_norms, NaN)
+        push!(record.state_step_norms, NaN)
+        push!(record.state_step_char_norms, NaN)
     end
 end
 
@@ -99,27 +99,27 @@ function push_update_to_record!(
     vanilla_step::Bool,
     )
     if vanilla_step
-        @views record.curr_xy_update .= ws.vars.xy_q[:, 1] - ws.vars.xy_prev
+        @views record.curr_state_update .= ws.vars.state_q[:, 1] - ws.vars.state_prev
 
-        push!(record.xy_step_norms, norm(record.curr_xy_update))
-        push!(record.xy_step_char_norms, record.char_norm_func(record.curr_xy_update))
-        insert_update_into_matrix!(record.updates_matrix, record.curr_xy_update, record.current_update_mat_col)
+        push!(record.state_step_norms, norm(record.curr_state_update))
+        push!(record.state_step_char_norms, record.char_norm_func(record.curr_state_update))
+        insert_update_into_matrix!(record.updates_matrix, record.curr_state_update, record.current_update_mat_col)
         
         return
     end
 
     if ws.control_flags.accepted_accel
-        @views record.curr_xy_update .= ws.scratch.accelerated_point - ws.vars.xy_q[:, 1]
+        @views record.curr_state_update .= ws.scratch.accelerated_point - ws.vars.state_q[:, 1]
         push!(record.acc_step_iters, ws.k[])
         record.updates_matrix .= 0.0
         record.current_update_mat_col[] = 1
 
-        push!(record.xy_step_norms, norm(record.curr_xy_update))
-        push!(record.xy_step_char_norms, record.char_norm_func(record.curr_xy_update))
+        push!(record.state_step_norms, norm(record.curr_state_update))
+        push!(record.state_step_char_norms, record.char_norm_func(record.curr_state_update))
     else
-        @views record.curr_xy_update .= 0.0
-        push!(record.xy_step_norms, NaN)
-        push!(record.xy_step_char_norms, NaN)
+        @views record.curr_state_update .= 0.0
+        push!(record.state_step_norms, NaN)
+        push!(record.state_step_char_norms, NaN)
     end
 end
 
@@ -169,14 +169,14 @@ function push_ref_dist_to_record!(
     if !isnothing(x_sol)
         ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_x - x_sol
         ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_y - (-y_sol)
-        curr_xy_chardist = record.char_norm_func(ws.scratch.temp_mn_vec1)
+        curr_state_chardist = record.char_norm_func(ws.scratch.temp_mn_vec1)
 
         @views curr_x_dist = norm(ws.scratch.temp_mn_vec1[1:ws.p.n])
         @views curr_y_dist = norm(ws.scratch.temp_mn_vec1[ws.p.n+1:end])
 
         push!(record.x_dist_to_sol, curr_x_dist)
         push!(record.y_dist_to_sol, curr_y_dist)
-        push!(record.xy_chardist, curr_xy_chardist)
+        push!(record.state_chardist, curr_state_chardist)
     end
 end
 
@@ -197,10 +197,10 @@ function push_cosines_projs!(
     )
     # store cosine between last two iterate updates
     if ws.k[] >= 1
-        xy_prev_updates_cos = abs(dot(record.curr_xy_update, record.prev_xy_update) / (norm(record.curr_xy_update) * norm(record.prev_xy_update)))
-        push!(record.xy_update_cosines, xy_prev_updates_cos)
+        state_prev_updates_cos = abs(dot(record.curr_state_update, record.prev_state_update) / (norm(record.curr_state_update) * norm(record.prev_state_update)))
+        push!(record.state_update_cosines, state_prev_updates_cos)
     end
-    record.prev_xy_update .= record.curr_xy_update
+    record.prev_state_update .= record.curr_state_update
 
     # store active set flags
     push!(record.record_proj_flags, ws.proj_flags)

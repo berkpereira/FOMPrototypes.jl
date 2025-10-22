@@ -1,20 +1,20 @@
 # acceleration functions shared to both Anderson and Krylov interfaces
 
 """
-Compute FOM(xy) into `fom_out` and set `fp_out .= fom_out - xy`.
+Compute FOM(state) into `fom_out` and set `fp_out .= fom_out - state`.
 Both `fom_out` and `fp_out` must be preallocated vectors of length m+n.
 This centralises the small sequence of operations and the associated scratch usage.
 """
 function compute_fom_and_fp!(
     ws::AbstractWorkspace,
-    xy_in::AbstractVector{Float64},
+    state_in::AbstractVector{Float64},
     fom_out::AbstractVector{Float64},
     fp_out::AbstractVector{Float64},
     )
-    # compute FOM(xy_in) into fom_out (in-place)
-    onecol_method_operator!(ws, xy_in, fom_out)
-    # fp_out := FOM(xy_in) - xy_in
-    fp_out .= fom_out .- xy_in
+    # compute FOM(state_in) into fom_out (in-place)
+    onecol_method_operator!(ws, state_in, fom_out)
+    # fp_out := FOM(state_in) - state_in
+    fp_out .= fom_out .- state_in
     return nothing
 end
 
@@ -23,7 +23,7 @@ Compute fixed-point metric for fp_res (length m+n) according to ws.safeguard_nor
 
 Inputs:
 - ws: workspace (provides ws.p, ws.ρ, ws.variant, ws.A_gram, etc)
-- fp_res: fixed-point residual vector (fom - xy) of length m+n
+- fp_res: fixed-point residual vector (fom - state) of length m+n
 - temp_n_vec1, temp_n_vec2: scratch vectors length n
 - temp_m_vec: scratch vector length m
 
@@ -73,22 +73,22 @@ Refactored to call helper routines that encapsulate FOM and fixed-point metric c
 function accel_fp_safeguard!(
     ws::Union{KrylovWorkspace, AndersonWorkspace},
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    current_xy::AbstractVector{Float64},
-    accelerated_xy::AbstractVector{Float64},
+    current_state::AbstractVector{Float64},
+    accelerated_state::AbstractVector{Float64},
     safeguard_factor::Float64,
     record::AbstractRecord,
     full_diagnostics::Bool = false,
     )
     # Unguarded (fast) path
     if ws.safeguard_norm == :none
-        onecol_method_operator!(ws, accelerated_xy, ws.scratch.xy_recycled)
+        onecol_method_operator!(ws, accelerated_state, ws.scratch.state_recycled)
         return true
     end
 
-    # compute FOM(current_xy) in ws.scratch.xy_lookahead and fp_res_current in ws.scratch.fp_res
-    compute_fom_and_fp!(ws, current_xy, ws.scratch.xy_lookahead, ws.scratch.fp_res)
-    # preserve the vanilla FOM iterate into ws.scratch.xy_recycled for now
-    ws.scratch.xy_recycled .= ws.scratch.xy_lookahead
+    # compute FOM(current_state) in ws.scratch.state_lookahead and fp_res_current in ws.scratch.fp_res
+    compute_fom_and_fp!(ws, current_state, ws.scratch.state_lookahead, ws.scratch.fp_res)
+    # preserve the vanilla FOM iterate into ws.scratch.state_recycled for now
+    ws.scratch.state_recycled .= ws.scratch.state_lookahead
 
     # compute fp metric for the vanilla iterate
     fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.fp_res)
@@ -105,9 +105,9 @@ function accel_fp_safeguard!(
                 println("✅ true fixed-point at this affine operator! pinv sol residual: ",  pinv_residual)
             end
             println("Norm of pinv solution: ", norm(pinv_sol))
-            println("Norm of accelerated_xy: ", norm(accelerated_xy))
+            println("Norm of accelerated_state: ", norm(accelerated_state))
 
-            error_to_est = pinv_sol - accelerated_xy
+            error_to_est = pinv_sol - accelerated_state
             rel_err = norm(error_to_est) / norm(pinv_sol)
             if rel_err < 1e-2
                 println("✅ good Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
@@ -160,8 +160,8 @@ function accel_fp_safeguard!(
         end
     end
 
-    # compute FOM(accelerated_xy) into ws.scratch.xy_lookahead and fp_res_acc in ws.scratch.fp_res
-    compute_fom_and_fp!(ws, accelerated_xy, ws.scratch.xy_lookahead, ws.scratch.fp_res)
+    # compute FOM(accelerated_state) into ws.scratch.state_lookahead and fp_res_acc in ws.scratch.fp_res
+    compute_fom_and_fp!(ws, accelerated_state, ws.scratch.state_lookahead, ws.scratch.fp_res)
 
     # compute fp metric for accelerated iterate
     fp_metric_acc = compute_fp_metric!(ws, ws.scratch.fp_res)
@@ -176,13 +176,13 @@ function accel_fp_safeguard!(
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
 
-    # finalize ws.scratch.xy_recycled
+    # finalize ws.scratch.state_recycled
     if acceleration_success
-        ws.scratch.xy_recycled .= ws.scratch.xy_lookahead    # ws.scratch.xy_lookahead == FOM(accelerated_xy)
+        ws.scratch.state_recycled .= ws.scratch.state_lookahead    # ws.scratch.state_lookahead == FOM(accelerated_state)
     end
 
     # note this flag serves to indicate that we should recycle
-    # ws.scratch.xy_recycled at the next iteration
+    # ws.scratch.state_recycled at the next iteration
     # (NOT set to true when safeguard is off)
     ws.control_flags.recycle_next = true
 

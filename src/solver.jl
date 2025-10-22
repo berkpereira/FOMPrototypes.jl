@@ -14,23 +14,23 @@ const HISTORY_KEYS = [
     :record_proj_flags,
     :x_dist_to_sol,
     :y_dist_to_sol,
-    :xy_chardist,
+    :state_chardist,
     :update_mat_iters,
     :update_mat_ranks,
     :update_mat_singval_ratios,
     :acc_step_iters,
     :linesearch_iters,
-    :xy_step_norms,
-    :xy_step_char_norms,
-    :xy_update_cosines,
+    :state_step_norms,
+    :state_step_char_norms,
+    :state_update_cosines,
 
     :fp_metric_ratios,
     :acc_attempt_iters,
 ]
 
 """
-Efficiently computes FOM iteration at point xy_in, and stores it in xy_out.
-Vector xy_in is left unchanged.
+Efficiently computes FOM iteration at point state_in, and stores it in state_out.
+Vector state_in is left unchanged.
 
 Set update_res_flags to true iff the method is being used for a bona fide
 vanilla FOM iteration, where the active set flags and working residual metrics
@@ -45,17 +45,17 @@ This is convenient whenever we need the method's operator but without
 updating an Arnoldi vector, eg when solving the upper Hessenber linear least
 squares problem following from the Krylov acceleration subproblem.
 
-Note that xy_in is the "current" iterate as a single vector in R^{n+m}.
-New iterate is written (in-place) into xy_out input vector.
+Note that state_in is the "current" iterate as a single vector in R^{n+m}.
+New iterate is written (in-place) into state_out input vector.
 """
 function onecol_method_operator!(
     ws::AbstractWorkspace,
-    xy_in::AbstractVector{Float64},
-    xy_out::AbstractVector{Float64},
+    state_in::AbstractVector{Float64},
+    state_out::AbstractVector{Float64},
     update_res_flags::Bool = false
     )
 
-    @views mul!(ws.scratch.temp_m_vec, ws.p.A, xy_in[1:ws.p.n]) # compute A * x
+    @views mul!(ws.scratch.temp_m_vec, ws.p.A, state_in[1:ws.p.n]) # compute A * x
 
     if update_res_flags
         @views Ax_norm = norm(ws.scratch.temp_m_vec, Inf)
@@ -74,7 +74,7 @@ function onecol_method_operator!(
     end
 
     ws.scratch.temp_m_vec .*= ws.ρ
-    @views ws.scratch.temp_m_vec .+= xy_in[ws.p.n+1:end] # add current
+    @views ws.scratch.temp_m_vec .+= state_in[ws.p.n+1:end] # add current
     if update_res_flags
         @views ws.vars.preproj_y .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
     end
@@ -87,14 +87,14 @@ function onecol_method_operator!(
     end
 
     # now we go to "bulk of" x and q_n update
-    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, xy_in[1:ws.p.n]) # compute P * x
+    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, state_in[1:ws.p.n]) # compute P * x
 
     if update_res_flags
         Px_norm = norm(ws.scratch.temp_n_vec1, Inf)
 
-        @views xTPx = dot(xy_in[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
-        @views cTx  = dot(ws.p.c, xy_in[1:ws.p.n]) # c^T x
-        @views bTy  = dot(ws.p.b, xy_in[ws.p.n+1:end]) # b^T y
+        @views xTPx = dot(state_in[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
+        @views cTx  = dot(ws.p.c, state_in[1:ws.p.n]) # c^T x
+        @views bTy  = dot(ws.p.b, state_in[ws.p.n+1:end]) # b^T y
 
         # can now update gap and objective metrics
         ws.res.gap_abs = abs(xTPx + cTx + bTy) # primal-dual gap
@@ -108,7 +108,7 @@ function onecol_method_operator!(
     # TODO reduce allocations in this mul! call: pass another temp vector?
     # consider dedicated scratch storage for y_bar, akin to what
     # we do in twocol_method_operator!
-    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * xy_in[ws.p.n+1:end]) # compute A' * y_bar
+    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.θ) * ws.scratch.temp_m_vec - ws.θ * state_in[ws.p.n+1:end]) # compute A' * y_bar
 
     if update_res_flags
         ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
@@ -132,8 +132,8 @@ function onecol_method_operator!(
     apply_inv!(ws.W_inv, ws.scratch.temp_n_vec1)
 
     # assign new iterates
-    @views xy_out[1:ws.p.n] .= xy_in[1:ws.p.n] - ws.scratch.temp_n_vec1
-    xy_out[ws.p.n+1:end] .= ws.scratch.temp_m_vec
+    @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.temp_n_vec1
+    state_out[ws.p.n+1:end] .= ws.scratch.temp_m_vec
     
     return nothing
 end
@@ -205,12 +205,12 @@ function preallocate_record(ws::AbstractWorkspace, run_fast::Bool,
             acc_step_iters = Int[],
             acc_attempt_iters = Int[],
             linesearch_iters = Int[],
-            xy_step_norms = Float64[],
-            xy_step_char_norms = Float64[], # record method's "char norm" of the updates
-            xy_update_cosines = Float64[],
+            state_step_norms = Float64[],
+            state_step_char_norms = Float64[], # record method's "char norm" of the updates
+            state_update_cosines = Float64[],
             x_dist_to_sol = !isnothing(x_sol) ? Float64[] : nothing,
             y_dist_to_sol = !isnothing(x_sol) ? Float64[] : nothing,
-            xy_chardist = !isnothing(x_sol) ? Float64[] : nothing,
+            state_chardist = !isnothing(x_sol) ? Float64[] : nothing,
             current_update_mat_col = Ref(1),
             updates_matrix = zeros(ws.p.n + ws.p.m, 20),
 
@@ -300,12 +300,12 @@ function optimise!(
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
-        @views view_x = ws.vars.xy_q[1:ws.p.n, 1]
-        @views view_y = ws.vars.xy_q[ws.p.n+1:end, 1]
-        @views view_q = ws.vars.xy_q[:, 2]
+        @views view_x = ws.vars.state_q[1:ws.p.n, 1]
+        @views view_y = ws.vars.state_q[ws.p.n+1:end, 1]
+        @views view_q = ws.vars.state_q[:, 2]
     elseif ws.vars isa VanillaVariables || ws.vars isa AndersonVariables
-        @views view_x = ws.vars.xy[1:ws.p.n]
-        @views view_y = ws.vars.xy[ws.p.n+1:end]
+        @views view_x = ws.vars.state[1:ws.p.n]
+        @views view_y = ws.vars.state[ws.p.n+1:end]
     else
         error("Unknown variable type in workspace.")
     end

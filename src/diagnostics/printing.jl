@@ -5,7 +5,7 @@ using Printf
 function print_results(
     ws::AbstractWorkspace,
     print_modulo::Real;
-    curr_xy_dist::Union{Float64, Nothing} = nothing,
+    curr_state_dist::Union{Float64, Nothing} = nothing,
     obj_sol::Union{Float64, Nothing} = nothing,
     x_sol::Union{Vector{Float64}, Nothing} = nothing,
     y_sol::Union{Vector{Float64}, Nothing} = nothing,
@@ -63,8 +63,8 @@ function print_results(
     end
 
     # (x, y) distance to solution
-    if !isnothing(curr_xy_dist) && curr_xy_dist !== NaN
-        print_output *= @sprintf(" | (x, y) dist: %12.5e", curr_xy_dist)
+    if !isnothing(curr_state_dist) && curr_state_dist !== NaN
+        print_output *= @sprintf(" | (x, y) dist: %12.5e", curr_state_dist)
     end
 
     # Print the final output

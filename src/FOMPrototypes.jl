@@ -477,15 +477,15 @@ function plot_results(
 
     if length(results.metrics_history[:x_dist_to_sol]) != 0
         # (x, y) distance to solution plot.
-        xy_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
-        xy_dist_plot = plot(0:k_final, xy_dist_to_sol, linewidth=LINEWIDTH,
+        state_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
+        state_dist_plot = plot(0:k_final, state_dist_to_sol, linewidth=LINEWIDTH,
             label="Prototype (x, y) Distance", xlabel="Iteration", ylabel="Distance to Solution",
             title="$title_common (x, y) Distance to Solution", yaxis=:log)
-        add_vlines!(xy_dist_plot)
-        display(xy_dist_plot)
+        add_vlines!(state_dist_plot)
+        display(state_dist_plot)
 
         # (x, y) characteristic norm distance to solution plot.
-        seminorm_plot = plot(0:k_final, results.metrics_history[:xy_chardist], linewidth=LINEWIDTH,
+        seminorm_plot = plot(0:k_final, results.metrics_history[:state_chardist], linewidth=LINEWIDTH,
         label="(x, y) Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
         title="$title_common (x, y) Characteristic Norm Distance to Solution", yaxis=:log)
         add_vlines!(seminorm_plot)
@@ -493,18 +493,18 @@ function plot_results(
     end
 
     # (x, y) step norms plot.
-    xy_step_norms_plot = plot(0:k_final-1, results.metrics_history[:xy_step_norms], linewidth=LINEWIDTH,
+    state_step_norms_plot = plot(0:k_final-1, results.metrics_history[:state_step_norms], linewidth=LINEWIDTH,
         label="(x, y) Step l2 Norm", xlabel="Iteration", ylabel="Step Norm",
         title="$title_common (x, y) l2 Step Norm", yaxis=:log)
-    add_vlines!(xy_step_norms_plot)
-    display(xy_step_norms_plot)
+    add_vlines!(state_step_norms_plot)
+    display(state_step_norms_plot)
 
     # (x, y) step CHAR norms plot.
-    xy_step_char_norms_plot = plot(0:k_final-1, results.metrics_history[:xy_step_char_norms], linewidth=LINEWIDTH,
+    state_step_char_norms_plot = plot(0:k_final-1, results.metrics_history[:state_step_char_norms], linewidth=LINEWIDTH,
         label="(x, y) Step Char Norm", xlabel="Iteration", ylabel="Step CHAR Norm",
         title="$title_common (x, y) CHAR Step Norm", yaxis=:log)
-    add_vlines!(xy_step_char_norms_plot)
-    display(xy_step_char_norms_plot)
+    add_vlines!(state_step_char_norms_plot)
+    display(state_step_char_norms_plot)
 
     # # Singular values ratio plot.
     # sing_vals_ratio_plot = plot(results.metrics_history[:update_mat_iters], results.metrics_history[:update_mat_singval_ratios], linewidth=LINEWIDTH,
@@ -523,11 +523,11 @@ function plot_results(
     # display(update_ranks_plot)
 
     # Consecutive update (x, y) cosines plot.
-    xy_update_cosines_plot = plot(1:k_final-1, results.metrics_history[:xy_update_cosines], linewidth=LINEWIDTH,
+    state_update_cosines_plot = plot(1:k_final-1, results.metrics_history[:state_update_cosines], linewidth=LINEWIDTH,
         label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates",
         title="$title_common Consecutive (x, y) Update Cosines")
-    add_vlines!(xy_update_cosines_plot)
-    display(xy_update_cosines_plot)
+    add_vlines!(state_update_cosines_plot)
+    display(state_update_cosines_plot)
 
     # Projection flags plot (often intensive)
     # enforced_constraints_plot(results.metrics_history[:record_proj_flags])
