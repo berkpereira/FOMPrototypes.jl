@@ -46,3 +46,21 @@ struct ADMM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
         new{T, I}(rho)
     end
 end
+
+# We now define some types to make the inversion of preconditioner + Hessian
+# matrices, required for the x update, abstract. Thus we can use diagonal ones
+# (as we intend in production) or non-diagonal symmetric ones for comparing
+# with other methods (eg ADMM or vanilla PDHG).
+
+# Concrete type for a diagonal inverse operator
+struct DiagInvOp{T} <: AbstractInvOp
+    inv_diag::AbstractVector{T}
+end
+
+# Concrete type for a symmetric matrix's Cholesky-based inverse operator
+struct CholeskyInvOp{T, I} <: AbstractInvOp
+    F::SparseArrays.CHOLMOD.Factor{T, I}  # Store the Cholesky factorization
+    Lsp::SparseMatrixCSC{T, I} # Store the lower triangular factor
+    perm::Vector{I}
+    inv_perm::Vector{I}
+end
