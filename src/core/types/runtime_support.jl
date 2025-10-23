@@ -21,43 +21,73 @@ AndersonControlFlags() = AndersonControlFlags(false, false)
 
 
 # Types for scratch areas/working vectors to avoid heap allocations
-abstract type AbstractWorkspaceScratch{T} end
 
-struct VanillaScratch{T} <: AbstractWorkspaceScratch{T}
+struct BaseScratch{T <: AbstractFloat}
     temp_n_vec1::Vector{T}
     temp_n_vec2::Vector{T}
     temp_m_vec::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
-    
-    # when using onecol_method_operator!
+
+    function BaseScratch{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new(
+            zeros(T, p.n),
+            zeros(T, p.n),
+            zeros(T, p.m),
+            zeros(T, p.m + p.n),
+            zeros(T, p.m + p.n),
+        )
+    end
+end
+
+abstract type AbstractMethodScratchVecs{T <: AbstractFloat} end
+abstract type AbstractMethodScratchMats{T <: AbstractFloat} end
+
+struct PrePPMScratchVecs{T} <: AbstractMethodScratchVecs{T}
+    y_bar::Vector{T} # Extrapolated dual variable
+
+    function PrePPMScratchVecs{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new(zeros(T, p.m))
+    end
+end
+
+struct PrePPMScratchMats{T} <: AbstractMethodScratchMats{T}
+    y_qm_bar::Matrix{T} # Extrapolated dual variable for Krylov basis building
+
+    function PrePPMScratchMats{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new(zeros(T, p.m, 2))
+    end
+end
+
+struct ADMMScratchVecs{T} <: AbstractMethodScratchVecs{T}
+    # ADMM-specific scratch vectors to go here
+
+    # placeholder constructor
+    function ADMMScratchVecs{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new()
+    end
+end
+
+struct ADMMScratchMats{T} <: AbstractMethodScratchMats{T}
+    # ADMM-specific scratch matrices to go here
+
+    # placeholder constructor
+    function ADMMScratchMats{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new()
+    end
+end
+
+abstract type ScratchExtra{T <: AbstractFloat} end
+
+struct VanillaScratchExtra{T} <: ScratchExtra{T}
     swap_vec::Vector{T}
 
-    y_bar::Vector{T} # Extrapolated dual variable
+    function VanillaScratchExtra{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        new(zeros(T, p.m + p.n))
+    end
 end
 
-function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
-    m, n = p.m, p.n
-    VanillaScratch{T}(
-        zeros(T, n),
-        zeros(T, n),
-        zeros(T, m),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m),
-    )
-end
-
-VanillaScratch(p::ProblemData) = VanillaScratch{DefaultFloat}(p)
-
-struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
-    temp_n_vec1::Vector{T}
-    temp_n_vec2::Vector{T}
-    temp_m_vec::Vector{T}
-    temp_mn_vec1::Vector{T}
-    temp_mn_vec2::Vector{T}
-
+struct AndersonScratchExtra{T} <: ScratchExtra{T}
     # when using onecol_method_operator!
     swap_vec::Vector{T}
 
@@ -72,37 +102,20 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
     # to check success after potentially being overwritten
     state_pre_overwrite::Vector{T}
 
-    y_bar::Vector{T} # Extrapolated dual variable
+    function AndersonScratchExtra{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        len = p.m + p.n
+        new{T}(
+            zeros(T, len),
+            zeros(T, len),
+            zeros(T, len),
+            zeros(T, len),
+            zeros(T, len),
+            zeros(T, len),
+        )
+    end
 end
 
-function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
-    m, n = p.m, p.n
-    AndersonScratch{T}(
-        zeros(T, n),
-        zeros(T, n),
-        zeros(T, m),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-
-        zeros(T, m),
-    )
-end
-
-AndersonScratch(p::ProblemData) = AndersonScratch{DefaultFloat}(p)
-
-struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
-    temp_n_vec1::Vector{T}
-    temp_n_vec2::Vector{T}
-    temp_m_vec::Vector{T}
-    temp_mn_vec1::Vector{T}
-    temp_mn_vec2::Vector{T}
-
+struct KrylovScratchExtra{T} <: ScratchExtra{T}
     temp_n_mat1::Matrix{T}
     temp_n_mat2::Matrix{T}
     temp_m_mat::Matrix{T}
@@ -120,35 +133,44 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     state_recycled::Vector{T}
     state_lookahead::Vector{T}
     fp_res::Vector{T}
-   
-    y_bar::Vector{T} # Extrapolated dual variable, for use in onecol operator
-    y_qm_bar::Matrix{T} # Extrapolated dual variable
+
+    function KrylovScratchExtra{T}(p::ProblemData{T}) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        new{T}(
+            zeros(T, n, 2),
+            zeros(T, n, 2),
+            zeros(T, m, 2),
+            zeros(Complex{T}, n),
+            zeros(Complex{T}, n),
+            zeros(Complex{T}, m),
+            zeros(T, m + n),
+            zeros(T, m + n),
+            zeros(T, m + n),
+            zeros(T, m + n),
+            zeros(T, m + n),
+        )
+    end
 end
 
-function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
-    m, n = p.m, p.n
-    KrylovScratch{T}(
-        zeros(T, n),
-        zeros(T, n),
-        zeros(T, m),
-        zeros(T, m + n),
-        zeros(T, m + n),
 
-        zeros(T, n, 2),
-        zeros(T, n, 2),
-        zeros(T, m, 2),
-        zeros(Complex{T}, n),
-        zeros(Complex{T}, n),
-        zeros(Complex{T}, m),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
-        zeros(T, m + n),
+# Composite types which fit all scratch components together
+abstract type AbstractWorkspaceScratch{T <: AbstractFloat} end
 
-        zeros(T, m),
-        zeros(T, m, 2)
-    )
+struct VanillaScratch{T} <: AbstractWorkspaceScratch{T}
+    base::BaseScratch{T}
+    method::AbstractMethodScratchVecs{T}
+    extra::VanillaScratchExtra{T}
 end
 
-KrylovScratch(p::ProblemData) = KrylovScratch{DefaultFloat}(p)
+struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
+    base::BaseScratch{T}
+    method::AbstractMethodScratchVecs{T}
+    extra::AndersonScratchExtra{T}
+end
+
+struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
+    base::BaseScratch{T}
+    method::AbstractMethodScratchVecs{T}
+    method_mats::AbstractMethodScratchMats{T}
+    extra::KrylovScratchExtra{T}
+end

@@ -55,17 +55,17 @@ function onecol_method_operator!(
     update_res_flags::Bool = false
     ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
 
-    @views mul!(ws.scratch.temp_m_vec, ws.p.A, state_in[1:ws.p.n]) # compute A * x
+    @views mul!(ws.scratch.base.temp_m_vec, ws.p.A, state_in[1:ws.p.n]) # compute A * x
 
     if update_res_flags
-        @views Ax_norm = norm(ws.scratch.temp_m_vec, Inf)
+        @views Ax_norm = norm(ws.scratch.base.temp_m_vec, Inf)
     end
 
-    ws.scratch.temp_m_vec .-= ws.p.b # subtract b from A * x
+    ws.scratch.base.temp_m_vec .-= ws.p.b # subtract b from A * x
 
     # if updating primal residual
     if update_res_flags
-        @views ws.res.r_primal .= ws.scratch.temp_m_vec # assign A * x - b
+        @views ws.res.r_primal .= ws.scratch.base.temp_m_vec # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
         # at this point the primal residual is updated
@@ -73,26 +73,26 @@ function onecol_method_operator!(
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    ws.scratch.temp_m_vec .*= ws.method.ρ
-    @views ws.scratch.temp_m_vec .+= state_in[ws.p.n+1:end] # add current
+    ws.scratch.base.temp_m_vec .*= ws.method.ρ
+    @views ws.scratch.base.temp_m_vec .+= state_in[ws.p.n+1:end] # add current
     if update_res_flags
-        @views ws.vars.preproj_vec .= ws.scratch.temp_m_vec # this is what's fed into dual cone projection operator
+        @views ws.vars.preproj_vec .= ws.scratch.base.temp_m_vec # this is what's fed into dual cone projection operator
     end
-    @views project_to_dual_K!(ws.scratch.temp_m_vec, ws.p.K) # ws.scratch.temp_m_vec now stores y_{k+1}
+    @views project_to_dual_K!(ws.scratch.base.temp_m_vec, ws.p.K) # ws.scratch.base.temp_m_vec now stores y_{k+1}
 
     if update_res_flags
         # update in-place flags switching affine dynamics based on projection action
         # ws.proj_flags = D_k in Goodnotes handwritten notes
-        update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.temp_m_vec)
+        update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.base.temp_m_vec)
     end
 
     # now we go to "bulk of" x and q_n update
-    @views mul!(ws.scratch.temp_n_vec1, ws.p.P, state_in[1:ws.p.n]) # compute P * x
+    @views mul!(ws.scratch.base.temp_n_vec1, ws.p.P, state_in[1:ws.p.n]) # compute P * x
 
     if update_res_flags
-        Px_norm = norm(ws.scratch.temp_n_vec1, Inf)
+        Px_norm = norm(ws.scratch.base.temp_n_vec1, Inf)
 
-        @views xTPx = dot(state_in[1:ws.p.n], ws.scratch.temp_n_vec1) # x^T P x
+        @views xTPx = dot(state_in[1:ws.p.n], ws.scratch.base.temp_n_vec1) # x^T P x
         @views cTx  = dot(ws.p.c, state_in[1:ws.p.n]) # c^T x
         @views bTy  = dot(ws.p.b, state_in[ws.p.n+1:end]) # b^T y
 
@@ -103,30 +103,30 @@ function onecol_method_operator!(
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
 
-    ws.scratch.temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
+    ws.scratch.base.temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
 
     # compute y_bar. WARNING specialised to ws.method.θ == 1.0 case
-    ws.scratch.y_bar .= ws.scratch.temp_m_vec
-    # ws.scratch.y_bar .*= (1 + ws.method.θ)
-    ws.scratch.y_bar .*= 2.0
-    # @views ws.scratch.y_bar .-= ws.method.θ * state_in[ws.p.n+1:end]
-    @views ws.scratch.y_bar .-= state_in[ws.p.n+1:end]
+    ws.scratch.method.y_bar .= ws.scratch.base.temp_m_vec
+    # ws.scratch.method.y_bar .*= (1 + ws.method.θ)
+    ws.scratch.method.y_bar .*= 2.0
+    # @views ws.scratch.method.y_bar .-= ws.method.θ * state_in[ws.p.n+1:end]
+    @views ws.scratch.method.y_bar .-= state_in[ws.p.n+1:end]
 
     # compute A' * y_bar, into temp_n_vec2
-    mul!(ws.scratch.temp_n_vec2, ws.p.A', ws.scratch.y_bar)
+    mul!(ws.scratch.base.temp_n_vec2, ws.p.A', ws.scratch.method.y_bar)
 
     # compute A' * y_bar norm
     if update_res_flags
-        ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
+        ATybar_norm = norm(ws.scratch.base.temp_n_vec2, Inf)
     end
 
     # compute P x + A' * y_bar
-    ws.scratch.temp_n_vec1 .+= ws.scratch.temp_n_vec2 # this is to be pre-multiplied by W^{-1}
+    ws.scratch.base.temp_n_vec1 .+= ws.scratch.base.temp_n_vec2 # this is to be pre-multiplied by W^{-1}
 
     # if updating dual residual
     # NOTE use of y_bar in this residual computation, not y
     if update_res_flags
-        @views ws.res.r_dual .= ws.scratch.temp_n_vec1 # assign P * x + A' * y_bar + c
+        @views ws.res.r_dual .= ws.scratch.base.temp_n_vec1 # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
 
@@ -135,12 +135,12 @@ function onecol_method_operator!(
         ws.res.rd_rel = ws.res.rd_abs / (1 + max(Px_norm, ATybar_norm, ws.p.c_norm_inf)) # update relative dual residual metric
     end
     
-    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to ws.scratch.temp_n_vec1
-    apply_inv!(ws.method.W_inv, ws.scratch.temp_n_vec1)
+    # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to ws.scratch.base.temp_n_vec1
+    apply_inv!(ws.method.W_inv, ws.scratch.base.temp_n_vec1)
 
     # assign new iterates
-    @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.temp_n_vec1
-    state_out[ws.p.n+1:end] .= ws.scratch.temp_m_vec
+    @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.base.temp_n_vec1
+    state_out[ws.p.n+1:end] .= ws.scratch.base.temp_m_vec
     
     return nothing
 end

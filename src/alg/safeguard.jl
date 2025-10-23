@@ -47,18 +47,18 @@ function compute_fp_metric!(
     if ws.safeguard_norm == :euclid
         return norm(fp_res)
     elseif ws.safeguard_norm == :char
-        # ws.scratch.temp_n_vec1 will hold M1 * fp_x
-        @views M1_op!(fp_res[1:n], ws.scratch.temp_n_vec1, ws, ws.method.variant, ws.A_gram, ws.scratch.temp_n_vec2)
+        # ws.scratch.base.temp_n_vec1 will hold M1 * fp_x
+        @views M1_op!(fp_res[1:n], ws.scratch.base.temp_n_vec1, ws, ws.method.variant, ws.A_gram, ws.scratch.base.temp_n_vec2)
 
         # <M1 * fp_x, fp_x>
-        @views metric_sq = dot(ws.scratch.temp_n_vec1, fp_res[1:n])
+        @views metric_sq = dot(ws.scratch.base.temp_n_vec1, fp_res[1:n])
 
         # + <M2 * fp_y, fp_y> where M2 = (1/ρ) I  (so becomes ||fp_y||^2 / ρ)
         @views metric_sq += norm(fp_res[n+1:end])^2 / ws.method.ρ
 
         # + 2 <A * fp_x, fp_y>
-        @views mul!(ws.scratch.temp_m_vec, ws.p.A, fp_res[1:n])    # ws.scratch.temp_m_vec := A * fp_x
-        @views metric_sq += 2 * dot(ws.scratch.temp_m_vec, fp_res[n+1:end])
+        @views mul!(ws.scratch.base.temp_m_vec, ws.p.A, fp_res[1:n])    # ws.scratch.base.temp_m_vec := A * fp_x
+        @views metric_sq += 2 * dot(ws.scratch.base.temp_m_vec, fp_res[n+1:end])
 
         return sqrt(metric_sq)
     else
@@ -81,17 +81,17 @@ function accel_fp_safeguard!(
     )
     # Unguarded (fast) path
     if ws.safeguard_norm == :none
-        onecol_method_operator!(ws, accelerated_state, ws.scratch.state_recycled)
+        onecol_method_operator!(ws, accelerated_state, ws.scratch.extra.state_recycled)
         return true
     end
 
-    # compute FOM(current_state) in ws.scratch.state_lookahead and fp_res_current in ws.scratch.fp_res
-    compute_fom_and_fp!(ws, current_state, ws.scratch.state_lookahead, ws.scratch.fp_res)
-    # preserve the vanilla FOM iterate into ws.scratch.state_recycled for now
-    ws.scratch.state_recycled .= ws.scratch.state_lookahead
+    # compute FOM(current_state) in ws.scratch.extra.state_lookahead and fp_res_current in ws.scratch.extra.fp_res
+    compute_fom_and_fp!(ws, current_state, ws.scratch.extra.state_lookahead, ws.scratch.extra.fp_res)
+    # preserve the vanilla FOM iterate into ws.scratch.extra.state_recycled for now
+    ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead
 
     # compute fp metric for the vanilla iterate
-    fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.fp_res)
+    fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.extra.fp_res)
 
     # optional diagnostics based on tilde_A
     if !isnothing(ws_diag)
@@ -122,7 +122,7 @@ function accel_fp_safeguard!(
             onecol_method_operator!(ws, true_lookahead, pinv_sol)
 
             # swap: after this, true_lookahead stores T(pinv_sol)
-            custom_swap!(true_lookahead, pinv_sol, ws.scratch.temp_mn_vec1)
+            custom_swap!(true_lookahead, pinv_sol, ws.scratch.base.temp_mn_vec1)
             
             true_lookahead_step = true_lookahead - pinv_sol
             if ws.safeguard_norm == :euclid
@@ -160,11 +160,11 @@ function accel_fp_safeguard!(
         end
     end
 
-    # compute FOM(accelerated_state) into ws.scratch.state_lookahead and fp_res_acc in ws.scratch.fp_res
-    compute_fom_and_fp!(ws, accelerated_state, ws.scratch.state_lookahead, ws.scratch.fp_res)
+    # compute FOM(accelerated_state) into ws.scratch.extra.state_lookahead and fp_res_acc in ws.scratch.extra.fp_res
+    compute_fom_and_fp!(ws, accelerated_state, ws.scratch.extra.state_lookahead, ws.scratch.extra.fp_res)
 
     # compute fp metric for accelerated iterate
-    fp_metric_acc = compute_fp_metric!(ws, ws.scratch.fp_res)
+    fp_metric_acc = compute_fp_metric!(ws, ws.scratch.extra.fp_res)
 
     # ratio and record keeping
     metric_ratio = fp_metric_acc / fp_metric_vanilla
@@ -176,13 +176,13 @@ function accel_fp_safeguard!(
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
 
-    # finalize ws.scratch.state_recycled
+    # finalize ws.scratch.extra.state_recycled
     if acceleration_success
-        ws.scratch.state_recycled .= ws.scratch.state_lookahead    # ws.scratch.state_lookahead == FOM(accelerated_state)
+        ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead    # ws.scratch.extra.state_lookahead == FOM(accelerated_state)
     end
 
     # note this flag serves to indicate that we should recycle
-    # ws.scratch.state_recycled at the next iteration
+    # ws.scratch.extra.state_recycled at the next iteration
     # (NOT set to true when safeguard is off)
     ws.control_flags.recycle_next = true
 

@@ -80,7 +80,7 @@ function push_update_to_record!(
     # numerical blowup in the COSMOAccelerators.accelerate!
     # internals
     if ws.accelerator.success && ws.control_flags.accepted_accel
-        record.curr_state_update .= ws.vars.state - ws.scratch.state_pre_overwrite
+        record.curr_state_update .= ws.vars.state - ws.scratch.extra.state_pre_overwrite
         push!(record.acc_step_iters, ws.k[])
         record.updates_matrix .= 0.0
         record.current_update_mat_col[] = 1
@@ -109,7 +109,7 @@ function push_update_to_record!(
     end
 
     if ws.control_flags.accepted_accel
-        @views record.curr_state_update .= ws.scratch.accelerated_point - ws.vars.state_q[:, 1]
+        @views record.curr_state_update .= ws.scratch.extra.accelerated_point - ws.vars.state_q[:, 1]
         push!(record.acc_step_iters, ws.k[])
         record.updates_matrix .= 0.0
         record.current_update_mat_col[] = 1
@@ -165,12 +165,12 @@ function push_ref_dist_to_record!(
     state_ref::Union{Nothing, Vector{Float64}},
     )
     if !isnothing(state_ref)
-        @views ws.scratch.temp_mn_vec1[1:ws.p.n] .= view_state[1:ws.p.n] - state_ref[1:ws.p.n]
-        @views ws.scratch.temp_mn_vec1[ws.p.n+1:end] .= view_state[ws.p.n+1:end] - (-state_ref[ws.p.n+1:end]) # negation due to often opposite sign out of reference solver
-        curr_state_chardist = record.char_norm_func(ws.scratch.temp_mn_vec1)
+        @views ws.scratch.base.temp_mn_vec1[1:ws.p.n] .= view_state[1:ws.p.n] - state_ref[1:ws.p.n]
+        @views ws.scratch.base.temp_mn_vec1[ws.p.n+1:end] .= view_state[ws.p.n+1:end] - (-state_ref[ws.p.n+1:end]) # negation due to often opposite sign out of reference solver
+        curr_state_chardist = record.char_norm_func(ws.scratch.base.temp_mn_vec1)
 
-        @views curr_x_dist = norm(ws.scratch.temp_mn_vec1[1:ws.p.n])
-        @views curr_y_dist = norm(ws.scratch.temp_mn_vec1[ws.p.n+1:end])
+        @views curr_x_dist = norm(ws.scratch.base.temp_mn_vec1[1:ws.p.n])
+        @views curr_y_dist = norm(ws.scratch.base.temp_mn_vec1[ws.p.n+1:end])
 
         push!(record.x_dist_to_sol, curr_x_dist)
         push!(record.y_dist_to_sol, curr_y_dist)

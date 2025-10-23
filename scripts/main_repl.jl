@@ -5,11 +5,11 @@ args = Dict(
     "ref-solver"   => :SCS,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
-    "problem-set"  => "maros",
-    "problem-name" => "AUG3DQP",
+    # "problem-set"  => "maros",
+    # "problem-name" => "AUG3DQP",
 
-    # "problem-set"  => "sslsq",
-    # "problem-name" => "HB_ash219_huber",
+    "problem-set"  => "sslsq",
+    "problem-name" => "HB_ash219_huber",
 
     # this can break when estimation of max_τ goes wrong (negative! even)
     # "problem-set"  => "mpc",
@@ -22,10 +22,10 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-9,
+    "rel-kkt-tol"  => 1e-3,
 
     "accel-memory" => 15,
-    "acceleration" => :anderson, # in {:none, :krylov, :anderson}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 
@@ -50,7 +50,7 @@ args = Dict(
     "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
-    "run-fast"           => false,
+    "run-fast"           => true,
     "global-timeout"     => Inf, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );

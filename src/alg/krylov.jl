@@ -232,17 +232,17 @@ function twocol_method_operator!(
     
     # working variable is ws.vars.state_q, with two columns
 
-    @views two_col_mul!(ws.scratch.temp_m_mat, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_m_vec_complex) # compute A * [x, q_n]
+    @views two_col_mul!(ws.scratch.extra.temp_m_mat, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_n]
 
     if update_res_flags
-        @views Ax_norm = norm(ws.scratch.temp_m_mat[:, 1], Inf)
+        @views Ax_norm = norm(ws.scratch.extra.temp_m_mat[:, 1], Inf)
     end
 
-    @views ws.scratch.temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
+    @views ws.scratch.extra.temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
 
     # if updating primal residual
     if update_res_flags
-        @views ws.res.r_primal .= ws.scratch.temp_m_mat[:, 1] # assign A * x - b
+        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat[:, 1] # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
         # at this point the primal residual vector is updated
@@ -252,43 +252,43 @@ function twocol_method_operator!(
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    ws.scratch.temp_m_mat .*= ws.method.ρ
-    @views ws.scratch.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
-    @views ws.vars.preproj_vec .= ws.scratch.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
-    @views project_to_dual_K!(ws.scratch.temp_m_mat[:, 1], ws.p.K) # ws.scratch.temp_m_mat[:, 1] now stores y_{k+1}
+    ws.scratch.extra.temp_m_mat .*= ws.method.ρ
+    @views ws.scratch.extra.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
+    @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
+    @views project_to_dual_K!(ws.scratch.extra.temp_m_mat[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat[:, 1] now stores y_{k+1}
 
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes handwritten notes
     if update_res_flags
-        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.temp_m_mat[:, 1])
+        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat[:, 1])
     end
 
     # can now compute the bit of q corresponding to the y iterate
-    @views ws.scratch.temp_m_mat[:, 2] .*= ws.proj_flags
+    @views ws.scratch.extra.temp_m_mat[:, 2] .*= ws.proj_flags
 
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line (only in general ws.method.θ != 1.0 cases)
-    ws.scratch.y_qm_bar .= ws.scratch.temp_m_mat
-    # ws.scratch.y_qm_bar .*= (1 + ws.method.θ)
-    ws.scratch.y_qm_bar .*= 2.0 # WARNING specialised to ws.method.θ == 1.0
-    # @views ws.scratch.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :] # WARNING specialised this to ws.method.θ == 1.0 (all we have anyway for now), see below:
-    @views ws.scratch.y_qm_bar .-= ws.vars.state_q[ws.p.n+1:end, :]
+    ws.scratch.method_mats.y_qm_bar .= ws.scratch.extra.temp_m_mat
+    # ws.scratch.method_mats.y_qm_bar .*= (1 + ws.method.θ)
+    ws.scratch.method_mats.y_qm_bar .*= 2.0 # WARNING specialised to ws.method.θ == 1.0
+    # @views ws.scratch.method_mats.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :] # WARNING specialised this to ws.method.θ == 1.0 (all we have anyway for now), see below:
+    @views ws.scratch.method_mats.y_qm_bar .-= ws.vars.state_q[ws.p.n+1:end, :]
 
     if ws.krylov_operator == :B # ie use B = A - I as krylov operator
-        @views ws.scratch.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
+        @views ws.scratch.extra.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
     end
-    # NOTE: ws.scratch.temp_m_mat[:, 2] now stores UPDATED q_m
+    # NOTE: ws.scratch.extra.temp_m_mat[:, 2] now stores UPDATED q_m
     
     # ASSIGN new y and q_m to ws variables
-    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.temp_m_mat
+    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.extra.temp_m_mat
 
     # now we go to "bulk of" x and q_n update
-    @views two_col_mul!(ws.scratch.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.temp_n_vec_complex1, ws.scratch.temp_n_vec_complex2) # compute P * [x, q_n]
+    @views two_col_mul!(ws.scratch.extra.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2) # compute P * [x, q_n]
 
     if update_res_flags
-        @views Px_norm = norm(ws.scratch.temp_n_mat1[:, 1], Inf)
+        @views Px_norm = norm(ws.scratch.extra.temp_n_mat1[:, 1], Inf)
 
-        @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.temp_n_mat1[:, 1]) # x^T P x
+        @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.extra.temp_n_mat1[:, 1]) # x^T P x
         @views cTx  = dot(ws.p.c, ws.vars.state_q[1:ws.p.n, 1]) # c^T x
         @views bTy  = dot(ws.p.b, ws.vars.state_q[ws.p.n+1:end, 1]) # b^T y
 
@@ -299,20 +299,20 @@ function twocol_method_operator!(
         ws.res.obj_dual = - 0.5xTPx - bTy
     end
 
-    @views ws.scratch.temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective, c, to P * x (but NOT to P * q_n)
+    @views ws.scratch.extra.temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective, c, to P * x (but NOT to P * q_n)
 
-    @views two_col_mul!(ws.scratch.temp_n_mat2, ws.p.A', ws.scratch.y_qm_bar, ws.scratch.temp_m_vec_complex, ws.scratch.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
+    @views two_col_mul!(ws.scratch.extra.temp_n_mat2, ws.p.A', ws.scratch.method_mats.y_qm_bar, ws.scratch.extra.temp_m_vec_complex, ws.scratch.extra.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
     if update_res_flags
-        @views ATybar_norm = norm(ws.scratch.temp_n_mat2[:, 1], Inf)
+        @views ATybar_norm = norm(ws.scratch.extra.temp_n_mat2[:, 1], Inf)
     end
 
     # now compute P x + A^T y_bar
-    ws.scratch.temp_n_mat1 .+= ws.scratch.temp_n_mat2 # this is what is pre-multiplied by W^{-1}
+    ws.scratch.extra.temp_n_mat1 .+= ws.scratch.extra.temp_n_mat2 # this is what is pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
     if update_res_flags
-        @views ws.res.r_dual .= ws.scratch.temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
+        @views ws.res.r_dual .= ws.scratch.extra.temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
 
@@ -325,20 +325,20 @@ function twocol_method_operator!(
     if ws.method.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
         # need a working complex vector for efficient Cholesky inversion
         # of two columns simultaneously
-        apply_inv!(ws.method.W_inv, ws.scratch.temp_n_mat1, ws.scratch.temp_n_vec_complex1)
+        apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1)
     else
         # diagonal inversion is simpler
-        apply_inv!(ws.method.W_inv, ws.scratch.temp_n_mat1)
+        apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1)
     end
 
     # ASSIGN new x and q_n: subtract off what we just computed, both columns
     if ws.krylov_operator == :tilde_A
         # @views ws.vars.state_q[1:ws.p.n, :] .-= temp_n_mat1 # seems to incur a lot of materialize! calls costs
-        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1]
-        @views ws.vars.state_q[1:ws.p.n, 2] .-= ws.scratch.temp_n_mat1[:, 2]
+        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.extra.temp_n_mat1[:, 1]
+        @views ws.vars.state_q[1:ws.p.n, 2] .-= ws.scratch.extra.temp_n_mat1[:, 2]
     else # ie use B = A - I as krylov operator
-        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1] # as above, FOM iterate column
-        @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.temp_n_mat1[:, 2] # simpler Arnoldi vector update in B case
+        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.extra.temp_n_mat1[:, 1] # as above, FOM iterate column
+        @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.extra.temp_n_mat1[:, 2] # simpler Arnoldi vector update in B case
     end
 
     return nothing
@@ -357,7 +357,7 @@ function krylov_step!(
     
     # acceleration attempt step
     if (ws.givens_count[] in ws.trigger_givens_counts && !ws.control_flags.back_to_building_krylov_basis) || ws.arnoldi_breakdown[]
-        @timeit timer "krylov sol" ws.control_flags.krylov_status = compute_krylov_accelerant!(ws, ws.scratch.accelerated_point)
+        @timeit timer "krylov sol" ws.control_flags.krylov_status = compute_krylov_accelerant!(ws, ws.scratch.extra.accelerated_point)
 
         ws.k_operator[] += 1 # one operator application in computing Krylov point (GMRES-equivalence, see Walker and Ni 2011)
 
@@ -380,7 +380,7 @@ function krylov_step!(
                 end
             end
 
-            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.extra.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
         else
@@ -394,7 +394,7 @@ function krylov_step!(
             push_update_to_record!(ws, record, false)
 
             # assign actually
-            ws.vars.state_q[:, 1] .= ws.scratch.accelerated_point
+            ws.vars.state_q[:, 1] .= ws.scratch.extra.accelerated_point
         else
             push_update_to_record!(ws, record, false)
         end
@@ -422,15 +422,15 @@ function krylov_step!(
         # we also reinit the Krylov orthogonal basis 
         if ws.k[] == 0 # special case in initial iteration
 
-            @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], ws.scratch.initial_vec, true)
-            @views ws.vars.state_q[:, 1] .= ws.scratch.initial_vec
+            @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], ws.scratch.extra.initial_vec, true)
+            @views ws.vars.state_q[:, 1] .= ws.scratch.extra.initial_vec
 
             # fills in first column of ws.krylov_basis
             init_krylov_basis!(ws) # ws.H is zeros at this point still
         
         elseif ws.control_flags.recycle_next
             # RECYCLE working state iterate
-            ws.vars.state_q[:, 1] .= ws.scratch.state_recycled
+            ws.vars.state_q[:, 1] .= ws.scratch.extra.state_recycled
             
             # also re-initialise Krylov basis IF we'd filled up
             # the entire memory

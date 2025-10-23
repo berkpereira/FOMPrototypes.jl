@@ -32,12 +32,12 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
     function VanillaWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        scratch::VanillaScratch{T},
         vars::Union{VanillaVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
         ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         m, n = p.m, p.n
-        scratch = VanillaScratch(p)
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
             vars = VanillaVariables(m, n)
@@ -59,43 +59,6 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
         )
     end 
 end
-
-# dispatch on method type to construct method alongside
-# just before workspace
-function VanillaWorkspace{T, I}(
-    p::ProblemData{T},
-    ::Type{PrePPM}, # note dispatch on PrePPM type
-    variant::Symbol, # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
-    τ::Union{T, Nothing},
-    ρ::T,
-    θ::T;
-    vars::Union{VanillaVariables{T}, Nothing} = nothing,
-    A_gram::Union{LinearMap{T}, Nothing} = nothing,
-    to::Union{TimerOutput, Nothing} = nothing
-    ) where {T <: AbstractFloat, I <: Integer}
-
-    # TODO simplify syntax of call to W_operator using method struct
-    @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-    end
-
-    W_inv = prepare_inv(W, to)
-
-    @timeit to "dP prep" begin
-        dP = Vector(diag(p.P))
-    end
-    @timeit to "dA prep" begin
-        dA = vec(sum(abs2, p.A; dims=1))
-    end
-
-    # construct method object
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
-
-    # delegate to the inner constructor
-    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, vars, A_gram)
-end
-
-VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
 
 # type used to store Givens rotation
 # LinearAlgebra.givensAlgorithm is derived from LAPACK's dlartg
@@ -142,6 +105,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     function KrylovWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        scratch::KrylovScratch{T},
         vars::Union{KrylovVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
         mem::Int,
@@ -172,7 +136,6 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
         end
 
         m, n = p.m, p.n
-        scratch = KrylovScratch(p)
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
             vars = KrylovVariables(m, n)
@@ -208,55 +171,6 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     end
 end
 
-# dispatch on method type to construct method alongside
-# just before workspace
-function KrylovWorkspace{T, I}(
-    p::ProblemData{T},
-    ::Type{PrePPM}, # note dispatch on PrePPM type
-    variant::Symbol, # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
-    τ::Union{T, Nothing},
-    ρ::T,
-    θ::T,
-    mem::Int,
-    tries_per_mem::Int,
-    safeguard_norm::Symbol,
-    krylov_operator::Symbol;
-    vars::Union{KrylovVariables{T}, Nothing} = nothing,
-    A_gram::Union{LinearMap{T}, Nothing} = nothing,
-    to::Union{TimerOutput, Nothing} = nothing
-    ) where {T <: AbstractFloat, I <: Integer}
-
-    # TODO simplify syntax of call to W_operator using method struct
-    @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-    end
-
-    W_inv = prepare_inv(W, to)
-
-    @timeit to "dP prep" begin
-        dP = Vector(diag(p.P))
-    end
-
-    @timeit to "dA prep" begin
-        dA = vec(sum(abs2, p.A; dims=1))
-    end
-
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
-    
-    # delegate to the inner constructor
-    return KrylovWorkspace{T, I, PrePPM{T, I}}(
-        p,
-        method,
-        vars,
-        A_gram,
-        mem,
-        tries_per_mem,
-        safeguard_norm,
-        krylov_operator
-    )
-end
-KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
-
 # workspace type for when Anderson acceleration is used
 struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, AndersonVariables{T}, M}
     @common_workspace_fields()
@@ -279,6 +193,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
     function AndersonWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        scratch::AndersonScratch{T},
         vars::Union{AndersonVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
         mem::Int,
@@ -297,7 +212,6 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
         end
 
         m, n = p.m, p.n
-        scratch = AndersonScratch(p)
         res = ProgressMetrics{T}(m, n)
         if vars === nothing
             vars = AndersonVariables(m, n)
@@ -332,88 +246,3 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
         )
     end
 end
-
-# dispatch on method type to construct method alongside
-# just before workspace
-function AndersonWorkspace{T, I}(
-    p::ProblemData{T},
-    ::Type{PrePPM}, # note dispatch on PrePPM type
-    variant::Symbol,
-    τ::Union{T, Nothing},
-    ρ::T,
-    θ::T,
-    mem::Int,
-    anderson_interval::Int,
-    safeguard_norm::Symbol;
-    vars::Union{AndersonVariables{T}, Nothing} = nothing,
-    A_gram::Union{LinearMap{T}, Nothing} = nothing,
-    broyden_type::Symbol = :normal2,
-    memory_type::Symbol = :rolling,
-    regulariser_type::Symbol = :none,
-    anderson_log::Bool = false,
-    to::Union{TimerOutput, Nothing} = nothing
-    ) where {T <: AbstractFloat, I <: Integer}
-
-    if broyden_type == :normal2
-        broyden_type = Type2{NormalEquations}
-    elseif broyden_type == :QR2
-        broyden_type = Type2{QRDecomp}
-    elseif broyden_type == Symbol(1)
-        broyden_type = Type1
-    else
-        throw(ArgumentError("Unknown Broyden type: $broyden_type."))
-    end
-
-    if memory_type == :rolling
-        memory_type = RollingMemory
-    elseif memory_type == :restarted
-        memory_type = RestartedMemory
-    else
-        throw(ArgumentError("Unknown memory type: $memory_type."))
-    end
-
-    if regulariser_type == :none
-        regulariser_type = NoRegularizer
-    elseif regulariser_type == :tikonov
-        regulariser_type = TikonovRegularizer
-    elseif regulariser_type == :frobenius
-        regulariser_type = FrobeniusNormRegularizer
-    else
-        throw(ArgumentError("Unknown regulariser type: $regulariser_type."))
-    end
-
-    # TODO simplify syntax of call to W_operator using method struct
-    @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
-    end
-
-    W_inv = prepare_inv(W, to)
-
-    @timeit to "dP prep" begin
-        dP = Vector(diag(p.P))
-    end
-
-    @timeit to "dA prep" begin
-        dA = vec(sum(abs2, p.A; dims=1))
-    end
-
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
-
-    
-    # delegate to the inner constructor
-    return AndersonWorkspace{T, I, PrePPM{T, I}}(
-        p,
-        method,
-        vars,
-        A_gram,
-        mem,
-        anderson_interval,
-        safeguard_norm,
-        broyden_type,
-        memory_type,
-        regulariser_type,
-        anderson_log
-        )
-end
-
-AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)

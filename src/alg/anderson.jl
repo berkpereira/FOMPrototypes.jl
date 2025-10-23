@@ -17,14 +17,14 @@ function anderson_step!(
         # ws.vars.state might be overwritten, so we take note of it here
         # this is for the sole purpose of checking the norm of the
         # step just below in this code branch
-        ws.scratch.state_pre_overwrite .= ws.vars.state
+        ws.scratch.extra.state_pre_overwrite .= ws.vars.state
 
         # attempt acceleration step. if successful (ie no numerical
         # problems), this overwites ws.vars.state with accelerated step
         @timeit timer "anderson accel" COSMOAccelerators.accelerate!(ws.vars.state, ws.vars.state_prev, ws.accelerator, 0)
         
-        ws.scratch.accelerated_point .= ws.vars.state # accelerated point if no numerics blowups
-        ws.vars.state .= ws.scratch.state_pre_overwrite # retake the iterate from which we are attempting acceleration right now
+        ws.scratch.extra.accelerated_point .= ws.vars.state # accelerated point if no numerics blowups
+        ws.vars.state .= ws.scratch.extra.state_pre_overwrite # retake the iterate from which we are attempting acceleration right now
 
         # ws.accelerator.success only indicates there was no
         # numerical blowup in the COSMOAccelerators.accelerate!
@@ -33,10 +33,10 @@ function anderson_step!(
             # at this point:
             # ws.vars.state contains the iterate at which we stopped
             # when we began to pull the accelerate! levers;
-            # ws.scratch.accelerated_point contains the candidate
+            # ws.scratch.extra.accelerated_point contains the candidate
             # acceleration point, which is legitimately different
             # from ws.vars.state in this branch
-            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state, ws.scratch.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state, ws.scratch.extra.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
             
@@ -44,11 +44,11 @@ function anderson_step!(
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
 
                 # assign actually
-                ws.vars.state .= ws.scratch.accelerated_point
+                ws.vars.state .= ws.scratch.extra.accelerated_point
             end
         end
 
-        # note: uses ws.scratch.state_pre_overwrite if acceleration
+        # note: uses ws.scratch.extra.state_pre_overwrite if acceleration
         # was proper successful
         push_update_to_record!(ws, record, false)
 
@@ -68,11 +68,11 @@ function anderson_step!(
         # we use the recycled variable stored during the fixed-point
         # safeguarding step
         if ws.control_flags.recycle_next
-            ws.vars.state .= ws.scratch.state_recycled
+            ws.vars.state .= ws.scratch.extra.state_recycled
         else
-            onecol_method_operator!(ws, ws.vars.state, ws.scratch.swap_vec, true)
-            # swap contents of ws.vars.state and ws.scratch.swap_vec
-            custom_swap!(ws.vars.state, ws.scratch.swap_vec, ws.scratch.temp_mn_vec1)
+            onecol_method_operator!(ws, ws.vars.state, ws.scratch.extra.swap_vec, true)
+            # swap contents of ws.vars.state and ws.scratch.extra.swap_vec
+            custom_swap!(ws.vars.state, ws.scratch.extra.swap_vec, ws.scratch.base.temp_mn_vec1)
         end
 
         # just applied onecol operator, so we increment
