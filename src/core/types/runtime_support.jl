@@ -32,6 +32,8 @@ struct VanillaScratch{T} <: AbstractWorkspaceScratch{T}
     
     # when using onecol_method_operator!
     swap_vec::Vector{T}
+
+    y_bar::Vector{T} # Extrapolated dual variable
 end
 
 function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -43,6 +45,7 @@ function VanillaScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
+        zeros(T, m),
     )
 end
 
@@ -68,6 +71,8 @@ struct AndersonScratch{T} <: AbstractWorkspaceScratch{T}
 
     # to check success after potentially being overwritten
     state_pre_overwrite::Vector{T}
+
+    y_bar::Vector{T} # Extrapolated dual variable
 end
 
 function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -84,6 +89,8 @@ function AndersonScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
+
+        zeros(T, m),
     )
 end
 
@@ -113,6 +120,9 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     state_recycled::Vector{T}
     state_lookahead::Vector{T}
     fp_res::Vector{T}
+   
+    y_bar::Vector{T} # Extrapolated dual variable, for use in onecol operator
+    y_qm_bar::Matrix{T} # Extrapolated dual variable
 end
 
 function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
@@ -135,6 +145,9 @@ function KrylovScratch(p::ProblemData{T}) where {T <: AbstractFloat}
         zeros(T, m + n),
         zeros(T, m + n),
         zeros(T, m + n),
+
+        zeros(T, m),
+        zeros(T, m, 2)
     )
 end
 

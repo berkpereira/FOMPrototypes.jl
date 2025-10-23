@@ -105,19 +105,26 @@ function onecol_method_operator!(
 
     ws.scratch.temp_n_vec1 .+= ws.p.c # add linear part of objective, c, to P * x
 
-    # TODO reduce allocations in this mul! call: pass another temp vector?
-    # consider dedicated scratch storage for y_bar, akin to what
-    # we do in twocol_method_operator!
-    @views mul!(ws.scratch.temp_n_vec2, ws.p.A', (1 + ws.method.θ) * ws.scratch.temp_m_vec - ws.method.θ * state_in[ws.p.n+1:end]) # compute A' * y_bar
+    # compute y_bar. WARNING specialised to ws.method.θ == 1.0 case
+    ws.scratch.y_bar .= ws.scratch.temp_m_vec
+    # ws.scratch.y_bar .*= (1 + ws.method.θ)
+    ws.scratch.y_bar .*= 2.0
+    # @views ws.scratch.y_bar .-= ws.method.θ * state_in[ws.p.n+1:end]
+    @views ws.scratch.y_bar .-= state_in[ws.p.n+1:end]
 
+    # compute A' * y_bar, into temp_n_vec2
+    mul!(ws.scratch.temp_n_vec2, ws.p.A', ws.scratch.y_bar)
+
+    # compute A' * y_bar norm
     if update_res_flags
         ATybar_norm = norm(ws.scratch.temp_n_vec2, Inf)
     end
 
-    # now compute P x + A^T y_bar
+    # compute P x + A' * y_bar
     ws.scratch.temp_n_vec1 .+= ws.scratch.temp_n_vec2 # this is to be pre-multiplied by W^{-1}
 
-    # if updating dual residual (NOTE use of y_bar)
+    # if updating dual residual
+    # NOTE use of y_bar in this residual computation, not y
     if update_res_flags
         @views ws.res.r_dual .= ws.scratch.temp_n_vec1 # assign P * x + A' * y_bar + c
 

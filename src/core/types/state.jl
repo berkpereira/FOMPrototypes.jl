@@ -46,12 +46,10 @@ struct KrylovVariables{T <: AbstractFloat} <: AbstractVariables{T}
     state_q::Matrix{T}
     
     @common_var_fields()
-    
-    y_qm_bar::Matrix{T} # Extrapolated primal variable
 
     # default (zeros) initialisation of variables
     function KrylovVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(zeros(n + m, 2), zeros(n + m), zeros(m), zeros(m, 2))
+        new(zeros(n + m, 2), zeros(n + m), zeros(m))
     end
 end
 KrylovVariables(args...) = KrylovVariables{DefaultFloat}(args...)

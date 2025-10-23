@@ -219,7 +219,7 @@ should be applying some of the operator's action to both the vectors of
 interest. Mainly for this reason, it makes sense to encapsulate both of these
 tasks within this single function.
 
-Depending on arguments given, function can also recycle A * x, A' * y, and
+Depending on arguments given, function can also recycle A * x, A' * y, ...
 
 temp_n_mat1 should be of dimension n by 2
 temp_m_mat should be of dimension m by 2
@@ -267,10 +267,12 @@ function twocol_method_operator!(
     @views ws.scratch.temp_m_mat[:, 2] .*= ws.proj_flags
 
     # now compute bar iterates (y and q_m) concurrently
-    # TODO reduce memory allocation in this line...
-    ws.vars.y_qm_bar .= ws.scratch.temp_m_mat
-    ws.vars.y_qm_bar .*= (1 + ws.method.θ)
-    @views ws.vars.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :]
+    # TODO reduce memory allocation in this line (only in general ws.method.θ != 1.0 cases)
+    ws.scratch.y_qm_bar .= ws.scratch.temp_m_mat
+    # ws.scratch.y_qm_bar .*= (1 + ws.method.θ)
+    ws.scratch.y_qm_bar .*= 2.0 # WARNING specialised to ws.method.θ == 1.0
+    # @views ws.scratch.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :] # WARNING specialised this to ws.method.θ == 1.0 (all we have anyway for now), see below:
+    @views ws.scratch.y_qm_bar .-= ws.vars.state_q[ws.p.n+1:end, :]
 
     if ws.krylov_operator == :B # ie use B = A - I as krylov operator
         @views ws.scratch.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
@@ -299,7 +301,7 @@ function twocol_method_operator!(
 
     @views ws.scratch.temp_n_mat1[:, 1] .+= ws.p.c # add linear part of objective, c, to P * x (but NOT to P * q_n)
 
-    @views two_col_mul!(ws.scratch.temp_n_mat2, ws.p.A', ws.vars.y_qm_bar, ws.scratch.temp_m_vec_complex, ws.scratch.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
+    @views two_col_mul!(ws.scratch.temp_n_mat2, ws.p.A', ws.scratch.y_qm_bar, ws.scratch.temp_m_vec_complex, ws.scratch.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
     if update_res_flags
         @views ATybar_norm = norm(ws.scratch.temp_n_mat2[:, 1], Inf)
@@ -335,8 +337,8 @@ function twocol_method_operator!(
         @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1]
         @views ws.vars.state_q[1:ws.p.n, 2] .-= ws.scratch.temp_n_mat1[:, 2]
     else # ie use B = A - I as krylov operator
-        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1] # as above
-        @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.temp_n_mat1[:, 2] # simpler
+        @views ws.vars.state_q[1:ws.p.n, 1] .-= ws.scratch.temp_n_mat1[:, 1] # as above, FOM iterate column
+        @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.temp_n_mat1[:, 2] # simpler Arnoldi vector update in B case
     end
 
     return nothing
