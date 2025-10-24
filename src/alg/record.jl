@@ -191,6 +191,7 @@ function push_cosines_projs!(
     ws::AbstractWorkspace,
     record::IterationRecord,
     )
+    
     # store cosine between last two iterate updates
     if ws.k[] >= 1
         state_prev_updates_cos = abs(dot(record.curr_state_update, record.prev_state_update) / (norm(record.curr_state_update) * norm(record.prev_state_update)))
@@ -199,6 +200,9 @@ function push_cosines_projs!(
     record.prev_state_update .= record.curr_state_update
 
     # store active set flags
+    # TODO note whether this aligns with new methods' notions
+    # of flags used for core dynamics in hot loops versus interpretation
+    # in terms of active set (might be the NEGATION of PrePPM's interpretations)
     push!(record.record_proj_flags, ws.proj_flags)
 end
 
