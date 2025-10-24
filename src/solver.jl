@@ -32,7 +32,7 @@ const HISTORY_KEYS = [
 Efficiently computes FOM iteration at point state_in, and stores it in state_out.
 Vector state_in is left unchanged.
 
-Set update_res_flags to true iff the method is being used for a bona fide
+Set update_res_flags to true IFF the method is being used for a bona fide
 vanilla FOM iteration, where the active set flags and working residual metrics
 should be updated by recycling the computational work (mostly mat-vec
 products involving A, A', and P) which is carried out here regardless.
@@ -47,6 +47,10 @@ squares problem following from the Krylov acceleration subproblem.
 
 Note that state_in is the "current" iterate as a single vector in R^{n+m}.
 New iterate is written (in-place) into state_out input vector.
+
+Notw that ws.proj_flags may have different interpretations depending on the
+method in question. Eg in PrePPM it
+The common theme is that it takes the form which makes it easier
 """
 function onecol_method_operator!(
     ws::AbstractWorkspace{T, I, V, M},
@@ -145,42 +149,16 @@ function onecol_method_operator!(
     return nothing
 end
 
-function iter_x!(x::AbstractVector{Float64},
-    gradient_preop::AbstractInvOp,
-    P::AbstractMatrix{Float64},
-    c::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    y_bar::AbstractVector{Float64},
-    prev_x::AbstractVector{Float64},
-    store_step_vec::AbstractVector{Float64})
-
-    prev_x .= x # update prev_x
+"""
+(ADMM) One-column method operator method.
+"""
+function onecol_method_operator!(
+    ws::AbstractWorkspace{T, I, V, M},
+    state_in::AbstractVector{Float64},
+    state_out::AbstractVector{Float64},
+    update_res_flags::Bool = false
+    ) where {T, I, V, M <: ADMM} # note dispatch on ADMM
     
-    # store_step_vec is used to store the latest x iterate delta
-    store_step_vec .= - gradient_preop(P * x + c + A' * y_bar)
-
-    x .+= store_step_vec
-
-    return
-end
-
-function iter_y!(
-    y::AbstractVector{Float64},
-    unproj_y::AbstractVector{Float64},
-    x::AbstractVector{Float64},
-    A::AbstractMatrix{Float64},
-    b::AbstractVector{Float64},
-    K::Vector{Clarabel.SupportedCone},
-    ρ::Float64,
-    temp_store_step_vec::AbstractVector{Float64},
-    store_step_vec::AbstractVector{Float64})
-
-    unproj_y .= y + ρ * (A * x - b)
-    temp_store_step_vec .= project_to_dual_K(unproj_y, K)
-    store_step_vec .= temp_store_step_vec - y
-    y .= temp_store_step_vec
-
-    return
 end
 
 function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
@@ -196,14 +174,14 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
 end
 
 """
-This function is used to modify the explicitly formed linearised operator of
+(PrePPM) This function is used to modify the explicitly formed linearised operator of
 the method. This is an expensive computation obviously not to be used when
 the code is being run for "real" purposes.
 """
 function construct_explicit_operator!(
-    ws::AbstractWorkspace,
+    ws::AbstractWorkspace{T, I, V, M},
     ws_diag::DiagnosticsWorkspace
-    )
+    ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
     
     D_A = Diagonal(ws.proj_flags)
 
@@ -225,7 +203,6 @@ end
 We use multiple dispatch to avoid branching at run time in the main loop
 in optimise!.
 """
-# anderson_step!(ws, ws_diag, args, record, full_diagnostics, timer)
 function step!(
     ws::VanillaWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
