@@ -108,6 +108,11 @@ function compute_krylov_accelerant!(
 
     # compute FOM(state_q[:, 1]) and store it in result_vec
     @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], result_vec)
+
+    # to recycle this FOM(current state) in the subsequent safeguard call,
+    # avoiding an additional operator call
+    ws.scratch.extra.step_when_computing_krylov .= result_vec
+
     @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.state_q[:, 1]) # TODO get rid of alloc here
     
     # ws.H is passed as triangular, so we now need to apply the

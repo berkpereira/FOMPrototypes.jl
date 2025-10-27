@@ -134,6 +134,16 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
     state_lookahead::Vector{T}
     fp_res::Vector{T}
 
+    # cache for next iterate
+    # when we pause to compute the Krylov accelerated point,
+    # we require FOM(current_state)
+    # this cache gives us the chance to recycle that work again
+    # within the subsequent safeguard call!
+    step_when_computing_krylov::Vector{T}
+
+    # TODO add rhs_res_custom to use in compute_krylov_accelerant!
+    # will take a little finesse
+
     function KrylovScratchExtra{T}(p::ProblemData{T}) where {T <: AbstractFloat}
         m, n = p.m, p.n
         new{T}(
@@ -143,6 +153,7 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
             zeros(Complex{T}, n),
             zeros(Complex{T}, n),
             zeros(Complex{T}, m),
+            zeros(T, m + n),
             zeros(T, m + n),
             zeros(T, m + n),
             zeros(T, m + n),

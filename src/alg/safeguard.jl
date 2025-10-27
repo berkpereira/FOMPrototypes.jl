@@ -86,7 +86,15 @@ function accel_fp_safeguard!(
     end
 
     # compute FOM(current_state) in ws.scratch.extra.state_lookahead and fp_res_current in ws.scratch.extra.fp_res
-    compute_fom_and_fp!(ws, current_state, ws.scratch.extra.state_lookahead, ws.scratch.extra.fp_res)
+    if ws isa AndersonWorkspace
+        compute_fom_and_fp!(ws, current_state, ws.scratch.extra.state_lookahead, ws.scratch.extra.fp_res)
+    else # Krylov case
+        # here we can recycle from specialised cache container written to
+        # in the GMRES setup inside compute_krylov_accelerant!
+        ws.scratch.extra.state_lookahead .= ws.scratch.extra.step_when_computing_krylov
+        ws.scratch.extra.fp_res .= ws.scratch.extra.state_lookahead - current_state
+    end
+    
     # preserve the vanilla FOM iterate into ws.scratch.extra.state_recycled for now
     ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead
 
