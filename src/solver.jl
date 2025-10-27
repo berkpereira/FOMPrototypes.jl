@@ -149,18 +149,6 @@ function onecol_method_operator!(
     return nothing
 end
 
-"""
-(ADMM) One-column method operator method.
-"""
-function onecol_method_operator!(
-    ws::AbstractWorkspace{T, I, V, M},
-    state_in::AbstractVector{Float64},
-    state_out::AbstractVector{Float64},
-    update_res_flags::Bool = false
-    ) where {T, I, V, M <: ADMM} # note dispatch on ADMM
-    
-end
-
 function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
     cumsum_angles::Float64...)
     if restart_period == Inf

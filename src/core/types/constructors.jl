@@ -58,7 +58,6 @@ function build_scratch(
 
     base = BaseScratch{T}(p)
     method_vecs = _build_method_vecs(p, M)
-    println(typeof(p))
     extra = AndersonScratchExtra{T}(p)
 
     return AndersonScratch(base, method_vecs, extra)
