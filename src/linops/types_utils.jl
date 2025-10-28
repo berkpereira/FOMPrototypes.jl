@@ -16,41 +16,34 @@ end
 function prepare_inv(W::SparseMatrixCSC{T, I},
     to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10) where {T <: AbstractFloat, I <: Integer}
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
-    
-    if to !== nothing
-        @timeit to "Cholesky factorisation" begin
-            try
-                F = SparseArrays.cholesky(W)
-            catch e
+    shifts = (nothing, δ, δ * 10)
+    F = nothing
+    last_error = nothing
+
+    for (idx, shift) in pairs(shifts)
+        try
+            if to !== nothing
+                F = @timeit to "Cholesky factorisation" begin
+                    shift === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; shift=shift)
+                end
+            else
+                F = shift === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; shift=shift)
+            end
+            break
+        catch e
+            last_error = e
+            if idx == 1
                 @warn "Cholesky failed; retrying with δ = $δ" exception=e
+            elseif idx == 2
+                @warn "Cholesky failed even with shift δ=$δ. Retrying with shift $(δ * 10)" exception=e
+            else
+                rethrow(e)
             end
-
-            # try Cholesky with shift
-            try
-                F = SparseArrays.cholesky(W; shift=δ)
-            catch e
-                @warn "Cholesky failed even with shift δ=$δ. Retrying with shift 10δ"
-            end
-
-            δ *= 10.;
-            F = SparseArrays.cholesky(W; shift=δ)
         end
-    else
-        try
-            F = SparseArrays.cholesky(W)
-        catch e
-            @warn "Cholesky failed; retrying with δ = $δ" exception=e
-        end
+    end
 
-        # try Cholesky with shift
-        try
-            F = SparseArrays.cholesky(W; shift=δ)
-        catch e
-            @warn "Cholesky failed even with shift δ=$δ. Retrying with shift 10δ"
-        end
-
-        δ *= 10.;
-        F = SparseArrays.cholesky(W; shift=δ)
+    if F === nothing
+        rethrow(last_error)
     end
     
     if to !== nothing
