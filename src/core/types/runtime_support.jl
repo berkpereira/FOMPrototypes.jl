@@ -25,7 +25,8 @@ AndersonControlFlags() = AndersonControlFlags(false, false)
 struct BaseScratch{T <: AbstractFloat}
     temp_n_vec1::Vector{T}
     temp_n_vec2::Vector{T}
-    temp_m_vec::Vector{T}
+    temp_m_vec1::Vector{T}
+    temp_m_vec2::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
 
@@ -33,6 +34,7 @@ struct BaseScratch{T <: AbstractFloat}
         new(
             zeros(T, p.n),
             zeros(T, p.n),
+            zeros(T, p.m),
             zeros(T, p.m),
             zeros(T, p.m + p.n),
             zeros(T, p.m + p.n),
@@ -45,9 +47,11 @@ abstract type AbstractMethodScratchMats{T <: AbstractFloat} end
 
 struct PrePPMScratchVecs{T} <: AbstractMethodScratchVecs{T}
     y_bar::Vector{T} # Extrapolated dual variable
+    Ax::Vector{T} # to hold "basic" A * x products
+    ATy::Vector{T} # to hold "basic" A' * y products
 
     function PrePPMScratchVecs{T}(p::ProblemData{T}) where {T <: AbstractFloat}
-        new(zeros(T, p.m))
+        new(zeros(T, p.m), zeros(T, p.m), zeros(T, p.n))
     end
 end
 
