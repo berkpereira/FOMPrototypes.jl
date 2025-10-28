@@ -12,7 +12,7 @@ function compute_fom_and_fp!(
     fp_out::AbstractVector{Float64},
     )
     # compute FOM(state_in) into fom_out (in-place)
-    onecol_method_operator!(ws, state_in, fom_out)
+    onecol_method_operator!(ws, Val{ws.method.variant}(), state_in, fom_out)
     # fp_out := FOM(state_in) - state_in
     fp_out .= fom_out .- state_in
     return nothing
@@ -57,8 +57,8 @@ function compute_fp_metric!(
         @views metric_sq += norm(fp_res[n+1:end])^2 / ws.method.ρ
 
         # + 2 <A * fp_x, fp_y>
-        @views mul!(ws.scratch.base.temp_m_vec, ws.p.A, fp_res[1:n])    # ws.scratch.base.temp_m_vec := A * fp_x
-        @views metric_sq += 2 * dot(ws.scratch.base.temp_m_vec, fp_res[n+1:end])
+        @views mul!(ws.scratch.base.temp_m_vec1, ws.p.A, fp_res[1:n])    # ws.scratch.base.temp_m_vec1 := A * fp_x
+        @views metric_sq += 2 * dot(ws.scratch.base.temp_m_vec1, fp_res[n+1:end])
 
         return sqrt(metric_sq)
     else
@@ -81,7 +81,7 @@ function accel_fp_safeguard!(
     )
     # Unguarded (fast) path
     if ws.safeguard_norm == :none
-        onecol_method_operator!(ws, accelerated_state, ws.scratch.extra.state_recycled)
+        onecol_method_operator!(ws, Val{ws.method.variant}(), accelerated_state, ws.scratch.extra.state_recycled)
         return true
     end
 
@@ -94,7 +94,7 @@ function accel_fp_safeguard!(
         ws.scratch.extra.state_lookahead .= ws.scratch.extra.step_when_computing_krylov
         ws.scratch.extra.fp_res .= ws.scratch.extra.state_lookahead - current_state
     end
-    
+
     # preserve the vanilla FOM iterate into ws.scratch.extra.state_recycled for now
     ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead
 
@@ -125,9 +125,9 @@ function accel_fp_safeguard!(
 
             char_mat = Matrix([(ws.method.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.method.ρ])
             true_lookahead = zeros(ws.p.m + ws.p.n)
-            onecol_method_operator!(ws, pinv_sol, true_lookahead)
+            onecol_method_operator!(ws, Val{ws.method.variant}(), pinv_sol, true_lookahead)
             # take a step from the linear system ≈solution, as in our Krylov method
-            onecol_method_operator!(ws, true_lookahead, pinv_sol)
+            onecol_method_operator!(ws, Val{ws.method.variant}(), true_lookahead, pinv_sol)
 
             # swap: after this, true_lookahead stores T(pinv_sol)
             custom_swap!(true_lookahead, pinv_sol, ws.scratch.base.temp_mn_vec1)

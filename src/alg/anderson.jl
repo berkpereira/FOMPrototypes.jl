@@ -70,7 +70,7 @@ function anderson_step!(
         if ws.control_flags.recycle_next
             ws.vars.state .= ws.scratch.extra.state_recycled
         else
-            onecol_method_operator!(ws, ws.vars.state, ws.scratch.extra.swap_vec, true)
+            onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state, ws.scratch.extra.swap_vec, true, true)
             # swap contents of ws.vars.state and ws.scratch.extra.swap_vec
             custom_swap!(ws.vars.state, ws.scratch.extra.swap_vec, ws.scratch.base.temp_mn_vec1)
         end

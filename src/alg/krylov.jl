@@ -107,7 +107,7 @@ function compute_krylov_accelerant!(
     # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
 
     # compute FOM(state_q[:, 1]) and store it in result_vec
-    @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], result_vec)
+    @views onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state_q[:, 1], result_vec)
 
     # to recycle this FOM(current state) in the subsequent safeguard call,
     # avoiding an additional operator call
@@ -145,7 +145,7 @@ function compute_krylov_accelerant!(
         # sign_preop_multipliers = 
 
         # the usual thing is to apply T to this GMRES proposal
-        onecol_method_operator!(ws, gmres_sol, result_vec)
+        onecol_method_operator!(ws, Val{ws.method.variant}(), gmres_sol, result_vec)
     else
         @info "❌ Krylov acceleration failed with status: $lls_status"
     end
@@ -232,21 +232,21 @@ temp_m_vec should be of dimension m
 """
 function twocol_method_operator!(
     ws::KrylovWorkspace{T, I, M},
-    update_res_flags::Bool = false
+    update_proj_action::Bool = false
     ) where {T, I, M <: PrePPM} # note dispatch on PrePPM
     
     # working variable is ws.vars.state_q, with two columns
 
     @views two_col_mul!(ws.scratch.extra.temp_m_mat, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_n]
 
-    if update_res_flags
+    if update_proj_action
         @views Ax_norm = norm(ws.scratch.extra.temp_m_mat[:, 1], Inf)
     end
 
     @views ws.scratch.extra.temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
 
     # if updating primal residual
-    if update_res_flags
+    if update_proj_action
         @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat[:, 1] # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -264,7 +264,7 @@ function twocol_method_operator!(
 
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes handwritten notes
-    if update_res_flags
+    if update_proj_action
         @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat[:, 1])
     end
 
@@ -290,7 +290,7 @@ function twocol_method_operator!(
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(ws.scratch.extra.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2) # compute P * [x, q_n]
 
-    if update_res_flags
+    if update_proj_action
         @views Px_norm = norm(ws.scratch.extra.temp_n_mat1[:, 1], Inf)
 
         @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.extra.temp_n_mat1[:, 1]) # x^T P x
@@ -308,7 +308,7 @@ function twocol_method_operator!(
 
     @views two_col_mul!(ws.scratch.extra.temp_n_mat2, ws.p.A', ws.scratch.method_mats.y_qm_bar, ws.scratch.extra.temp_m_vec_complex, ws.scratch.extra.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
-    if update_res_flags
+    if update_proj_action
         @views ATybar_norm = norm(ws.scratch.extra.temp_n_mat2[:, 1], Inf)
     end
 
@@ -316,7 +316,7 @@ function twocol_method_operator!(
     ws.scratch.extra.temp_n_mat1 .+= ws.scratch.extra.temp_n_mat2 # this is what is pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
-    if update_res_flags
+    if update_proj_action
         @views ws.res.r_dual .= ws.scratch.extra.temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
@@ -427,7 +427,7 @@ function krylov_step!(
         # we also reinit the Krylov orthogonal basis 
         if ws.k[] == 0 # special case in initial iteration
 
-            @views onecol_method_operator!(ws, ws.vars.state_q[:, 1], ws.scratch.extra.initial_vec, true)
+            @views onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state_q[:, 1], ws.scratch.extra.initial_vec, true, true)
             @views ws.vars.state_q[:, 1] .= ws.scratch.extra.initial_vec
 
             # fills in first column of ws.krylov_basis

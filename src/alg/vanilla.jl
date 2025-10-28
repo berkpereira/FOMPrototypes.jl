@@ -9,7 +9,7 @@ function vanilla_step!(
     # copy older iterate before iterating
     ws.vars.state_prev .= ws.vars.state
 
-    onecol_method_operator!(ws, ws.vars.state, ws.scratch.extra.swap_vec, true)
+    onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state, ws.scratch.extra.swap_vec, true, true)
     # swap contents of ws.vars.state and ws.scratch.extra.swap_vec
     custom_swap!(ws.vars.state, ws.scratch.extra.swap_vec, ws.scratch.base.temp_mn_vec1)
     # now ws.vars.state contains newer iterate,  while
