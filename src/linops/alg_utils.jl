@@ -172,6 +172,14 @@ end
 """
 This function computes M1 matrix-vector products with x efficiently.
 Result is stored in result_vec, while x is left unchanged.
+
+TODO include consideration of M_1 = 
+M_1^{a priori} + δ I regularisation used in computing
+Cholesky factors? It does in fact effectively change
+the M_1 matrix in use, which should be reflected here
+(it's just that for the purposes for which we use
+this function, it makes a negligible difference;
+note also that usually δ ≈ 1e-10 in regularised cases).
 """
 function M1_op!(
     x::AbstractVector{Float64},
