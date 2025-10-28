@@ -77,24 +77,30 @@ A x = b \\
 `L^T z = y`           -> backward solve for z in-place \\
 `x = P^T z`           -> inverse permute z in place
 """
-function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Union{Vector{Float64}, Vector{Complex{Float64}}})
-    permute!(x, perm)
+function sparse_cholmod_solve!(
+    Lsp::SparseMatrixCSC{Float64, Int64},
+    perm::Vector{Int64},
+    inv_perm::Vector{Int64},
+    x::Union{Vector{Float64}, Vector{Complex{Float64}}},
+    scratch::Union{Vector{Float64}, Vector{Complex{Float64}}},
+    )
+    permute_with_scratch!(x, perm, scratch)
     forward_solve!(Lsp, x)
     backward_solve!(Lsp, x)
-    permute!(x, inv_perm)
+    permute_with_scratch!(x, inv_perm, scratch)
     
     return nothing
 end
 
-function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Matrix{Float64}, temp_n_vec::Vector{Complex{Float64}})
+function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Matrix{Float64}, temp_n_vec::Vector{Complex{Float64}}, perm_scratch::Vector{Complex{Float64}})
     @assert size(x, 2) == 2 "Custom matrix method only defined for TWO simultaneous right-hand sides."
 
     @views temp_n_vec .= complex.(x[:, 1], x[:, 2])
-    
-    permute!(temp_n_vec, perm)
+
+    permute_with_scratch!(temp_n_vec, perm, perm_scratch)
     forward_solve!(Lsp, temp_n_vec)
     backward_solve!(Lsp, temp_n_vec)
-    permute!(temp_n_vec, inv_perm)
+    permute_with_scratch!(temp_n_vec, inv_perm, perm_scratch)
 
     @views x[:, 1] .= real.(temp_n_vec)
     @views x[:, 2] .= imag.(temp_n_vec)
@@ -351,4 +357,28 @@ function init_upper_hessenberg(n::Int)
     # H = spzeros(n + 1, n)
     H = zeros(n, n - 1)
     return UpperHessenberg(H)
+end
+
+"""
+unsafe, performant version of permute! that uses a scratch vector to avoid heap allocations.
+Overwrites x with permuted vector. Overwrites scratch vector.
+Leaves perm unchanged.
+"""
+@inline function permute_with_scratch!(
+    x::AbstractVector{T},
+    perm::AbstractVector{Int},
+    scratch::AbstractVector{T},
+) where {T<:Union{AbstractFloat,Complex{<:AbstractFloat}}}
+    # length(x) == length(perm) == length(scratch) ||
+        # throw(ArgumentError("x, perm, scratch must have matching length"))
+
+    @inbounds begin
+        copyto!(scratch, x)
+        for i in eachindex(x, perm)
+            idx = perm[i]
+            # 1 <= idx <= length(x) || throw(BoundsError(x, idx))
+            x[i] = scratch[idx]
+        end
+    end
+    return x
 end

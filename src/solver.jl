@@ -155,7 +155,7 @@ function onecol_method_operator!(
     end
     
     # in-place, efficiently apply W^{-1} = (P + \tilde{M}_1)^{-1} to ws.scratch.base.temp_n_vec1
-    apply_inv!(ws.method.W_inv, ws.scratch.base.temp_n_vec1)
+    apply_inv!(ws.method.W_inv, ws.scratch.base.temp_n_vec1, ws.scratch.base.temp_n_vec2)
 
     # assign new iterates
     @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.base.temp_n_vec1
@@ -180,7 +180,7 @@ function onecol_method_operator!(
     ws.scratch.method.Ax .= ws.scratch.base.temp_m_vec1
 
     if update_residuals
-        @views Ax_norm = norm(ws.scratch.base.temp_m_vec1, Inf)
+        @views Ax_norm = norm(ws.scratch.method.Ax, Inf)
     end
 
     # subtract b
@@ -222,7 +222,6 @@ function onecol_method_operator!(
     ws.scratch.method.y_bar .*= 2.0
     # @views ws.scratch.method.y_bar .-= ws.method.θ * state_in[ws.p.n+1:end]
     @views ws.scratch.method.y_bar .-= state_in[ws.p.n+1:end]
-    
 
     # now we go to "bulk of" x and q_n update
 
@@ -237,8 +236,15 @@ function onecol_method_operator!(
     # add c
     ws.scratch.base.temp_n_vec1 .+= ws.p.c
 
+    # short-lived use of temp_n_vec2 for -δ x_k term
+    @views ws.scratch.base.temp_n_vec2 .= state_in[1:ws.p.n]
+    ws.scratch.base.temp_n_vec2 .*= ws.method.W_inv.shift
+
+    # subtract it. ws.scratch.base.temp_n_vec2 free after this
+    ws.scratch.base.temp_n_vec1 .-= ws.scratch.base.temp_n_vec2
+
     # apply inverse W matrix
-    apply_inv!(ws.method.W_inv, ws.scratch.base.temp_n_vec1)
+    apply_inv!(ws.method.W_inv, ws.scratch.base.temp_n_vec1, ws.scratch.base.temp_n_vec2)
 
     # negate
     ws.scratch.base.temp_n_vec1 .*= -1.0
@@ -253,8 +259,8 @@ function onecol_method_operator!(
         Px_norm = norm(ws.res.r_dual, Inf)
         
         @views xTPx = dot(state_in[1:ws.p.n], ws.res.r_dual)
-        @views cTx = dot(ws.p.c, state_in[1:ws.p.n])
-        @views bTy = dot(ws.p.b, state_in[ws.p.n+1:end])
+        @views cTx  = dot(ws.p.c, state_in[1:ws.p.n])
+        @views bTy  = dot(ws.p.b, state_in[ws.p.n+1:end])
 
         # compute A' * y_k
         @views mul!(ws.scratch.base.temp_n_vec2, ws.p.A', state_in[ws.p.n+1:end])

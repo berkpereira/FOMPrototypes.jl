@@ -63,4 +63,5 @@ struct CholeskyInvOp{T, I} <: AbstractInvOp
     Lsp::SparseMatrixCSC{T, I} # Store the lower triangular factor
     perm::Vector{I}
     inv_perm::Vector{I}
+    shift::T # δ used in Cholesky factorisation (regularisation δI term)
 end

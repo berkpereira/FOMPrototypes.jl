@@ -19,6 +19,7 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
     shifts = (nothing, δ, δ * 10)
     F = nothing
     last_error = nothing
+    shift_used = zero(T)
 
     for (idx, shift) in pairs(shifts)
         try
@@ -34,9 +35,11 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
             last_error = e
             if idx == 1
                 @warn "Cholesky failed; retrying with δ = $δ" exception=e
+                shift_used = δ
             elseif idx == 2
                 @warn "Cholesky failed even with shift δ=$δ. Retrying with shift $(δ * 10)" exception=e
-            else
+                shift_used = δ * 10
+            else # give up with error
                 rethrow(e)
             end
         end
@@ -64,7 +67,9 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
         inv_perm = invperm(perm)
     end
 
-    return CholeskyInvOp(F, Lmat, perm, inv_perm)
+    println("Used shift δ = $shift_used for Cholesky factorisation.")
+
+    return CholeskyInvOp(F, Lmat, perm, inv_perm, shift_used)
 end
 
 # we also define in-place operators of these preconditioners
@@ -84,9 +89,9 @@ end
 # for the moment we use a standard \ solve which unfortunately allocates
 # memory. this is the same as is done
 # in COSMO.jl/src/linear_solver/kkt_solver.jl
-function apply_inv!(op::CholeskyInvOp, x::Vector{T}) where T <: AbstractFloat
+function apply_inv!(op::CholeskyInvOp, x::Vector{T}, scratch::Vector{T}) where T <: AbstractFloat
     # implementation using custom routines
-    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x)
+    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x, scratch)
 
     # cf naive code:
     # x .= op.F \ x
@@ -99,10 +104,10 @@ In addition to the method apply_inv!(op::CholeskyInvOp, x::Vector{T}) where T <:
 intended for when x is a Vector, we also have a method for when x is a Matrix
 with two columns.
 """
-function apply_inv!(op::CholeskyInvOp, x::Matrix{T}, temp_n_vec::Vector{Complex{T}}) where T <: AbstractFloat
+function apply_inv!(op::CholeskyInvOp, x::Matrix{T}, temp_n_vec::Vector{Complex{T}}, perm_scratch::Vector{Complex{T}}) where T <: AbstractFloat
     # implementation using custom routines
     # note that x in this method should have exactly two columns
-    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x, temp_n_vec)
+    sparse_cholmod_solve!(op.Lsp, op.perm, op.inv_perm, x, temp_n_vec, perm_scratch)
     
     return nothing
 end

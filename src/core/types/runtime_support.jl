@@ -129,6 +129,12 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
     temp_n_vec_complex2::Vector{Complex{T}}
     temp_m_vec_complex::Vector{Complex{T}}
 
+    # holds the rhs residual set up for GMRES solution
+    # we use a view into it, since the relevant working
+    # portion is of length ws.givens_count[] + 1
+    rhs_res::Vector{T}
+    gmres_increment::Vector{T}
+
     # briefly holds initial iterate
     initial_vec::Vector{T}
     
@@ -161,6 +167,8 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
             zeros(Complex{T}, n),
             zeros(Complex{T}, n),
             zeros(Complex{T}, m),
+            zeros(T, m + n),
+            zeros(T, m + n),
             zeros(T, m + n),
             zeros(T, m + n),
             zeros(T, m + n),

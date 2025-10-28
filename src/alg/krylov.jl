@@ -101,8 +101,7 @@ function compute_krylov_accelerant!(
     result_vec::Vector{Float64},
     )
 
-    # TODO pre-allocate working vectors in this function when acceleration
-    # is used
+    # TODO pre-allocate working vectors in this function
 
     # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
 
@@ -113,7 +112,14 @@ function compute_krylov_accelerant!(
     # avoiding an additional operator call
     ws.scratch.extra.step_when_computing_krylov .= result_vec
 
-    @views rhs_res_custom = (ws.krylov_basis[:, 1:ws.givens_count[] + 1])' * (result_vec - ws.vars.state_q[:, 1]) # TODO get rid of alloc here
+    @views rhs_res = ws.scratch.extra.rhs_res[1:ws.givens_count[] + 1]
+    ws.scratch.base.temp_mn_vec1 .= result_vec
+    @views ws.scratch.base.temp_mn_vec1 .-= ws.vars.state_q[:, 1]
+    @views mul!(
+        rhs_res,
+        (ws.krylov_basis[:, 1:ws.givens_count[] + 1])',
+        ws.scratch.base.temp_mn_vec1
+        )
     
     # ws.H is passed as triangular, so we now need to apply the
     # Givens rotations to Q_{krylov + 1}^T * residual
@@ -128,24 +134,26 @@ function compute_krylov_accelerant!(
         ws.H,
         ws.givens_rotations,
         ws.givens_count,
-        rhs_res_custom, # NB solution overwrites rhs_res_custom
+        rhs_res, # NB solution overwrites rhs_res
         ws.arnoldi_breakdown[] # indicates whether to apply the last APPARENT Givens rotation to the rhs vector or not
         )
 
     # compute full-dimension LLS solution
     if lls_status == :success
-        @views gmres_sol = ws.vars.state_q[:, 1] + ws.krylov_basis[:, 1:ws.givens_count[]] * rhs_res_custom[1:ws.givens_count[]]
+        @views mul!(
+            ws.scratch.extra.gmres_increment,
+            ws.krylov_basis[:, 1:ws.givens_count[]],
+            rhs_res[1:ws.givens_count[]]
+        )
+        
+        @views ws.scratch.base.temp_mn_vec1 .= ws.vars.state_q[:, 1]
+
+        ws.scratch.base.temp_mn_vec1 .+= ws.scratch.extra.gmres_increment
 
         # obtain actual acceleration candidate by applying FOM to
         # this, and write candidate to result_vec
-        
-        # TODO: check norm of this step here? we could cheapen safeguard by
-        # doing it here?... need another temp vector passed in
-
-        # sign_preop_multipliers = 
-
-        # the usual thing is to apply T to this GMRES proposal
-        onecol_method_operator!(ws, Val{ws.method.variant}(), gmres_sol, result_vec)
+        alloc_bytes = @allocated onecol_method_operator!(ws, Val{ws.method.variant}(), ws.scratch.base.temp_mn_vec1, result_vec)
+        @info "allocs here in KiB: $(alloc_bytes / 1024)"
     else
         @info "❌ Krylov acceleration failed with status: $lls_status"
     end
@@ -332,7 +340,7 @@ function twocol_method_operator!(
     if ws.method.W_inv isa CholeskyInvOp # eg in ADMM, PDHG
         # need a working complex vector for efficient Cholesky inversion
         # of two columns simultaneously
-        apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1)
+        apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2)
     else
         # diagonal inversion is simpler
         apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1)
@@ -427,7 +435,7 @@ function twocol_method_operator!(
     ws.scratch.extra.temp_n_mat1 .-= ws.scratch.extra.temp_n_mat2
 
     # apply inverse of W
-    apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1)
+    apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2)
 
     # negate
     ws.scratch.extra.temp_n_mat1 .*= -1.0
