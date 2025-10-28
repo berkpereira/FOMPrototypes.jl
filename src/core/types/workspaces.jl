@@ -1,5 +1,7 @@
 # Workspace structs
 
+
+
 # macro to inject common workspace fields (used inside struct bodies)
 macro common_workspace_fields()
     return esc(quote
@@ -9,6 +11,8 @@ macro common_workspace_fields()
         A_gram::LinearMap{T}
         res::ProgressMetrics{T}
         proj_flags::AbstractVector{Bool}
+        
+        residual_period::Int
 
         
         # variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
@@ -32,6 +36,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
     function VanillaWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        residual_period::I,
         scratch::VanillaScratch{T},
         vars::Union{VanillaVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
@@ -54,6 +59,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
             A_gram,
             res,
             falses(m),
+            residual_period,
             Ref(0),
             scratch
         )
@@ -105,6 +111,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     function KrylovWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        residual_period::I,
         scratch::KrylovScratch{T},
         vars::Union{KrylovVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
@@ -151,6 +158,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             A_gram,
             res,
             falses(m),
+            residual_period,
             Ref(0),
             Ref(0),
             Ref(0),
@@ -193,6 +201,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
     function AndersonWorkspace{T, I, M}(
         p::ProblemData{T},
         method::M,
+        residual_period::I,
         scratch::AndersonScratch{T},
         vars::Union{AndersonVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
@@ -232,6 +241,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
             A_gram,
             res,
             falses(m),
+            residual_period,
             Ref(0),
             Ref(0),
             Ref(0),

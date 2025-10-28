@@ -167,8 +167,7 @@ function krylov_usual_step!(
     timer::TimerOutput;
     )
     # apply method operator (to both state and Arnoldi (q) vectors)
-    alloc_bytes = @allocated twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
-    @info "allocs in core twocol_method_operator! in KiB: $(alloc_bytes / 1024)"
+    twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place
@@ -245,18 +244,20 @@ function twocol_method_operator!(
     update_residuals::Bool = false,
     ) where {T, I, M <: PrePPM, P} # note dispatch on PrePPM
     
+    confirm_residual_update = update_residuals && ws.res.residual_check_count[] >= ws.residual_period
+
     # working variable is ws.vars.state_q, with two columns
 
     @views two_col_mul!(ws.scratch.extra.temp_m_mat1, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_n]
 
-    if update_residuals
+    if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.extra.temp_m_mat1[:, 1], Inf)
     end
 
     @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
 
     # if updating primal residual
-    if update_residuals
+    if confirm_residual_update
         @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1] # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -300,7 +301,7 @@ function twocol_method_operator!(
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(ws.scratch.extra.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2) # compute P * [x, q_n]
 
-    if update_residuals
+    if confirm_residual_update
         @views Px_norm = norm(ws.scratch.extra.temp_n_mat1[:, 1], Inf)
 
         @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.extra.temp_n_mat1[:, 1]) # x^T P x
@@ -318,7 +319,7 @@ function twocol_method_operator!(
 
     @views two_col_mul!(ws.scratch.extra.temp_n_mat2, ws.p.A', ws.scratch.method_mats.y_qm_bar, ws.scratch.extra.temp_m_vec_complex, ws.scratch.extra.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
-    if update_residuals
+    if confirm_residual_update
         @views ATybar_norm = norm(ws.scratch.extra.temp_n_mat2[:, 1], Inf)
     end
 
@@ -326,7 +327,7 @@ function twocol_method_operator!(
     ws.scratch.extra.temp_n_mat1 .+= ws.scratch.extra.temp_n_mat2 # this is what is pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
-    if update_residuals
+    if confirm_residual_update
         @views ws.res.r_dual .= ws.scratch.extra.temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
@@ -356,7 +357,10 @@ function twocol_method_operator!(
         @views ws.vars.state_q[1:ws.p.n, 2] .= -ws.scratch.extra.temp_n_mat1[:, 2] # simpler Arnoldi vector update in B case
     end
 
-    return nothing
+    # reset residual check count
+    if confirm_residual_update
+        ws.res.residual_check_count[] = 0
+    end
 end
 
 # specialised to ADMM variant of PrePPM
@@ -366,20 +370,22 @@ function twocol_method_operator!(
     update_proj_action::Bool = false,
     update_residuals::Bool = false,
     ) where {T, I, M <: PrePPM} # note dispatch on PrePPM
+
+    confirm_residual_update = update_residuals && ws.res.residual_check_count[] >= ws.residual_period
     
     # working variable is ws.vars.state_q, with two column
     @views two_col_mul!(ws.scratch.extra.temp_m_mat1, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_x]
 
     ws.scratch.extra.Ax_mat .= ws.scratch.extra.temp_m_mat1 # store A * [x, q_x] for reuse in y update
 
-    if update_residuals
+    if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.extra.Ax_mat[:, 1], Inf)
     end
 
     # subtract b (optimisation iterate only)
     @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b
 
-    if update_residuals
+    if confirm_residual_update
         # assign A x_k - b
         @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1]
         # project to dual cone TODO general cone considerations
@@ -442,7 +448,7 @@ function twocol_method_operator!(
     # this concludes [x, q_x] update
 
     # dual residual and gap measures
-    if update_residuals
+    if confirm_residual_update
         # compute P * x_k
         @views mul!(ws.res.r_dual, ws.p.P, ws.vars.state_q[1:ws.p.n, 1])
         Px_norm = norm(ws.res.r_dual, Inf)
@@ -467,13 +473,18 @@ function twocol_method_operator!(
         ws.res.obj_dual = - 0.5xTPx - bTy
 
         ws.res.gap_abs = abs(xTPx + cTx + bTy)
-        ws.res.gap_rel = ws.res.gap_abs / (1 + max(abs(ws.res.obj_primal), abs(ws.res.obj_dual)))        
+        ws.res.gap_rel = ws.res.gap_abs / (1 + max(abs(ws.res.obj_primal), abs(ws.res.obj_dual)))
     end
 
     # assign new iterates
     # consumes temp_n_mat1 and temp_m_mat1
     ws.vars.state_q[1:ws.p.n, :] .= ws.scratch.extra.temp_n_mat1
     ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.extra.temp_m_mat1
+
+    # reset residual check count
+    if confirm_residual_update
+        ws.res.residual_check_count[] = 0
+    end
 end
 
 function krylov_step!(
@@ -522,6 +533,7 @@ function krylov_step!(
         if ws.control_flags.accepted_accel
             # increment effective iter counter (ie excluding unsuccessful acc attempts)
             ws.k_eff[] += 1
+            ws.res.residual_check_count[] += 1
             
             push_update_to_record!(ws, record, false)
 
@@ -546,6 +558,7 @@ function krylov_step!(
     else
         # increment effective iter counter (ie excluding unsuccessful acc attempts)
         ws.k_eff[] += 1
+        ws.res.residual_check_count[] += 1
 
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
         

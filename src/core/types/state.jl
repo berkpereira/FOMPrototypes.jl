@@ -97,9 +97,11 @@ mutable struct ProgressMetrics{T <: AbstractFloat}
     rd_rel::T # relative dual residual metric
     gap_rel::T # relative duality gap metric
 
+    residual_check_count::Ref{Int}
+
     # simple NaN constructor for all residual quantities
     function ProgressMetrics{T}(m::Int, n::Int) where {T <: AbstractFloat}
-        new(fill(NaN, m), fill(NaN, n), NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN)
+        new(fill(NaN, m), fill(NaN, n), NaN, NaN, NaN, NaN, NaN, NaN, NaN, NaN, Ref(0))
     end
 end
 

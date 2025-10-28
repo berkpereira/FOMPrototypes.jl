@@ -1,4 +1,7 @@
 # --------------------------------------------------------------------
+# Default constants
+const DEFAULT_RESIDUAL_PERIOD::Int = 25
+
 # Helper functions to build components via dispatch ---
 # --------------------------------------------------------------------
 
@@ -93,6 +96,7 @@ function VanillaWorkspace{T, I}(
     τ::Union{T, Nothing},
     ρ::T,
     θ::T;
+    residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{VanillaVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing
@@ -118,7 +122,7 @@ function VanillaWorkspace{T, I}(
     scratch = build_scratch(p, VanillaWorkspace, PrePPM)
 
     # delegate to the inner constructor
-    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, scratch, vars, A_gram)
+    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, residual_period, scratch, vars, A_gram)
 end
 
 VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
@@ -136,6 +140,7 @@ function KrylovWorkspace{T, I}(
     tries_per_mem::Int,
     safeguard_norm::Symbol,
     krylov_operator::Symbol;
+    residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{KrylovVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing
@@ -164,6 +169,7 @@ function KrylovWorkspace{T, I}(
     return KrylovWorkspace{T, I, PrePPM{T, I}}(
         p,
         method,
+        residual_period,
         scratch,
         vars,
         A_gram,
@@ -187,6 +193,7 @@ function AndersonWorkspace{T, I}(
     mem::Int,
     anderson_interval::Int,
     safeguard_norm::Symbol;
+    residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{AndersonVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
     broyden_type::Symbol = :normal2,
@@ -247,6 +254,7 @@ function AndersonWorkspace{T, I}(
     return AndersonWorkspace{T, I, PrePPM{T, I}}(
         p,
         method,
+        residual_period,
         scratch,
         vars,
         A_gram,

@@ -42,6 +42,7 @@ function anderson_step!(
             
             if ws.control_flags.accepted_accel
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
+                ws.res.residual_check_count[] += 1
 
                 # assign actually
                 ws.vars.state .= ws.scratch.extra.accelerated_point
@@ -58,6 +59,7 @@ function anderson_step!(
         ws.composition_counter[] = 0
     else # vanilla iteration
         ws.k_eff[] += 1
+        ws.res.residual_check_count[] += 1
         ws.k_vanilla[] += 1
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
         

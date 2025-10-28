@@ -64,17 +64,19 @@ function onecol_method_operator!(
     update_residuals::Bool = false,
     ) where {T, I, V, M <: PrePPM, P} # note dispatch on PrePPM
 
+    confirm_residual_update = update_residuals && ws.res.residual_check_count[] >= ws.residual_period
+
     # compute A * x
     @views mul!(ws.scratch.base.temp_m_vec1, ws.p.A, state_in[1:ws.p.n])
 
-    if update_residuals
+    if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.base.temp_m_vec1, Inf)
     end
 
     # subtract b
     ws.scratch.base.temp_m_vec1 .-= ws.p.b
 
-    if update_residuals
+    if confirm_residual_update
         @views ws.res.r_primal .= ws.scratch.base.temp_m_vec1 # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -107,7 +109,7 @@ function onecol_method_operator!(
     # now we go to "bulk of" x and q_n update
     @views mul!(ws.scratch.base.temp_n_vec1, ws.p.P, state_in[1:ws.p.n]) # compute P * x
 
-    if update_residuals
+    if confirm_residual_update
         Px_norm = norm(ws.scratch.base.temp_n_vec1, Inf)
 
         @views xTPx = dot(state_in[1:ws.p.n], ws.scratch.base.temp_n_vec1) # x^T P x
@@ -135,7 +137,7 @@ function onecol_method_operator!(
     mul!(ws.scratch.base.temp_n_vec2, ws.p.A', ws.scratch.method.y_bar)
 
     # compute A' * y_bar norm
-    if update_residuals
+    if confirm_residual_update
         ATybar_norm = norm(ws.scratch.base.temp_n_vec2, Inf)
     end
 
@@ -144,7 +146,7 @@ function onecol_method_operator!(
 
     # if updating dual residual
     # NOTE use of y_bar in this residual computation, not y
-    if update_residuals
+    if confirm_residual_update
         @views ws.res.r_dual .= ws.scratch.base.temp_n_vec1 # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
@@ -161,6 +163,11 @@ function onecol_method_operator!(
     @views state_out[1:ws.p.n] .= state_in[1:ws.p.n] - ws.scratch.base.temp_n_vec1
     state_out[ws.p.n+1:end] .= ws.scratch.base.temp_m_vec1
     
+    # reset residual check count
+    if confirm_residual_update
+        ws.res.residual_check_count[] = 0
+    end
+
     return nothing
 end
 
@@ -173,20 +180,22 @@ function onecol_method_operator!(
     update_residuals::Bool = false,
     ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
 
+    confirm_residual_update = update_residuals && ws.res.residual_check_count[] >= ws.residual_period
+
     # compute A * x
     @views mul!(ws.scratch.base.temp_m_vec1, ws.p.A, state_in[1:ws.p.n])
 
     # keep this Ax product to use in the y update
     ws.scratch.method.Ax .= ws.scratch.base.temp_m_vec1
 
-    if update_residuals
+    if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.method.Ax, Inf)
     end
 
     # subtract b
     ws.scratch.base.temp_m_vec1 .-= ws.p.b
 
-    if update_residuals
+    if confirm_residual_update
         @views ws.res.r_primal .= ws.scratch.base.temp_m_vec1 # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
@@ -253,7 +262,7 @@ function onecol_method_operator!(
     # still need dual residual and gap
     # note that temp_n_vec1 and temp_m_vec1 are taken up with new iterates,
     # to assign after this branch
-    if update_residuals
+    if confirm_residual_update
         # compute P * x_k
         @views mul!(ws.res.r_dual, ws.p.P, state_in[1:ws.p.n])
         Px_norm = norm(ws.res.r_dual, Inf)
@@ -286,6 +295,11 @@ function onecol_method_operator!(
     state_out[1:ws.p.n] .= ws.scratch.base.temp_n_vec1
     state_out[ws.p.n+1:end] .= ws.scratch.base.temp_m_vec1
 
+    # reset residual check count
+    if confirm_residual_update
+        ws.res.residual_check_count[] = 0
+    end
+    
     return nothing
 end
 
@@ -429,6 +443,7 @@ function optimise!(
 
         # increment iter counter
         ws.k[] += 1
+
 
         # update stopwatches
         loop_time = (time_ns() - loop_start_ns) / 1e9
