@@ -160,7 +160,7 @@ function krylov_usual_step!(
     timer::TimerOutput;
     )
     # apply method operator (to both state and Arnoldi (q) vectors)
-    twocol_method_operator!(ws, true)
+    twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place
@@ -227,27 +227,29 @@ tasks within this single function.
 Depending on arguments given, function can also recycle A * x, A' * y, ...
 
 temp_n_mat1 should be of dimension n by 2
-temp_m_mat should be of dimension m by 2
+temp_m_mat1 should be of dimension m by 2
 temp_m_vec should be of dimension m
 """
 function twocol_method_operator!(
     ws::KrylovWorkspace{T, I, M},
-    update_proj_action::Bool = false
-    ) where {T, I, M <: PrePPM} # note dispatch on PrePPM
+    ::Val{P},
+    update_proj_action::Bool = false,
+    update_residuals::Bool = false,
+    ) where {T, I, M <: PrePPM, P} # note dispatch on PrePPM
     
     # working variable is ws.vars.state_q, with two columns
 
-    @views two_col_mul!(ws.scratch.extra.temp_m_mat, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_n]
+    @views two_col_mul!(ws.scratch.extra.temp_m_mat1, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_n]
 
-    if update_proj_action
-        @views Ax_norm = norm(ws.scratch.extra.temp_m_mat[:, 1], Inf)
+    if update_residuals
+        @views Ax_norm = norm(ws.scratch.extra.temp_m_mat1[:, 1], Inf)
     end
 
-    @views ws.scratch.extra.temp_m_mat[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
+    @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
 
     # if updating primal residual
-    if update_proj_action
-        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat[:, 1] # assign A * x - b
+    if update_residuals
+        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1] # assign A * x - b
         project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
 
         # at this point the primal residual vector is updated
@@ -257,40 +259,40 @@ function twocol_method_operator!(
         ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
     end
 
-    ws.scratch.extra.temp_m_mat .*= ws.method.ρ
-    @views ws.scratch.extra.temp_m_mat .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
-    @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat[:, 1] # this is what's fed into dual cone projection operator
-    @views project_to_dual_K!(ws.scratch.extra.temp_m_mat[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat[:, 1] now stores y_{k+1}
+    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ
+    @views ws.scratch.extra.temp_m_mat1 .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
+    @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat1[:, 1] # this is what's fed into dual cone projection operator
+    @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat1[:, 1] now stores y_{k+1}
 
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_flags = D_k in Goodnotes handwritten notes
     if update_proj_action
-        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat[:, 1])
+        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat1[:, 1])
     end
 
     # can now compute the bit of q corresponding to the y iterate
-    @views ws.scratch.extra.temp_m_mat[:, 2] .*= ws.proj_flags
+    @views ws.scratch.extra.temp_m_mat1[:, 2] .*= ws.proj_flags
 
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line (only in general ws.method.θ != 1.0 cases)
-    ws.scratch.method_mats.y_qm_bar .= ws.scratch.extra.temp_m_mat
+    ws.scratch.method_mats.y_qm_bar .= ws.scratch.extra.temp_m_mat1
     # ws.scratch.method_mats.y_qm_bar .*= (1 + ws.method.θ)
     ws.scratch.method_mats.y_qm_bar .*= 2.0 # WARNING specialised to ws.method.θ == 1.0
     # @views ws.scratch.method_mats.y_qm_bar .+= -ws.method.θ .* ws.vars.state_q[ws.p.n+1:end, :] # WARNING specialised this to ws.method.θ == 1.0 (all we have anyway for now), see below:
     @views ws.scratch.method_mats.y_qm_bar .-= ws.vars.state_q[ws.p.n+1:end, :]
 
     if ws.krylov_operator == :B # ie use B = A - I as krylov operator
-        @views ws.scratch.extra.temp_m_mat[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
+        @views ws.scratch.extra.temp_m_mat1[:, 2] .-= ws.vars.state_q[ws.p.n+1:end, 2] # add -I component
     end
-    # NOTE: ws.scratch.extra.temp_m_mat[:, 2] now stores UPDATED q_m
+    # NOTE: ws.scratch.extra.temp_m_mat1[:, 2] now stores UPDATED q_m
     
     # ASSIGN new y and q_m to ws variables
-    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.extra.temp_m_mat
+    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.extra.temp_m_mat1
 
     # now we go to "bulk of" x and q_n update
     @views two_col_mul!(ws.scratch.extra.temp_n_mat1, ws.p.P, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_n_vec_complex2) # compute P * [x, q_n]
 
-    if update_proj_action
+    if update_residuals
         @views Px_norm = norm(ws.scratch.extra.temp_n_mat1[:, 1], Inf)
 
         @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.scratch.extra.temp_n_mat1[:, 1]) # x^T P x
@@ -308,7 +310,7 @@ function twocol_method_operator!(
 
     @views two_col_mul!(ws.scratch.extra.temp_n_mat2, ws.p.A', ws.scratch.method_mats.y_qm_bar, ws.scratch.extra.temp_m_vec_complex, ws.scratch.extra.temp_n_vec_complex1) # compute A' * [y_bar, q_m_bar]
 
-    if update_proj_action
+    if update_residuals
         @views ATybar_norm = norm(ws.scratch.extra.temp_n_mat2[:, 1], Inf)
     end
 
@@ -316,7 +318,7 @@ function twocol_method_operator!(
     ws.scratch.extra.temp_n_mat1 .+= ws.scratch.extra.temp_n_mat2 # this is what is pre-multiplied by W^{-1}
 
     # if updating dual residual (NOTE use of y_bar)
-    if update_proj_action
+    if update_residuals
         @views ws.res.r_dual .= ws.scratch.extra.temp_n_mat1[:, 1] # assign P * x + A' * y_bar + c
 
         # at this point the dual residual vector is updated
@@ -347,6 +349,123 @@ function twocol_method_operator!(
     end
 
     return nothing
+end
+
+# specialised to ADMM variant of PrePPM
+function twocol_method_operator!(
+    ws::KrylovWorkspace{T, I, M},
+    ::Val{:ADMM}, # just for ADMM variant of PrePPM method
+    update_proj_action::Bool = false,
+    update_residuals::Bool = false,
+    ) where {T, I, M <: PrePPM} # note dispatch on PrePPM
+    
+    # working variable is ws.vars.state_q, with two column
+    @views two_col_mul!(ws.scratch.extra.temp_m_mat1, ws.p.A, ws.vars.state_q[1:ws.p.n, :], ws.scratch.extra.temp_n_vec_complex1, ws.scratch.extra.temp_m_vec_complex) # compute A * [x, q_x]
+
+    ws.scratch.extra.Ax_mat .= ws.scratch.extra.temp_m_mat1 # store A * [x, q_x] for reuse in y update
+
+    if update_residuals
+        @views Ax_norm = norm(ws.scratch.extra.Ax_mat[:, 1], Inf)
+    end
+
+    # subtract b (optimisation iterate only)
+    @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b
+
+    if update_residuals
+        # assign A x_k - b
+        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1]
+        # project to dual cone TODO general cone considerations
+        project_to_dual_K!(ws.res.r_primal, ws.p.K) 
+
+        # update primal residual notions
+        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
+        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
+    end
+
+    # multiply by ρ
+    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ
+    # add to current y_k
+    @views ws.scratch.extra.temp_m_mat1 .+= ws.vars.state_q[ws.p.n+1:end, :]
+
+    if update_proj_action
+        # this is fed through cone projection
+        @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat1[:, 1]
+    end
+
+    # project to dual cone K (optimisation iterate only)
+    @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K)
+
+    if update_proj_action
+        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat1[:, 1])
+    end
+
+    # can now multiply arnoldi column through projection bit vector
+    @views ws.scratch.extra.temp_m_mat1[:, 2] .*= ws.proj_flags
+
+    # compute y_bar (specialised to ws.θ == 1.0 case)
+    ws.scratch.method_mats.y_qm_bar .= ws.scratch.extra.temp_m_mat1
+    ws.scratch.method_mats.y_qm_bar .*= 2.0
+    @views ws.scratch.method_mats.y_qm_bar .-= ws.vars.state_q[ws.p.n+1:end, :]
+
+    # temp_m_mat1 is taken up with updated y subvectors which we
+    # have to keep until the end of this function body
+    ws.scratch.extra.temp_m_mat2 .= ws.scratch.extra.Ax_mat
+    ws.scratch.extra.temp_m_mat2 .*= -ws.method.ρ
+    ws.scratch.extra.temp_m_mat2 .+= ws.scratch.method_mats.y_qm_bar # now stores y_bar -ρ A q_x
+
+    # multiply this by A'
+    @views two_col_mul!(ws.scratch.extra.temp_n_mat1, ws.p.A', ws.scratch.extra.temp_m_mat2, ws.scratch.extra.temp_m_vec_complex, ws.scratch.extra.temp_n_vec_complex1)
+
+    # add c (optimisation iterate only)
+    @views ws.scratch.extra.temp_n_mat1[:, 1] .+= ws.p.c
+
+    # short-lived working container for -δ x_k term (often 0)
+    @views ws.scratch.extra.temp_n_mat2 .= ws.vars.state_q[1:ws.p.n, :]
+    ws.scratch.extra.temp_n_mat2 .*= ws.method.W_inv.shift
+
+    # subtract this. ws.scratch.extra.temp_n_mat2 free after this
+    ws.scratch.extra.temp_n_mat1 .-= ws.scratch.extra.temp_n_mat2
+
+    # apply inverse of W
+    apply_inv!(ws.method.W_inv, ws.scratch.extra.temp_n_mat1, ws.scratch.extra.temp_n_vec_complex1)
+
+    # negate
+    ws.scratch.extra.temp_n_mat1 .*= -1.0
+    # this concludes [x, q_x] update
+
+    # dual residual and gap measures
+    if update_residuals
+        # compute P * x_k
+        @views mul!(ws.res.r_dual, ws.p.P, ws.vars.state_q[1:ws.p.n, 1])
+        Px_norm = norm(ws.res.r_dual, Inf)
+
+        @views xTPx = dot(ws.vars.state_q[1:ws.p.n, 1], ws.res.r_dual) # x^T P x
+        @views cTx  = dot(ws.p.c, ws.vars.state_q[1:ws.p.n, 1]) # c^T x
+        @views bTy  = dot(ws.p.b, ws.vars.state_q[ws.p.n+1:end, 1])
+
+        # compute A' y_k
+        @views mul!(ws.scratch.base.temp_n_vec2 , ws.p.A', ws.vars.state_q[ws.p.n+1:end, 1])
+        ATy_norm = norm(ws.scratch.base.temp_n_vec2, Inf)
+
+        # compute P * x_k + A' * y_k
+        ws.res.r_dual .+= ws.scratch.base.temp_n_vec2
+        # add c to complete dual residual
+        ws.res.r_dual .+= ws.p.c
+
+        ws.res.rd_abs = norm(ws.res.r_dual, Inf)
+        ws.res.rd_rel = ws.res.rd_abs / (1 + max(Px_norm, ATy_norm, ws.p.c_norm_inf))
+
+        ws.res.obj_primal = 0.5xTPx + cTx
+        ws.res.obj_dual = - 0.5xTPx - bTy
+
+        ws.res.gap_abs = abs(xTPx + cTx + bTy)
+        ws.res.gap_rel = ws.res.gap_abs / (1 + max(abs(ws.res.obj_primal), abs(ws.res.obj_dual)))        
+    end
+
+    # assign new iterates
+    # consumes temp_n_mat1 and temp_m_mat1
+    ws.vars.state_q[1:ws.p.n, :] .= ws.scratch.extra.temp_n_mat1
+    ws.vars.state_q[ws.p.n+1:end, :] .= ws.scratch.extra.temp_m_mat1
 end
 
 function krylov_step!(
