@@ -122,7 +122,9 @@ end
 struct KrylovScratchExtra{T} <: ScratchExtra{T}
     temp_n_mat1::Matrix{T}
     temp_n_mat2::Matrix{T}
-    temp_m_mat::Matrix{T}
+    temp_m_mat1::Matrix{T}
+    temp_m_mat2::Matrix{T}
+    Ax_mat::Matrix{T}
     temp_n_vec_complex1::Vector{Complex{T}}
     temp_n_vec_complex2::Vector{Complex{T}}
     temp_m_vec_complex::Vector{Complex{T}}
@@ -153,6 +155,8 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
         new{T}(
             zeros(T, n, 2),
             zeros(T, n, 2),
+            zeros(T, m, 2),
+            zeros(T, m, 2),
             zeros(T, m, 2),
             zeros(Complex{T}, n),
             zeros(Complex{T}, n),
