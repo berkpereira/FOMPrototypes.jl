@@ -152,8 +152,7 @@ function compute_krylov_accelerant!(
 
         # obtain actual acceleration candidate by applying FOM to
         # this, and write candidate to result_vec
-        alloc_bytes = @allocated onecol_method_operator!(ws, Val{ws.method.variant}(), ws.scratch.base.temp_mn_vec1, result_vec)
-        @info "allocs here in KiB: $(alloc_bytes / 1024)"
+        onecol_method_operator!(ws, Val{ws.method.variant}(), ws.scratch.base.temp_mn_vec1, result_vec)
     else
         @info "❌ Krylov acceleration failed with status: $lls_status"
     end
@@ -168,7 +167,8 @@ function krylov_usual_step!(
     timer::TimerOutput;
     )
     # apply method operator (to both state and Arnoldi (q) vectors)
-    twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
+    alloc_bytes = @allocated twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
+    @info "allocs in core twocol_method_operator! in KiB: $(alloc_bytes / 1024)"
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place

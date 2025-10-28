@@ -173,21 +173,22 @@ end
 This function computes M1 matrix-vector products with x efficiently.
 Result is stored in result_vec, while x is left unchanged.
 
-TODO include consideration of M_1 = 
 M_1^{a priori} + δ I regularisation used in computing
 Cholesky factors? It does in fact effectively change
 the M_1 matrix in use, which should be reflected here
 (it's just that for the purposes for which we use
 this function, it makes a negligible difference;
 note also that usually δ ≈ 1e-10 in regularised cases).
+
+TODO find and reduce intense heap allocs in this function
 """
 function M1_op!(
     x::AbstractVector{Float64},
     result_vec::AbstractVector{Float64},
     ws::Union{KrylovWorkspace, AndersonWorkspace},
     variant::Symbol,
-    A_gram::LinearMap{Float64},
-    temp_n_vec::Vector{Float64}
+    temp_n_vec::Vector{Float64},
+    temp_m_vec::Vector{Float64},
     )
 
     result_vec .= x
@@ -195,9 +196,19 @@ function M1_op!(
     if variant == :PDHG # M1 = 1/τ * I
         result_vec ./= ws.method.τ
     elseif variant == :ADMM # M1 = ρ * A' * A
-        temp_n_vec .= x
-        mul!(result_vec, A_gram, temp_n_vec)
+        result_vec .= x
+        # avoid using A_gram linear map --- will silently allocate memory
+        # required for intermediate product
+        mul!(temp_m_vec, ws.p.A, result_vec)
+        mul!(result_vec, ws.p.A', temp_m_vec)
         result_vec .*= ws.method.ρ
+        
+        # add small shift component from Cholesky regularisation
+        if ws.method.W_inv.shift != 0.0
+            temp_n_vec .= x
+            temp_n_vec .*= ws.method.W_inv.shift
+            result_vec .+= temp_n_vec
+        end
     elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
         mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
         result_vec .*= -1.0 # result_vec = -R(P) * x

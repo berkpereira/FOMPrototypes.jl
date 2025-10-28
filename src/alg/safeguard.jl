@@ -22,7 +22,7 @@ end
 Compute fixed-point metric for fp_res (length m+n) according to ws.safeguard_norm.
 
 Inputs:
-- ws: workspace (provides ws.p, ws.method.ρ, ws.method.variant, ws.A_gram, etc)
+- ws: workspace (provides ws.p, ws.method.ρ, ws.method.variant, etc)
 - fp_res: fixed-point residual vector (fom - state) of length m+n
 - temp_n_vec1, temp_n_vec2: scratch vectors length n
 - temp_m_vec: scratch vector length m
@@ -48,7 +48,13 @@ function compute_fp_metric!(
         return norm(fp_res)
     elseif ws.safeguard_norm == :char
         # ws.scratch.base.temp_n_vec1 will hold M1 * fp_x
-        @views M1_op!(fp_res[1:n], ws.scratch.base.temp_n_vec1, ws, ws.method.variant, ws.A_gram, ws.scratch.base.temp_n_vec2)
+        @views M1_op!(
+            fp_res[1:n],
+            ws.scratch.base.temp_n_vec1,
+            ws,
+            ws.method.variant,
+            ws.scratch.base.temp_n_vec2,
+            ws.scratch.base.temp_m_vec2)
 
         # <M1 * fp_x, fp_x>
         @views metric_sq = dot(ws.scratch.base.temp_n_vec1, fp_res[1:n])
@@ -58,6 +64,7 @@ function compute_fp_metric!(
 
         # + 2 <A * fp_x, fp_y>
         @views mul!(ws.scratch.base.temp_m_vec1, ws.p.A, fp_res[1:n])    # ws.scratch.base.temp_m_vec1 := A * fp_x
+
         @views metric_sq += 2 * dot(ws.scratch.base.temp_m_vec1, fp_res[n+1:end])
 
         return sqrt(metric_sq)
