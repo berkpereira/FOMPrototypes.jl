@@ -101,8 +101,6 @@ function compute_krylov_accelerant!(
     result_vec::Vector{Float64},
     )
 
-    # TODO pre-allocate working vectors in this function
-
     # slice of H to use is H[1:ws.givens_count[], 1:ws.givens_count[]]
 
     # compute FOM(state_q[:, 1]) and store it in result_vec

@@ -92,7 +92,14 @@ function sparse_cholmod_solve!(
     return nothing
 end
 
-function sparse_cholmod_solve!(Lsp::SparseMatrixCSC{Float64, Int64}, perm::Vector{Int64}, inv_perm::Vector{Int64}, x::Matrix{Float64}, temp_n_vec::Vector{Complex{Float64}}, perm_scratch::Vector{Complex{Float64}})
+function sparse_cholmod_solve!(
+    Lsp::SparseMatrixCSC{Float64, Int64},
+    perm::Vector{Int64},
+    inv_perm::Vector{Int64},
+    x::Matrix{Float64},
+    temp_n_vec::Vector{Complex{Float64}},
+    perm_scratch::Vector{Complex{Float64}}
+    )
     @assert size(x, 2) == 2 "Custom matrix method only defined for TWO simultaneous right-hand sides."
 
     @views temp_n_vec .= complex.(x[:, 1], x[:, 2])
