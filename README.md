@@ -1,3 +1,3 @@
 # FOMPrototypes.jl
 
-Prototype first-order method (FOM) for convex quadratic programs with cone constraints. The initial code works only for quadratic programs, but will be extended to work for more general cones. A key concern is for the solver to operate without a need to solve linear systems, whether indirectly or by caching a matrix factorisation.
+Prototype first-order methods (FOMs) for convex quadratic programs (QPs) with a novel safeguarded Krylov subspace acceleration method which is described in [this preprint](https://arxiv.org/abs/2511.06323). The underlying FOMs are instances of the preconditioned proximal point method with differing preconditioner choices leading to ADMM (alternating direction method of multipliers) and PDHG (primal-dual hybrid gradient), as well as variants requiring only factorisation of diagonal matrices ("factorisation-free").
