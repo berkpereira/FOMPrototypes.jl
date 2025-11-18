@@ -6,7 +6,7 @@
 macro common_workspace_fields()
     return esc(quote
         p::ProblemData{T}
-        method::AbstractMethod{T, I} # eg PrePPM or ADMM
+        method::AbstractMethod{T, I} # eg PrePPM
         vars::AbstractVariables{T}
         A_gram::LinearMap{T}
         res::ProgressMetrics{T}

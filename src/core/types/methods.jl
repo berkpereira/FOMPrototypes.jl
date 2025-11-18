@@ -36,17 +36,6 @@ struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
     end
 end
 
-# TODO incorporate this into code
-struct ADMM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
-    # method-specific fields go here
-    rho::T
-    # ... any more needed?
-
-    function ADMM{T, I}(rho::T) where {T <: AbstractFloat, I <: Integer}
-        new{T, I}(rho)
-    end
-end
-
 # We now define some types to make the inversion of preconditioner + Hessian
 # matrices, required for the x update, abstract. Thus we can use diagonal ones
 # (as we intend in production) or non-diagonal symmetric ones for comparing

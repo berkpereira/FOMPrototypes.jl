@@ -10,17 +10,9 @@ function _build_method_vecs(p::ProblemData{T}, ::Type{<:PrePPM}) where {T}
     return PrePPMScratchVecs{T}(p)
 end
 
-function _build_method_vecs(p::ProblemData{T}, ::Type{<:ADMM}) where {T}
-    return ADMMScratchVecs{T}(p)
-end
-
 # 2. Helpers for METHOD-SPECIFIC MATRICES (dispatches on Method type)
 function _build_method_mats(p::ProblemData{T}, ::Type{<:PrePPM}) where {T}
     return PrePPMScratchMats{T}(p)
-end
-
-function _build_method_mats(p::ProblemData{T}, ::Type{<:ADMM}) where {T}
-    return ADMMScratchMats{T}(p)
 end
 
 # -----------------------------------------------------------------------

@@ -63,24 +63,6 @@ struct PrePPMScratchMats{T} <: AbstractMethodScratchMats{T}
     end
 end
 
-struct ADMMScratchVecs{T} <: AbstractMethodScratchVecs{T}
-    # ADMM-specific scratch vectors to go here
-
-    # placeholder constructor
-    function ADMMScratchVecs{T}(p::ProblemData{T}) where {T <: AbstractFloat}
-        new()
-    end
-end
-
-struct ADMMScratchMats{T} <: AbstractMethodScratchMats{T}
-    # ADMM-specific scratch matrices to go here
-
-    # placeholder constructor
-    function ADMMScratchMats{T}(p::ProblemData{T}) where {T <: AbstractFloat}
-        new()
-    end
-end
-
 abstract type ScratchExtra{T <: AbstractFloat} end
 
 struct VanillaScratchExtra{T} <: ScratchExtra{T}
