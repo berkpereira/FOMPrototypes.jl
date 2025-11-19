@@ -4,16 +4,95 @@ using IterativeSolvers
 using Clarabel
 
 """
+TODO add docstring
+modifies y in-place
+leaves preproj_vec unchanged
+leaves postproj_vec unchanged
+
+uses preproj_vec and postproj_vec to determine linearisation
+"""
+function linearised_proj_step!(
+    y::AbstractVector{Float64},
+    preproj_vec::AbstractVector{Float64},
+    postproj_vec::AbstractVector{Float64},
+    K::Vector{Clarabel.SupportedCone},
+    proj_state::ProjectionState,
+    temp_normal::AbstractVector{Float64},
+    )
+    start_idx = 1
+    soc_idx = 1
+    for cone in K
+        end_idx = start_idx + cone.dim - 1
+        if cone isa Clarabel.NonnegativeConeT
+            @views y[start_idx:end_idx] .*= proj_state.nn_mask
+        elseif cone isa Clarabel.SecondOrderConeT
+            if proj_state.soc_states[soc_idx] == soc_identity
+                nothing # identity operation
+            elseif proj_state.soc_states[soc_idx] == soc_zero
+                @views y[start_idx:end_idx] .= 0.0
+            else # interesting case
+                v_temp = view(temp_normal, start_idx:end_idx)
+                v_post = view(postproj_vec, start_idx:end_idx)
+                v_pre  = view(preproj_vec, start_idx:end_idx)
+                v_y    = view(y, start_idx:end_idx)
+
+                @. v_temp = v_post - v_pre
+                inv_nrm = 1 / norm(v_temp)
+
+                # make into unit normal vector
+                @. v_temp *= inv_nrm
+                
+                # orthogonal projection with one-dimensional null space v_temp
+                scalar_proj = dot(v_y, v_temp)
+                @. v_y -= scalar_proj * v_temp
+            end
+            soc_idx += 1
+        end
+        # NB zero cone needs no action to project to its dual (whole space)
+
+
+        start_idx = end_idx + 1
+    end
+end
+
+"""
 For LINEAR CONSTRAINTS DO ENTRY BY ENTRY, not cone by cone. Check for
 entry-wise equality/inequality.
 """
 function update_proj_flags!(
-    proj_flags::BitVector,
+    proj_state::ProjectionState,
     preproj_vec::AbstractVector{Float64},
-    postproj_y::AbstractVector{Float64}
+    postproj_y::AbstractVector{Float64},
+    K::Vector{Clarabel.SupportedCone},
     )
 
-    proj_flags .= (preproj_vec .== postproj_y)
+    start_idx = 1
+    soc_idx = 1
+    for cone in K
+    end_idx = start_idx + cone.dim - 1
+        if cone isa Clarabel.ZeroConeT
+            # simply maintain identity, this is unchanging
+            continue
+        elseif cone isa Clarabel.NonnegativeConeT
+            # NB this assumes there is at most one such cone
+            println("Dimension of pre: $(length(preproj_vec[start_idx:end_idx]))")
+            println("Dimension of post: $(length(postproj_y[start_idx:end_idx]))")
+            println("Dimension of mask: $(length(proj_state.nn_mask))")
+            @views proj_state.nn_mask .= (preproj_vec[start_idx:end_idx] .== postproj_y[start_idx:end_idx])
+        elseif cone isa Clarabel.SecondOrderConeT
+            v_pre = view(preproj_vec, start_idx:end_idx)
+            v_post = view(postproj_y, start_idx:end_idx)
+            if all(v_post .== 0.0)
+                proj_state.soc_states[soc_idx] = soc_zero
+            elseif all(v_pre .== v_post)
+                proj_state.soc_states[soc_idx] = soc_identity
+            else
+                proj_state.soc_states[soc_idx] = soc_interesting
+            end
+            soc_idx += 1
+        end
+        start_idx = end_idx + 1
+    end
 end
 
 # helper to form and store the first Krylov basis vector
@@ -256,8 +335,10 @@ function twocol_method_operator!(
 
     # if updating primal residual
     if confirm_residual_update
-        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1] # assign A * x - b
-        project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
+        ws.scratch.base.bAx_proj_for_res .= ws.scratch.extra.temp_m_mat1[:, 1] # hold A * x - b for now
+        ws.scratch.base.bAx_proj_for_res .*= -1.0 # now holds b - A * x
+        project_to_K!(ws.scratch.base.bAx_proj_for_res, ws.p.K) # project to cone K
+        @views ws.res.r_primal .= ws.scratch.base.bAx_proj_for_res .+ ws.scratch.extra.temp_m_mat1[:, 1] # assign Pi_K(b - Ax) + (Ax - b) = Pi_K(b - Ax) - (b - Ax)
 
         # at this point the primal residual vector is updated
 
@@ -272,13 +353,23 @@ function twocol_method_operator!(
     @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat1[:, 1] now stores y_{k+1}
 
     # update in-place flags switching affine dynamics based on projection action
-    # ws.proj_flags = D_k in Goodnotes handwritten notes
+    # ws.proj_state.nn_mask = D_k in Goodnotes handwritten notes
     if update_proj_action
-        @views update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat1[:, 1])
+        @views update_proj_flags!(ws.proj_state, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K)
     end
 
     # can now compute the bit of q corresponding to the y iterate
-    @views ws.scratch.extra.temp_m_mat1[:, 2] .*= ws.proj_flags
+    # old way, QP-specific below:
+    # @views ws.scratch.extra.temp_m_mat1[:, 2] .*= ws.proj_state.nn_mask
+    # new way, general for SOCPs:
+    @views linearised_proj_step!(
+        ws.scratch.extra.temp_m_mat1[:, 2],
+        ws.vars.preproj_vec,
+        ws.scratch.extra.temp_m_mat1[:, 1],
+        ws.p.K,
+        ws.proj_state,
+        ws.scratch.extra.projection_normal,
+        )
 
     # now compute bar iterates (y and q_m) concurrently
     # TODO reduce memory allocation in this line (only in general ws.method.θ != 1.0 cases)
@@ -405,6 +496,7 @@ function krylov_step!(
         end
 
         if ws.control_flags.accepted_accel
+            println("✅ Krylov acceleration accepted at iteration $(ws.k[]), givens count $(ws.givens_count[]).")
             # increment effective iter counter (ie excluding unsuccessful acc attempts)
             ws.k_eff[] += 1
             ws.res.residual_check_count[] += 1

@@ -203,7 +203,7 @@ function push_cosines_projs!(
     # TODO note whether this aligns with new methods' notions
     # of flags used for core dynamics in hot loops versus interpretation
     # in terms of active set (might be the NEGATION of PrePPM's interpretations)
-    push!(record.record_proj_flags, ws.proj_flags)
+    push!(record.record_proj_flags, ws.proj_state.nn_mask)
 end
 
 function push_cosines_projs!(

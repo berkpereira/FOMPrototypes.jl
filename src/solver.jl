@@ -48,7 +48,7 @@ squares problem following from the Krylov acceleration subproblem.
 Note that state_in is the "current" iterate as a single vector in R^{n+m}.
 New iterate is written (in-place) into state_out input vector.
 
-Notw that ws.proj_flags may have different interpretations depending on the
+Notw that ws.proj_state.nn_mask may have different interpretations depending on the
 method in question. Eg in PrePPM it
 The common theme is that it takes the form which makes it easier
 
@@ -104,8 +104,8 @@ function onecol_method_operator!(
     # update dynamics bit vector
     if update_proj_action
         # update in-place flags switching affine dynamics based on projection action
-        # ws.proj_flags = D_k in Goodnotes handwritten notes
-        update_proj_flags!(ws.proj_flags, ws.vars.preproj_vec, ws.scratch.base.temp_m_vec1)
+        # ws.proj_state.nn_mask = D_k in Goodnotes handwritten notes
+        update_proj_flags!(ws.proj_state, ws.vars.preproj_vec, ws.scratch.base.temp_m_vec1, ws.p.K)
     end
 
     # now we go to "bulk of" x and q_n update
@@ -195,7 +195,7 @@ function construct_explicit_operator!(
     ws_diag::DiagnosticsWorkspace
     ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
     
-    D_A = Diagonal(ws.proj_flags)
+    D_A = Diagonal(ws.proj_state.nn_mask)
 
     ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= I(ws.p.n) - ws_diag.W_inv_mat * ws.p.P - 2 * ws.method.ρ * ws_diag.W_inv_mat * ws.p.A' * D_A * ws.p.A
     ws_diag.tilde_A[1:ws.p.n, ws.p.n+1:end] .= - ws_diag.W_inv_mat * ws.p.A' * (2 * D_A - I(ws.p.m))

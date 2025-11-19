@@ -191,6 +191,10 @@ function accel_fp_safeguard!(
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
 
+    println("Givens count is $(ws.givens_count[]),")
+    println("safeguard ratio is: $(fp_metric_acc / fp_metric_vanilla)")
+    println()
+
     # finalize ws.scratch.extra.state_recycled
     if acceleration_success
         ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead    # ws.scratch.extra.state_lookahead == FOM(accelerated_state)

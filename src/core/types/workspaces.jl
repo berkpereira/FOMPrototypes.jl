@@ -1,6 +1,59 @@
-# Workspace structs
+# structures for cone projection actions
+@enum SOCAction::Int8 begin
+    soc_zero        = 0
+    soc_identity    = 1
+    soc_interesting = 2
+end
 
+struct ProjectionState
+    # 1. Nonnegative Cone Data
+    # We flatten ALL nonnegative cones into a single boolean mask.
+    # This allows you to perform one giant broadcasted SIMD operation 
+    # across all NN variables at once.
+    nn_mask::Vector{Bool} 
 
+    # 2. SOC Data
+    # One enum per SOC cone (not per variable).
+    soc_states::Vector{SOCAction}
+
+    # 3. Maps (optional)
+    # If cones are interleaved in 'K', we might need to know that 
+    # K[i] corresponds to soc_states[j].
+    # If K is sorted (e.g. all NN then all SOC), we don't need this.
+end
+
+function ProjectionState(K::Vector{Clarabel.SupportedCone})
+    # Calculate total
+    soc_count = 0
+    nn_dim = 0
+
+    # TODO add check that cones are ordered as expected
+    # namely: single nonnegative cone first, then SOCs, then single zero cone,
+    # except in QPs, where it doesn't matter (?)
+    for cone in K
+        if cone isa Clarabel.NonnegativeConeT
+            nn_dim = cone.dim
+            println("Nonneg setup dim: $nn_dim")
+        elseif cone isa Clarabel.SecondOrderConeT
+            soc_count += 1
+        elseif cone isa Clarabel.ZeroConeT
+            nothing
+            # no need to populate anything
+        else
+            throw(ArgumentError("Unsupported cone type in K."))
+        end
+    end
+
+    # Allocate
+    nn_mask = Vector{Bool}(undef, nn_dim)
+    soc_states = Vector{SOCAction}(undef, soc_count)
+    
+    # Initialise
+    fill!(nn_mask, true)
+    fill!(soc_states, soc_identity)
+
+    return ProjectionState(nn_mask, soc_states)
+end
 
 # macro to inject common workspace fields (used inside struct bodies)
 macro common_workspace_fields()
@@ -10,7 +63,7 @@ macro common_workspace_fields()
         vars::AbstractVariables{T}
         A_gram::LinearMap{T}
         res::ProgressMetrics{T}
-        proj_flags::AbstractVector{Bool}
+        proj_state::ProjectionState
         
         residual_period::Int
 
@@ -58,7 +111,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
             vars,
             A_gram,
             res,
-            falses(m),
+            ProjectionState(p.K),
             residual_period,
             Ref(0),
             scratch
@@ -157,7 +210,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             vars,
             A_gram,
             res,
-            falses(m),
+            ProjectionState(p.K),
             residual_period,
             Ref(0),
             Ref(0),
@@ -240,7 +293,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
             vars,
             A_gram,
             res,
-            falses(m),
+            ProjectionState(p.K),
             residual_period,
             Ref(0),
             Ref(0),
