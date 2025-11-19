@@ -77,8 +77,10 @@ function onecol_method_operator!(
     ws.scratch.base.temp_m_vec1 .-= ws.p.b
 
     if confirm_residual_update
-        @views ws.res.r_primal .= ws.scratch.base.temp_m_vec1 # assign A * x - b
-        project_to_dual_K!(ws.res.r_primal, ws.p.K) # project to dual cone (TODO: sort out for more general cones than just QP case)
+        ws.scratch.base.bAx_proj_for_res .= ws.scratch.base.temp_m_vec1 # hold A * x - b for now
+        ws.scratch.base.bAx_proj_for_res .*= -1.0 # now holds b - A * x
+        project_to_K!(ws.scratch.base.bAx_proj_for_res, ws.p.K) # project to cone K
+        ws.res.r_primal .= ws.scratch.base.bAx_proj_for_res + ws.scratch.base.temp_m_vec1 # assign Pi_K(b - Ax) + (Ax - b) = Pi_K(b - Ax) - (b - Ax)
 
         # at this point the primal residual is updated
         ws.res.rp_abs = norm(ws.res.r_primal, Inf)

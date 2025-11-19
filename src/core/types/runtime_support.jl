@@ -29,6 +29,7 @@ struct BaseScratch{T <: AbstractFloat}
     temp_m_vec2::Vector{T}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
+    bAx_proj_for_res::Vector{T} # to hold Pi_K(b - Ax), intermediate in primal residual computation
 
     function BaseScratch{T}(p::ProblemData{T}) where {T <: AbstractFloat}
         new(
@@ -38,6 +39,7 @@ struct BaseScratch{T <: AbstractFloat}
             zeros(T, p.m),
             zeros(T, p.m + p.n),
             zeros(T, p.m + p.n),
+            zeros(T, p.m),
         )
     end
 end
@@ -49,7 +51,7 @@ struct PrePPMScratchVecs{T} <: AbstractMethodScratchVecs{T}
     y_bar::Vector{T} # Extrapolated dual variable
     Ax::Vector{T} # to hold "basic" A * x products
     ATy::Vector{T} # to hold "basic" A' * y products
-
+    
     function PrePPMScratchVecs{T}(p::ProblemData{T}) where {T <: AbstractFloat}
         new(zeros(T, p.m), zeros(T, p.m), zeros(T, p.n))
     end
