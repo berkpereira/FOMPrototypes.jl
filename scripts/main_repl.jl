@@ -8,8 +8,11 @@ args = Dict(
     # "problem-set"  => "maros",
     # "problem-name" => "AUG3DQP",
 
-    "problem-set"  => "sslsq",
+    "problem-set" => "sslsq",
     "problem-name" => "NYPA_Maragal_3_lasso",
+
+    # "problem-set"  => "socp",
+    # "problem-name" => "options_pricing_K_10",
 
     # this can break when estimation of max_τ goes wrong (negative! even)
     # "problem-set"  => "mpc",
@@ -45,9 +48,9 @@ args = Dict(
     # "linesearch-period" => Inf,
     # "linesearch-eps"    => 0.001,
 
-    "max-iter"           => 4_000, # ONLY relevant with no acceleration!
-    "max-k-operator"     => 1_000, # ONLY relevant with Anderson/Krylov
-    "print-mod"          => 100,
+    "max-iter"           => 100_000, # ONLY relevant with no acceleration!
+    "max-k-operator"     => 10_000, # ONLY relevant with Anderson/Krylov
+    "print-mod"          => 1_000,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
     "run-fast"           => true,
@@ -63,7 +66,7 @@ problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
 
 
 # call reference solver:
-# model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
+model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
 
 # call my solver:
 ws, ws_diag, results, to = FOMPrototypes.run_prototype(
