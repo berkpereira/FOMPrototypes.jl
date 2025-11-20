@@ -41,14 +41,13 @@ function anderson_step!(
             ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
             
             if ws.control_flags.accepted_accel
-                println("Anderson success.")
+                println("✅ Anderson success at iteration $(ws.k[])")
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
                 ws.res.residual_check_count[] += 1
 
                 # assign actually
                 ws.vars.state .= ws.scratch.extra.accelerated_point
             else
-                println("Anderson rejected by safeguard.")
             end
         end
 

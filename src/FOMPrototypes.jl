@@ -265,9 +265,9 @@ function solve_reference(problem::ProblemData,
     if reference_solver == :SCS
         println("RUNNING SCS...")
         model = Model(SCS.Optimizer)
-        set_optimizer_attribute(model, "eps_rel", 1e-6)
-        set_optimizer_attribute(model, "eps_abs", 1e-6)
-
+        set_optimizer_attribute(model, "eps_rel", 1e-3)
+        set_optimizer_attribute(model, "eps_abs", 1e-3)
+        
         # set acceleration_lookback to 0 to disable Anderson acceleration
         # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
         # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10

@@ -191,7 +191,9 @@ function accel_fp_safeguard!(
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
 
-    println("Givens count is $(ws.givens_count[]),")
+    if ws isa KrylovWorkspace
+        println("Givens count is $(ws.givens_count[]),")
+    end
     println("safeguard ratio is: $(fp_metric_acc / fp_metric_vanilla)")
     println()
 
