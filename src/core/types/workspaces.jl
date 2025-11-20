@@ -9,7 +9,8 @@ struct ProjectionState
     # 1. Nonnegative Cone Data
     # We flatten ALL nonnegative cones into a single boolean mask.
     # This allows you to perform one giant broadcasted SIMD operation 
-    # across all NN variables at once.
+    # across all NN variables at once, even when they are split across
+    # multiple cone blocks.
     nn_mask::Vector{Bool} 
 
     # 2. SOC Data
@@ -32,8 +33,7 @@ function ProjectionState(K::Vector{Clarabel.SupportedCone})
     # except in QPs, where it doesn't matter (?)
     for cone in K
         if cone isa Clarabel.NonnegativeConeT
-            nn_dim = cone.dim
-            println("Nonneg setup dim: $nn_dim")
+            nn_dim += cone.dim
         elseif cone isa Clarabel.SecondOrderConeT
             soc_count += 1
         elseif cone isa Clarabel.ZeroConeT

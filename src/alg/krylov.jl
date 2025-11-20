@@ -21,10 +21,13 @@ function linearised_proj_step!(
     )
     start_idx = 1
     soc_idx = 1
+    nn_idx = 1
     for cone in K
         end_idx = start_idx + cone.dim - 1
         if cone isa Clarabel.NonnegativeConeT
-            @views y[start_idx:end_idx] .*= proj_state.nn_mask
+            nn_range = nn_idx:(nn_idx + cone.dim - 1)
+            @views y[start_idx:end_idx] .*= proj_state.nn_mask[nn_range]
+            nn_idx += cone.dim
         elseif cone isa Clarabel.SecondOrderConeT
             if proj_state.soc_states[soc_idx] == soc_identity
                 nothing # identity operation
@@ -68,17 +71,16 @@ function update_proj_flags!(
 
     start_idx = 1
     soc_idx = 1
+    nn_idx = 1
     for cone in K
-    end_idx = start_idx + cone.dim - 1
+        end_idx = start_idx + cone.dim - 1
         if cone isa Clarabel.ZeroConeT
-            # simply maintain identity, this is unchanging
-            continue
+            # zero cones always map to the whole space, so mask stays unchanged
+            nothing
         elseif cone isa Clarabel.NonnegativeConeT
-            # NB this assumes there is at most one such cone
-            println("Dimension of pre: $(length(preproj_vec[start_idx:end_idx]))")
-            println("Dimension of post: $(length(postproj_y[start_idx:end_idx]))")
-            println("Dimension of mask: $(length(proj_state.nn_mask))")
-            @views proj_state.nn_mask .= (preproj_vec[start_idx:end_idx] .== postproj_y[start_idx:end_idx])
+            nn_range = nn_idx:(nn_idx + cone.dim - 1)
+            @views proj_state.nn_mask[nn_range] .= (preproj_vec[start_idx:end_idx] .== postproj_y[start_idx:end_idx])
+            nn_idx += cone.dim
         elseif cone isa Clarabel.SecondOrderConeT
             v_pre = view(preproj_vec, start_idx:end_idx)
             v_post = view(postproj_y, start_idx:end_idx)
