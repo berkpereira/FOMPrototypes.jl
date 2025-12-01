@@ -4,7 +4,7 @@ function load_clarabel_benchmark_prob_data(problem_set::String, problem_name::St
 
     # Select problem and load data
     # Outer (first) dictionary is the problem class. Inner (second) is the problem name.
-    # println(keys(ClarabelBenchmarks.PROBLEMS))
+    println(keys(ClarabelBenchmarks.PROBLEMS))
     println(keys(ClarabelBenchmarks.PROBLEMS[problem_set]))
     problem = ClarabelBenchmarks.PROBLEMS[problem_set][problem_name]
 

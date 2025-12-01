@@ -190,15 +190,13 @@ function accel_fp_safeguard!(
     end
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
-
-    if ws isa KrylovWorkspace
-        println("Givens count is $(ws.givens_count[]),")
-    end
-    println("safeguard ratio is: $(fp_metric_acc / fp_metric_vanilla)")
-    println()
-
+    
     # finalize ws.scratch.extra.state_recycled
     if acceleration_success
+        if ws isa KrylovWorkspace
+            println("Givens count is $(ws.givens_count[]),")
+        end
+        println("✅ accel success, safeguard ratio: $(fp_metric_acc / fp_metric_vanilla)")
         ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead    # ws.scratch.extra.state_lookahead == FOM(accelerated_state)
     end
 

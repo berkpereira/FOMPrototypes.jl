@@ -26,7 +26,7 @@ function anderson_step!(
         ws.scratch.extra.accelerated_point .= ws.vars.state # accelerated point if no numerics blowups
         ws.vars.state .= ws.scratch.extra.state_pre_overwrite # retake the iterate from which we are attempting acceleration right now
 
-        # ws.accelerator.success only indicates there was no
+        # ws.accelerator.success indicates only that there was no
         # numerical blowup in the COSMOAccelerators.accelerate!
         # internals
         if ws.accelerator.success
@@ -41,13 +41,11 @@ function anderson_step!(
             ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
             
             if ws.control_flags.accepted_accel
-                println("✅ Anderson success at iteration $(ws.k[])")
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
                 ws.res.residual_check_count[] += 1
 
                 # assign actually
                 ws.vars.state .= ws.scratch.extra.accelerated_point
-            else
             end
         end
 

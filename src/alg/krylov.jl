@@ -42,6 +42,10 @@ function linearised_proj_step!(
                 @. v_temp = v_post - v_pre
                 inv_nrm = 1 / norm(v_temp)
 
+                if inv_nrm > 1e6
+                    println("🟠 Very small normal vector in linearised projection step for SOC at index $soc_idx !")
+                end
+
                 # make into unit normal vector
                 @. v_temp *= inv_nrm
                 
