@@ -46,6 +46,8 @@ function initialise_misc(backend::Symbol = :plotlyjs)
     # For faster plotting: gr()
     if backend == :plotlyjs
         plotlyjs()
+    elseif backend == :plotly
+        plotly()
     elseif backend == :pyplot
         pyplot()
     elseif backend == :gr
@@ -427,7 +429,9 @@ function plot_results(
     # Add Krylov operator string if acceleration is :krylov
     
     
-    constraint_lines = constraint_changes(results.metrics_history[:record_proj_flags])
+    nn_history = get(results.metrics_history, :record_proj_flags, Vector{Vector{Bool}}())
+    soc_history = get(results.metrics_history, :record_soc_states, Vector{Vector{SOCAction}}())
+    constraint_lines = constraint_changes(nn_history, soc_history)
 
     # Helper function to add common vertical lines, only if show_vlines is true.
     function add_vlines!(plt; include_active_set_changes::Bool = true)
@@ -465,14 +469,14 @@ function plot_results(
     # Primal residual plot.
     pres_plot = plot(0:k_final-1, results.metrics_history[:pri_res_norms], linewidth=LINEWIDTH,
     label="Prototype Residual", xlabel="Iteration", ylabel="Primal Residual",
-    title="$title_common Primal Residual Norm", yaxis=:log)
+    title="$title_common Primal Residual Norm", yaxis=:log10)
     add_vlines!(pres_plot)
     display(pres_plot)
 
     # Dual residual plot.
     dres_plot = plot(0:k_final-1, results.metrics_history[:dual_res_norms], linewidth=LINEWIDTH,
     label="Prototype Dual Residual", xlabel="Iteration", ylabel="Dual Residual",
-    title="$title_common Dual Residual Norm", yaxis=:log)
+    title="$title_common Dual Residual Norm", yaxis=:log10)
     add_vlines!(dres_plot)
     display(dres_plot)
 
@@ -481,14 +485,14 @@ function plot_results(
         state_dist_to_sol = sqrt.(results.metrics_history[:x_dist_to_sol] .^ 2 .+ results.metrics_history[:y_dist_to_sol] .^ 2)
         state_dist_plot = plot(0:k_final, state_dist_to_sol, linewidth=LINEWIDTH,
             label="Prototype state Distance", xlabel="Iteration", ylabel="Distance to Solution",
-            title="$title_common state Distance to Solution", yaxis=:log)
+            title="$title_common state Distance to Solution", yaxis=:log10)
         add_vlines!(state_dist_plot)
         display(state_dist_plot)
 
         # state characteristic norm distance to solution plot.
         seminorm_plot = plot(0:k_final, results.metrics_history[:state_chardist], linewidth=LINEWIDTH,
         label="state Seminorm Distance (Theory)", xlabel="Iteration", ylabel="Distance to Solution",
-        title="$title_common state Characteristic Norm Distance to Solution", yaxis=:log)
+        title="$title_common state Characteristic Norm Distance to Solution", yaxis=:log10)
         add_vlines!(seminorm_plot)
         display(seminorm_plot)
     end
@@ -496,14 +500,14 @@ function plot_results(
     # state step norms plot.
     state_step_norms_plot = plot(0:k_final-1, results.metrics_history[:state_step_norms], linewidth=LINEWIDTH,
         label="state Step l2 Norm", xlabel="Iteration", ylabel="Step Norm",
-        title="$title_common state l2 Step Norm", yaxis=:log)
+        title="$title_common state l2 Step Norm", yaxis=:log10)
     add_vlines!(state_step_norms_plot)
     display(state_step_norms_plot)
 
     # state step CHAR norms plot.
     state_step_char_norms_plot = plot(0:k_final-1, results.metrics_history[:state_step_char_norms], linewidth=LINEWIDTH,
         label="state Step Char Norm", xlabel="Iteration", ylabel="Step CHAR Norm",
-        title="$title_common state CHAR Step Norm", yaxis=:log)
+        title="$title_common state CHAR Step Norm", yaxis=:log10)
     add_vlines!(state_step_char_norms_plot)
     display(state_step_char_norms_plot)
 
@@ -511,7 +515,7 @@ function plot_results(
     # sing_vals_ratio_plot = plot(results.metrics_history[:update_mat_iters], results.metrics_history[:update_mat_singval_ratios], linewidth=LINEWIDTH,
     # label="Prototype Update Matrix", xlabel="Iteration", ylabel="First Two Singular Values' Ratio",
     # title="$title_beginning Update Matrix Singular Value Ratio  $title_end",
-    # yaxis=:log, marker=:circle)
+    # yaxis=:log10, marker=:circle)
     # add_vlines!(sing_vals_ratio_plot)
     # display(sing_vals_ratio_plot)
 
@@ -531,16 +535,16 @@ function plot_results(
     display(state_update_cosines_plot)
 
     # Projection flags plot (often intensive)
-    # enforced_constraints_plot(results.metrics_history[:record_proj_flags])
+    # enforced_constraints_plot(nn_history, soc_history)
 
     # plot count of flipped constraints
-    proj_diffs_plot = plot_projection_diffs(results.metrics_history[:record_proj_flags])
-    add_vlines!(proj_diffs_plot, include_active_set_changes = false)
+    proj_diffs_plot = plot_projection_diffs(nn_history, soc_history)
+    add_vlines!(proj_diffs_plot)
     display(proj_diffs_plot)
 
     # plot count of enforced constraints
-    enforced_constraints_plot = plot_enforced_constraints_count(results.metrics_history[:record_proj_flags], ws.p.m)
-    add_vlines!(enforced_constraints_plot, include_active_set_changes = false)
+    enforced_constraints_plot = plot_enforced_constraints_count(nn_history, soc_history)
+    add_vlines!(enforced_constraints_plot)
     display(enforced_constraints_plot)
 
     # FP Metric Ratio plot.
@@ -551,7 +555,8 @@ function plot_results(
         title="$title_common FP Metric Ratio",
         lw=2, # Set line width for better visibility
         marker=:circle, # Add markers to each data point
-        markersize=3)
+        markersize=3,
+        yscale=:log10)
     add_vlines!(fp_metric_plot)
     display(fp_metric_plot)
 end

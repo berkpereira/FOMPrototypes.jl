@@ -1,36 +1,27 @@
 import FOMPrototypes
 using Infiltrator
 
+const ITER_COUNT = 300_000
+
 args = Dict(
     "ref-solver"   => :SCS,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
-
-    # "problem-set"  => "maros",
-    # "problem-name" => "AUG3DQP",
 
     # "problem-set" => "sslsq",
     # "problem-name" => "NYPA_Maragal_3_lasso",
 
     "problem-set"  => "socp",
-    "problem-name" => "options_pricing_K_10",
+    "problem-name" => "options_pricing_K_50",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case60_c",
-
-    # this can break when estimation of max_τ goes wrong (negative! even)
-    # "problem-set"  => "mpc",
-    # "problem-name" => "springMass_4",
-
-    # NB this LP gives bad Arnoldi breakdowns (rank deficient
-    # LLS system, breaks forward solve) when using ADMM, Krylov,
-    # mem = 40, tries_per_mem = 3, euclidean safeguard, krylov operator = :tilde_A
     
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-12,
+    "rel-kkt-tol"  => 1e-3,
 
-    "accel-memory" => 13,
+    "accel-memory" => 15,
     "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.99, # factor for fixed-point residual safeguard check in accelerated methods
@@ -51,8 +42,8 @@ args = Dict(
     # "linesearch-period" => Inf,
     # "linesearch-eps"    => 0.001,
 
-    "max-iter"           => 200_000, # ONLY relevant with no acceleration!
-    "max-k-operator"     => 200_000, # ONLY relevant with Anderson/Krylov
+    "max-iter"           => ITER_COUNT, # ONLY relevant with no acceleration!
+    "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov
     "print-mod"          => 1000,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
@@ -66,7 +57,6 @@ args = Dict(
 
 # get problem data:
 problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
-
 
 # call reference solver:
 # model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
@@ -83,6 +73,12 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
 
 # plot results if applicable:
 if !args["run-fast"]
-    FOMPrototypes.plot_results(ws, results, args["problem-set"], args["problem-name"], args, :plotlyjs)
+    FOMPrototypes.plot_results(
+        ws,
+        results,
+        args["problem-set"],
+        args["problem-name"],
+        args,
+        :plotlyjs)
 end
 ;
