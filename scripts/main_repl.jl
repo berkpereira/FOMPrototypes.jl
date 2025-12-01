@@ -1,17 +1,17 @@
 import FOMPrototypes
 using Infiltrator
 
-const ITER_COUNT = 210;
+const ITER_COUNT = 30_000;
 
 args = Dict(
-    "ref-solver"   => :Clarabel,
+    "ref-solver"   => :COSMO,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
-    # "problem-set" => "sslsq",
-    # "problem-name" => "NYPA_Maragal_3_lasso",
+    "problem-set" => "sslsq",
+    "problem-name" => "NYPA_Maragal_3_lasso",
 
-    "problem-set"  => "socp",
-    "problem-name" => "options_pricing_K_50",
+    # "problem-set"  => "socp",
+    # "problem-name" => "options_pricing_K_50",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case60_c",
@@ -19,15 +19,15 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-5,
+    "rel-kkt-tol"  => 1e-4,
 
     "accel-memory" => 15,
-    "acceleration" => :anderson, # in {:none, :krylov, :anderson}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.99, # factor for fixed-point residual safeguard check in accelerated methods
 
     "krylov-tries-per-mem"  => 3,
-    "krylov-operator"       => :B, # in {:tilde_A, :B}
+    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
     "anderson-interval"     => 10,
@@ -35,7 +35,8 @@ args = Dict(
     "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
-    "rho"   => 1.0,
+    "rho"   => 50.0,
+    "rho-update-period" => 50,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -44,7 +45,7 @@ args = Dict(
 
     "max-iter"           => ITER_COUNT, # ONLY relevant with no acceleration!
     "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov
-    "print-mod"          => 1000,
+    "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
     "run-fast"           => true,

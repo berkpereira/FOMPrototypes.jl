@@ -3,7 +3,7 @@
 abstract type AbstractMethod{T <: AbstractFloat, I <: Integer} end
 
 # TODO restate existing code in terms of this new struct in the workspace
-struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
+mutable struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
     variant::Symbol # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
     ρ::T
     τ::Union{T, Nothing}

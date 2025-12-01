@@ -50,6 +50,10 @@ For instance, PDQP preprint uses tol = 1e-3 for low accuracy and 1e-6 for high
 accuracy solutions.
 """
 function kkt_criterion(ws::AbstractWorkspace, kkt_tol::Float64)
-    max_err = max(ws.res.rp_rel, ws.res.rd_rel, ws.res.gap_rel)
+    max_err = max(
+        ws.res.rp_rel,
+        ws.res.rd_rel,
+        ws.res.gap_rel
+        )
     return max_err <= kkt_tol
 end
