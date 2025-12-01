@@ -1,6 +1,6 @@
 module FOMPrototypes
 
-export main, run_cli, run_prototype, solve_reference, fetch_data,
+export SolverConfig, main, run_cli, run_prototype, solve_reference, fetch_data,
     plot_results
 
 # Import packages.
@@ -18,6 +18,7 @@ using Random
 using JLD2
 
 # Include all project source files.
+include(joinpath(@__DIR__, "core/config.jl"))
 include(joinpath(@__DIR__, "core/types.jl"))
 include(joinpath(@__DIR__, "core/problem_data.jl"))
 include(joinpath(@__DIR__, "core/utils.jl"))
@@ -103,6 +104,11 @@ function parse_command_line()
         arg_type = Int
         default = 1000
 
+        "--max-k-operator"
+        help = "Maximum number of operator applications (relevant for accelerated methods)"
+        arg_type = Int
+        default = 1000
+
         "--print-mod"
         help = "How many iterations between printing info."
         arg_type = Int
@@ -132,6 +138,21 @@ function parse_command_line()
         help = "Krylov operator type: tilde_A or B."
         arg_type = Symbol
         default = :tilde_A
+
+        "--krylov-tries-per-mem"
+        help = "How many acceleration attempts per Krylov memory fill-up."
+        arg_type = Int
+        default = 3
+
+        "--safeguard-norm"
+        help = "Norm used in acceleration safeguard: euclid, char, or none."
+        arg_type = Symbol
+        default = :char
+
+        "--safeguard-factor"
+        help = "Factor for fixed-point residual safeguard check in accelerated methods."
+        arg_type = Float64
+        default = 0.99
 
         "--anderson-interval"
         help = "Anderson acceleration is applied to the operator obtained from composing the optimiser operator THIS many times."
@@ -201,7 +222,7 @@ function parse_command_line()
         default = 0.001
     end
 
-    return parse_args(s)
+    return SolverConfig(parse_args(s))
 end
 
 ##################################
@@ -259,16 +280,16 @@ end
 function solve_reference(problem::ProblemData,
     problem_set::String,
     problem_name::String,
-    args::Dict{String, T}) where T
+    config::SolverConfig)
     # Choose the reference solver in {:SCS, :Clarabel}
-    reference_solver = args["ref-solver"]
+    reference_solver = config.ref_solver
 
     println()
     if reference_solver == :SCS
         println("RUNNING SCS...")
         model = Model(SCS.Optimizer)
-        set_optimizer_attribute(model, "eps_rel", 1e-3)
-        set_optimizer_attribute(model, "eps_abs", 1e-3)
+        set_optimizer_attribute(model, "eps_rel", 1e-5)
+        set_optimizer_attribute(model, "eps_abs", 1e-5)
         
         # set acceleration_lookback to 0 to disable Anderson acceleration
         # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
@@ -315,6 +336,9 @@ function solve_reference(problem::ProblemData,
     return model, state_ref, obj_ref
 end
 
+solve_reference(problem::ProblemData, problem_set::String, problem_name::String, config::AbstractDict) =
+    solve_reference(problem, problem_set, problem_name, SolverConfig(config))
+
 #######################################
 # Run the Prototype Optimization      #
 #######################################
@@ -322,13 +346,13 @@ end
 function run_prototype(problem::ProblemData,
     problem_set::String,
     problem_name::String,
-    args::Dict{String, T};
+    config::SolverConfig;
     state_ref::Union{Nothing, Vector{Float64}} = nothing,
     full_diagnostics::Bool = false,
-    spec_plot_period::Real = Inf) where T
+    spec_plot_period::Real = Inf)
 
     # simple args consistency check
-    if args["anderson-interval"] < 1
+    if config.anderson_interval < 1
         error("Anderson interval must be 1 or more.")
     end
 
@@ -339,8 +363,8 @@ function run_prototype(problem::ProblemData,
         # NB we do not compute A' * A, just store its specification as a linear map
         A_gram = LinearMap(x -> problem.A' * (problem.A * x), size(problem.A, 2), size(problem.A, 2); issymmetric = true)
 
-        @timeit to "build operator" if args["variant"] != :ADMM
-            take_away_op = build_takeaway_op(args["variant"], problem.P, problem.A, A_gram, args["rho"])
+        @timeit to "build operator" if config.variant != :ADMM
+            take_away_op = build_takeaway_op(config.variant, problem.P, problem.A, A_gram, config.rho)
             Random.seed!(42)  # seed for reproducibility
             max_τ = 1 / dom_λ_power_method(take_away_op, 30)
 
@@ -355,22 +379,22 @@ function run_prototype(problem::ProblemData,
             τ = nothing
         end
 
-        println("RUNNING PROTOTYPE VARIANT $(args["variant"])...")
+        println("RUNNING PROTOTYPE VARIANT $(config.variant)...")
         println("Problem set/name: $(problem_set)/$(problem_name)")
-        println("Acceleration: $(args["acceleration"])")
-        if args["acceleration"] in [:krylov, :anderson]
-            println("Acceleration memory: $(args["accel-memory"])")
+        println("Acceleration: $(config.acceleration)")
+        if config.acceleration in [:krylov, :anderson]
+            println("Acceleration memory: $(config.accel_memory)")
         end
 
         @timeit to "init workspace" begin
             # initialise the workspace
-            if args["acceleration"] == :krylov
-                ws = KrylovWorkspace(problem, PrePPM, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["krylov-tries-per-mem"], args["safeguard-norm"], args["krylov-operator"], A_gram = A_gram, to = to)
-            elseif args["acceleration"] == :anderson
-                anderson_log = !args["run-fast"]
-                ws = AndersonWorkspace(problem, PrePPM, args["variant"], τ, args["rho"], args["theta"], args["accel-memory"], args["anderson-interval"], args["safeguard-norm"], A_gram = A_gram, broyden_type = args["anderson-broyden-type"], memory_type = args["anderson-mem-type"], regulariser_type = args["anderson-reg"], anderson_log = anderson_log, to = to)
+            if config.acceleration == :krylov
+                ws = KrylovWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.krylov_tries_per_mem, config.safeguard_norm, config.krylov_operator, A_gram = A_gram, to = to)
+            elseif config.acceleration == :anderson
+                anderson_log = !config.run_fast
+                ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)
             else
-                ws = VanillaWorkspace(problem, PrePPM, args["variant"], τ, args["rho"], args["theta"], A_gram = A_gram, to = to)
+                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, to = to)
             end
         end
     end
@@ -379,7 +403,7 @@ function run_prototype(problem::ProblemData,
         # Run the solver
         results, ws_diag = optimise!(
             ws,
-            args,
+            config,
             setup_time = to.inner_timers["setup"].accumulated_data.time / 1e9,
             state_ref = state_ref,
             timer = to,
@@ -390,6 +414,9 @@ function run_prototype(problem::ProblemData,
     return ws, ws_diag, results, to
 end
 
+run_prototype(problem::ProblemData, problem_set::String, problem_name::String, config::AbstractDict; kwargs...) =
+    run_prototype(problem, problem_set, problem_name, SolverConfig(config); kwargs...)
+
 #############################
 # Refactored Plotting Block #
 #############################
@@ -399,8 +426,8 @@ function plot_results(
     results,
     problem_set::String,
     problem_name::String,
-    args::Dict{String, T},
-    backend::Symbol = :plotlyjs) where T
+    config::SolverConfig,
+    backend::Symbol = :plotlyjs)
 
     newline_char = initialise_misc(backend)
 
@@ -414,16 +441,16 @@ function plot_results(
     ALPHA = 0.9
 
     # Common title components
-    title_common = "Problem: $(problem_set) $(problem_name).$newline_char Variant $(args["variant"]) $newline_char"
-    # title_common *= "Restart period = $(args["restart-period"]).$newline_char Linesearch period = $(args["linesearch-period"])$newline_char"
-    if args["acceleration"] == :none
+    title_common = "Problem: $(problem_set) $(problem_name).$newline_char Variant $(config.variant) $newline_char"
+    # title_common *= "Restart period = $(config.restart_period).$newline_char Linesearch period = $(config.linesearch_period)$newline_char"
+    if config.acceleration == :none
         title_common *= "Acceleration: none.$newline_char"
         krylov_operator_str = ""
-    elseif args["acceleration"] == :anderson
-        title_common *= "Anderson acceleration: mem = $(args["accel-memory"]), interval = $(args["anderson-interval"]),$newline_char broyden = $(args["anderson-broyden-type"]), mem_type = $(args["anderson-mem-type"]).$newline_char"
+    elseif config.acceleration == :anderson
+        title_common *= "Anderson acceleration: mem = $(config.accel_memory), interval = $(config.anderson_interval),$newline_char broyden = $(config.anderson_broyden_type), mem_type = $(config.anderson_mem_type).$newline_char"
         krylov_operator_str = ""
-    elseif args["acceleration"] == :krylov
-        title_common *= "Krylov acceleration: mem = $(args["accel-memory"]), op = $(args["krylov-operator"]).$newline_char"
+    elseif config.acceleration == :krylov
+        title_common *= "Krylov acceleration: mem = $(config.accel_memory), op = $(config.krylov_operator).$newline_char"
     end
 
     # Add Krylov operator string if acceleration is :krylov
@@ -435,7 +462,7 @@ function plot_results(
 
     # Helper function to add common vertical lines, only if show_vlines is true.
     function add_vlines!(plt; include_active_set_changes::Bool = true)
-        if args["show-vlines"]
+        if config.show_vlines
             vline!(plt, results.metrics_history[:acc_step_iters], line = (:dash, ALPHA, :red, VERT_LINEWIDTH * 1.5), label="Accelerated Steps")
             vline!(plt, results.metrics_history[:linesearch_iters], line = (:dash, ALPHA, :maroon, VERT_LINEWIDTH), label="Line Search Steps")
             if include_active_set_changes
@@ -561,6 +588,9 @@ function plot_results(
     display(fp_metric_plot)
 end
 
+plot_results(ws::AbstractWorkspace, results, problem_set::String, problem_name::String, config::AbstractDict, backend::Symbol = :plotlyjs) =
+    plot_results(ws, results, problem_set, problem_name, SolverConfig(config), backend)
+
 ##########################
 # Command line interface #
 ##########################
@@ -582,35 +612,38 @@ end
 # Main Execution Block #
 ###########################
 
-function main(config::Dict{String, Any})
+function main(config::SolverConfig)
     # Choose the problem and fetch data.
     println()
     println("About to import problem data...")
-    problem = fetch_data(config["problem-set"], config["problem-name"])
+    problem = fetch_data(config.problem_set, config.problem_name)
 
     # Solve the reference problem (Clarabel/SCS).
     println()
     println("About to solve problem with reference solver...")
 
     model, state_ref, obj_ref = solve_reference(problem,
-    config["problem-set"], config["problem-name"], config)
+    config.problem_set, config.problem_name, config)
 
     # Run the prototype optimization.
     println()
     println("About to run prototype solver...")
     
     ws, ws_diag, results, to = run_prototype(problem,
-    config["problem-set"], config["problem-name"],
+    config.problem_set, config.problem_name,
     config, state_ref = state_ref)
 
-    if !config["run-fast"]
+    if !config.run_fast
         println()
         println("About to plot results...")
-        plot_results(ws, results, config["problem-set"], config["problem-name"], config)
+        plot_results(ws, results, config.problem_set, config.problem_name, config)
     end
     
     #return data of interest to inspect
     return ws, ws_diag, results, to, x_ref, y_ref
 end
+
+# convenience fallback for dict inputs
+main(config::AbstractDict) = main(SolverConfig(config))
 
 end # module FOMPrototypes

@@ -461,7 +461,7 @@ end
 function krylov_step!(
     ws::KrylovWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    args::Dict{String, Any},
+    config::SolverConfig,
     record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,    
@@ -494,7 +494,7 @@ function krylov_step!(
                 end
             end
 
-            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.extra.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.extra.accelerated_point, config.safeguard_factor, record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: only 1 because we also count another when assigning recycled iterate in the following iteration
         else

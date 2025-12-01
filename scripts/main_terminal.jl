@@ -5,22 +5,22 @@ if abspath(PROGRAM_FILE) == @__FILE__
     config = FOMPrototypes.parse_command_line()
     println()
 
-    warmup_config = deepcopy(config)
-    warmup_config["problem-set"] = "sslsq"
-    warmup_config["problem-name"] = "NYPA_Maragal_3_huber"
-    warmup_config["max-iter"] = 300
-    warmup_config["global-timeout"] = 10.0
-    warmup_config["loop-timeout"] = 10.0
-    warmup_config["rel-kkt-tol"] = 0.0
+    warmup_config = FOMPrototypes.SolverConfig(config;
+        problem_set = "sslsq",
+        problem_name = "NYPA_Maragal_3_huber",
+        max_iter = 300,
+        global_timeout = 10.0,
+        loop_timeout = 10.0,
+        rel_kkt_tol = 0.0)
 
     println("WARMUP run:")
-    problem = FOMPrototypes.fetch_data(warmup_config["problem-set"], warmup_config["problem-name"]);
-    ws, results, to = FOMPrototypes.run_prototype(problem, warmup_config["problem-set"], warmup_config["problem-name"], warmup_config);
+    problem = FOMPrototypes.fetch_data(warmup_config.problem_set, warmup_config.problem_name);
+    ws, results, to = FOMPrototypes.run_prototype(problem, warmup_config.problem_set, warmup_config.problem_name, warmup_config);
 
     println("--------------------")
     println("--------------------")
 
     println("ACTUAL run:")
-    problem = FOMPrototypes.fetch_data(config["problem-set"], config["problem-name"]);
-    ws, results, to = FOMPrototypes.run_prototype(problem, config["problem-set"], config["problem-name"], config);
+    problem = FOMPrototypes.fetch_data(config.problem_set, config.problem_name);
+    ws, results, to = FOMPrototypes.run_prototype(problem, config.problem_set, config.problem_name, config);
 end

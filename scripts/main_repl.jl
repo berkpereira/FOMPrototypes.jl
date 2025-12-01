@@ -1,10 +1,10 @@
 import FOMPrototypes
 using Infiltrator
 
-const ITER_COUNT = 300_000
+const ITER_COUNT = 210;
 
 args = Dict(
-    "ref-solver"   => :SCS,
+    "ref-solver"   => :Clarabel,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
     # "problem-set" => "sslsq",
@@ -19,15 +19,15 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-3,
+    "rel-kkt-tol"  => 1e-5,
 
     "accel-memory" => 15,
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
+    "acceleration" => :anderson, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.99, # factor for fixed-point residual safeguard check in accelerated methods
 
     "krylov-tries-per-mem"  => 3,
-    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
+    "krylov-operator"       => :B, # in {:tilde_A, :B}
     
     # note defaults are reg = :none, with :restarted and :QR2
     "anderson-interval"     => 10,
@@ -35,7 +35,7 @@ args = Dict(
     "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
-    "rho"   => 100.0,
+    "rho"   => 1.0,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -52,33 +52,35 @@ args = Dict(
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
 
+config = FOMPrototypes.SolverConfig(args);
+
 # run everything with a single call:
 # ws, ws_diag, results, to, x_ref, y_ref = FOMPrototypes.main(args);
 
 # get problem data:
-problem = FOMPrototypes.fetch_data(args["problem-set"], args["problem-name"]);
+problem = FOMPrototypes.fetch_data(config.problem_set, config.problem_name);
 
 # call reference solver:
-# model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, args["problem-set"], args["problem-name"], args);
+model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, config.problem_set, config.problem_name, config);
 
 # call my solver:
 ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     problem,
-    args["problem-set"],
-    args["problem-name"],
-    args,
+    config.problem_set,
+    config.problem_name,
+    config,
     full_diagnostics = false,
     spec_plot_period = 50
     );
 
 # plot results if applicable:
-if !args["run-fast"]
+if !config.run_fast
     FOMPrototypes.plot_results(
         ws,
         results,
-        args["problem-set"],
-        args["problem-name"],
-        args,
+        config.problem_set,
+        config.problem_name,
+        config,
         :plotlyjs)
 end
 ;

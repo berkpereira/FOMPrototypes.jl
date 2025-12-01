@@ -7,13 +7,13 @@ import COSMOAccelerators
 function anderson_step!(
     ws::AndersonWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    args::Dict{String, Any},
+    config::SolverConfig,
     record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
     # Anderson acceleration attempt
-    if ws.composition_counter[] == args["anderson-interval"]
+    if ws.composition_counter[] == config.anderson_interval
         # ws.vars.state might be overwritten, so we take note of it here
         # this is for the sole purpose of checking the norm of the
         # step just below in this code branch
@@ -36,7 +36,7 @@ function anderson_step!(
             # ws.scratch.extra.accelerated_point contains the candidate
             # acceleration point, which is legitimately different
             # from ws.vars.state in this branch
-            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state, ws.scratch.extra.accelerated_point, args["safeguard-factor"], record, full_diagnostics)
+            @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state, ws.scratch.extra.accelerated_point, config.safeguard_factor, record, full_diagnostics)
 
             ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
             
@@ -81,7 +81,7 @@ function anderson_step!(
         # composition counter
         ws.composition_counter[] += 1
 
-        if ws.composition_counter[] == args["anderson-interval"]
+        if ws.composition_counter[] == config.anderson_interval
             @timeit timer "anderson update" COSMOAccelerators.update!(ws.accelerator, ws.vars.state, ws.vars.state_into_accelerator, 0)
         end
 

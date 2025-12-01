@@ -5,7 +5,7 @@ using Infiltrator
 using TimerOutputs
 import COSMOAccelerators
 
-# data to store history of when a run uses args["run-fast"] == false
+# data to store history of when a run uses run_fast == false
 const HISTORY_KEYS = [
     :primal_obj_vals,
     :dual_obj_vals,
@@ -219,7 +219,7 @@ in optimise!.
 function step!(
     ws::VanillaWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    args::Dict{String, Any},
+    config::SolverConfig,
     record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,
@@ -230,23 +230,23 @@ end
 function step!(
     ws::KrylovWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    args::Dict{String, Any},
+    config::SolverConfig,
     record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
-    krylov_step!(ws, ws_diag, args, record, full_diagnostics, timer)
+    krylov_step!(ws, ws_diag, config, record, full_diagnostics, timer)
 end
 
 function step!(
     ws::AndersonWorkspace,
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
-    args::Dict{String, Any},
+    config::SolverConfig,
     record::AbstractRecord,
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
-    anderson_step!(ws, ws_diag, args, record, full_diagnostics, timer)
+    anderson_step!(ws, ws_diag, config, record, full_diagnostics, timer)
 end
 
 """
@@ -255,12 +255,12 @@ acceleration is a Symbol in {:none, :krylov, :anderson}
 """
 function optimise!(
     ws::AbstractWorkspace,
-    args::Dict{String, T};
+    config::SolverConfig;
     setup_time::Float64 = 0.0, # time spent in set-up (seconds)
     state_ref::Union{Nothing, Vector{Float64}} = nothing,
     timer::TimerOutput,
     full_diagnostics::Bool = false,
-    spectrum_plot_period::Real = Inf) where T
+    spectrum_plot_period::Real = Inf)
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
@@ -279,7 +279,7 @@ function optimise!(
     end
 
     # data containers for metrics (if return_run_data == true).
-    if args["run-fast"]
+    if config.run_fast
         record = NullRecord()
     else
         record = IterationRecord(ws)
@@ -296,12 +296,12 @@ function optimise!(
         push_res_to_record!(ws, record)
         push_ref_dist_to_record!(ws, record, view_state, state_ref)
 
-        print_results(ws, args["print-mod"], relative = args["print-res-rel"])
+        print_results(ws, config.print_mod, relative = config.print_res_rel)
 
         # iteration update
         # dispatches to appropriate step function,
         # which handles all logic internally
-        step!(ws, ws_diag, args, record, full_diagnostics, timer)
+        step!(ws, ws_diag, config, record, full_diagnostics, timer)
         
         push_cosines_projs!(ws, record)
         
@@ -321,22 +321,22 @@ function optimise!(
         global_time = loop_time + setup_time
 
         # check termination conditions
-        if kkt_criterion(ws, args["rel-kkt-tol"])
+        if kkt_criterion(ws, config.rel_kkt_tol)
             termination = true
             exit_status = :kkt_solved
         elseif ws isa KrylovWorkspace && ws.fp_found[]
             termination = true
             exit_status = :exact_fp_found
-        elseif ws isa VanillaWorkspace && ws.k[] > args["max-iter"] # note this only applies to VanillaWorkspace (no acceleration!)
+        elseif ws isa VanillaWorkspace && ws.k[] > config.max_iter # note this only applies to VanillaWorkspace (no acceleration!)
             termination = true
             exit_status = :max_iter
-        elseif (ws isa AndersonWorkspace || ws isa KrylovWorkspace) && ws.k_operator[] > args["max-k-operator"] # note distinctness from ordinary :max_iter above
+        elseif (ws isa AndersonWorkspace || ws isa KrylovWorkspace) && ws.k_operator[] > config.max_k_operator # note distinctness from ordinary :max_iter above
             termination = true
             exit_status = :max_k_operator
-        elseif loop_time > args["loop-timeout"]
+        elseif loop_time > config.loop_timeout
             termination = true
             exit_status = :loop_timeout
-        elseif global_time > args["global-timeout"]
+        elseif global_time > config.global_timeout
             termination = true
             exit_status = :global_timeout
         end
@@ -349,11 +349,11 @@ function optimise!(
 
     # store final records if run-fast is set to true
     # TODO perhaps refactor to use record structs for later plots?
-    if !args["run-fast"]
+    if !config.run_fast
         push_res_to_record!(ws, record)
         push_ref_dist_to_record!(ws, record, view_state, state_ref)
-        
-        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
+
+        print_results(ws, config.print_mod, relative = config.print_res_rel, terminated = true, exit_status = exit_status)
 
         # assign results
         for key in HISTORY_KEYS
@@ -361,8 +361,10 @@ function optimise!(
             results.metrics_history[key] = getfield(record, key)
         end
     else
-        print_results(ws, args["print-mod"], relative = args["print-res-rel"], terminated = true, exit_status = exit_status)
+        print_results(ws, config.print_mod, relative = config.print_res_rel, terminated = true, exit_status = exit_status)
     end
 
     return results, ws_diag
 end
+
+optimise!(ws::AbstractWorkspace, config::AbstractDict; kwargs...) = optimise!(ws, SolverConfig(config); kwargs...)
