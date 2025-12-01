@@ -11,6 +11,7 @@ using Base: @kwdef
     dual_obj_vals::Vector{Float64} = Float64[]
     dual_res_norms::Vector{Float64} = Float64[]
     record_proj_flags::Vector{Vector{Bool}} = Vector{Vector{Bool}}[]
+    record_soc_states::Vector{Vector{SOCAction}} = Vector{Vector{SOCAction}}[]
     update_mat_ranks::Vector{Float64} = Float64[]
     update_mat_singval_ratios::Vector{Float64} = Float64[]
     update_mat_iters::Vector{Int} = Int[]
@@ -203,7 +204,8 @@ function push_cosines_projs!(
     # TODO note whether this aligns with new methods' notions
     # of flags used for core dynamics in hot loops versus interpretation
     # in terms of active set (might be the NEGATION of PrePPM's interpretations)
-    push!(record.record_proj_flags, ws.proj_state.nn_mask)
+    push!(record.record_proj_flags, copy(ws.proj_state.nn_mask))
+    push!(record.record_soc_states, copy(ws.proj_state.soc_states))
 end
 
 function push_cosines_projs!(

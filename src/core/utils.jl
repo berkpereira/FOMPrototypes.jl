@@ -206,7 +206,22 @@ end
 #     )
 # end;
 
-function constraint_changes(v_proj_flags::Vector{Vector{Bool}})
-    is_equal = [v_proj_flags[i] == v_proj_flags[i - 1] for i in 2:length(v_proj_flags)]
-    return (2:length(v_proj_flags))[.!is_equal]
+function constraint_changes(
+    nn_flags::Vector{Vector{Bool}},
+    soc_states::Vector{Vector{SOCAction}},
+    )
+    total_iters = max(length(nn_flags), length(soc_states))
+    if total_iters < 2
+        return Int[]
+    end
+
+    changes = Int[]
+    for i in 2:total_iters
+        nn_changed = i <= length(nn_flags) && i - 1 <= length(nn_flags) && nn_flags[i] != nn_flags[i - 1]
+        soc_changed = i <= length(soc_states) && i - 1 <= length(soc_states) && soc_states[i] != soc_states[i - 1]
+        if nn_changed || soc_changed
+            push!(changes, i)
+        end
+    end
+    return changes
  end

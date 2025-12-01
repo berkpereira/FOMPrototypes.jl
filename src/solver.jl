@@ -12,6 +12,7 @@ const HISTORY_KEYS = [
     :pri_res_norms,
     :dual_res_norms,
     :record_proj_flags,
+    :record_soc_states,
     :x_dist_to_sol,
     :y_dist_to_sol,
     :state_chardist,
