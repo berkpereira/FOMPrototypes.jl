@@ -14,7 +14,7 @@ function prepare_inv(W::Diagonal{T},
 end
 
 function prepare_inv(W::SparseMatrixCSC{T, I},
-    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10) where {T <: AbstractFloat, I <: Integer}
+    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10, perm_hint::Union{Vector{I}, Nothing}=nothing) where {T <: AbstractFloat, I <: Integer}
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
     shifts = (nothing, δ, δ * 10)
     F = nothing
@@ -25,10 +25,18 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
         try
             if to !== nothing
                 F = @timeit to "Cholesky factorisation" begin
-                    shift === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; shift=shift)
+                    if shift === nothing
+                        perm_hint === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; perm=perm_hint)
+                    else
+                        perm_hint === nothing ? SparseArrays.cholesky(W; shift=shift) : SparseArrays.cholesky(W; shift=shift, perm=perm_hint)
+                    end
                 end
             else
-                F = shift === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; shift=shift)
+                if shift === nothing
+                    F = perm_hint === nothing ? SparseArrays.cholesky(W) : SparseArrays.cholesky(W; perm=perm_hint)
+                else
+                    F = perm_hint === nothing ? SparseArrays.cholesky(W; shift=shift) : SparseArrays.cholesky(W; shift=shift, perm=perm_hint)
+                end
             end
             break
         catch e

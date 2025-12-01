@@ -29,6 +29,73 @@ const HISTORY_KEYS = [
     :acc_attempt_iters,
 ]
 
+const RHO_BALANCE_THRESHOLD = 10.0
+const RHO_SCALE_UP = 2.0
+const RHO_SCALE_DOWN = 0.5
+
+accel_ready_for_rho_update(::VanillaWorkspace) = true
+accel_ready_for_rho_update(ws::KrylovWorkspace) = ws.givens_count[] == 0
+# with Anderson from COSMOAccelerators, if this is 0 then the next iteration
+# will fill in the first column of the Anderson memory matrices:
+accel_ready_for_rho_update(ws::AndersonWorkspace) = (ws.accelerator.iter % ws.accelerator.mem) == 0
+
+function propose_new_rho(ws::AbstractWorkspace)
+    rp = ws.res.rp_abs # TODO rel or abs resiuals? other rules a la OSQP to see
+    rd = ws.res.rd_abs
+    ρ  = ws.method.ρ
+
+    if rp > RHO_BALANCE_THRESHOLD * rd
+        return ρ * RHO_SCALE_UP
+    elseif rd > RHO_BALANCE_THRESHOLD * rp
+        return ρ * RHO_SCALE_DOWN
+    else
+        return ρ
+    end
+end
+
+function update_admm_rho!(ws::AbstractWorkspace, new_ρ::Float64, timer::TimerOutput)
+    old_inv = ws.method.W_inv
+    perm_hint = old_inv isa CholeskyInvOp ? old_inv.perm : nothing
+    typed_ρ = convert(typeof(ws.method.ρ), new_ρ)
+
+    @timeit timer "rho update" begin
+        ws.method.ρ = typed_ρ
+        ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ)
+        ws.method.W_inv = prepare_inv(ws.method.W, timer; perm_hint = perm_hint)
+    end
+end
+
+function maybe_update_rho!(ws::AbstractWorkspace, config::SolverConfig, timer::TimerOutput)
+    period = config.rho_update_period
+    if !isfinite(period) || period <= 0
+        return
+    end
+    if ws.method.variant != :ADMM
+        return
+    end
+    
+    # only update when residuals were just refreshed?
+    # this is unlikely to happen unless we explicitly couple the two
+    # if ws.res.residual_check_count[] != 0
+    #     return
+    # end
+
+    if !accel_ready_for_rho_update(ws)
+        return
+    end
+
+    period_int = max(1, Int(floor(period)))
+    if ws.k[] % period_int != 0
+        return
+    end
+
+    new_ρ = propose_new_rho(ws)
+    if new_ρ != ws.method.ρ
+        println("Updating rho now.")
+        update_admm_rho!(ws, new_ρ, timer)
+    end
+end
+
 """
 Efficiently computes FOM iteration at point state_in, and stores it in state_out.
 Vector state_in is left unchanged.
@@ -72,21 +139,15 @@ function onecol_method_operator!(
 
     if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.base.temp_m_vec1, Inf)
+        
+        # note assign -Ax to ws.scratch.base.s_reconst, so we use
+        # it later in this function when computing the full primal residual
+        ws.scratch.base.s_reconst .= ws.scratch.base.temp_m_vec1
+        ws.scratch.base.s_reconst .*= -1.0
     end
 
     # subtract b
     ws.scratch.base.temp_m_vec1 .-= ws.p.b
-
-    if confirm_residual_update
-        ws.scratch.base.bAx_proj_for_res .= ws.scratch.base.temp_m_vec1 # hold A * x - b for now
-        ws.scratch.base.bAx_proj_for_res .*= -1.0 # now holds b - A * x
-        project_to_K!(ws.scratch.base.bAx_proj_for_res, ws.p.K) # project to cone K
-        ws.res.r_primal .= ws.scratch.base.bAx_proj_for_res + ws.scratch.base.temp_m_vec1 # assign Pi_K(b - Ax) + (Ax - b) = Pi_K(b - Ax) - (b - Ax)
-
-        # at this point the primal residual is updated
-        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
-        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
-    end
 
     # multiply by ρ
     ws.scratch.base.temp_m_vec1 .*= ws.method.ρ
@@ -101,6 +162,24 @@ function onecol_method_operator!(
     
     # project to dual cone K, this stores y_{k+1}
     @views project_to_dual_K!(ws.scratch.base.temp_m_vec1, ws.p.K) # ws.scratch.base.temp_m_vec1 now stores y_{k+1}
+
+    # update ADMM-like primal residual based on reconstruction
+    # of slack variable s 
+    if confirm_residual_update
+        ws.res.r_primal .= ws.scratch.base.temp_m_vec1
+        ws.res.r_primal .-= state_in[ws.p.n+1:end]
+        ws.res.r_primal .*= (1 / ws.method.ρ)
+
+        # NOTE that from above in this function,
+        # right now ws.scratch.base.s_reconst holds -Ax
+        ws.scratch.base.s_reconst .+= ws.res.r_primal
+        ws.scratch.base.s_reconst .+= ws.p.b
+
+        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
+        s_norm = norm(ws.scratch.base.s_reconst, Inf)
+        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, s_norm, ws.p.b_norm_inf))
+    end
+        
 
     # update dynamics bit vector
     if update_proj_action
@@ -339,6 +418,10 @@ function optimise!(
         elseif global_time > config.global_timeout
             termination = true
             exit_status = :global_timeout
+        end
+
+        if !termination
+            maybe_update_rho!(ws, config, timer)
         end
     end
 

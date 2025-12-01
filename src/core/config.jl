@@ -11,6 +11,8 @@
     acceleration::Symbol = :none # in {:none, :krylov, :anderson}
     safeguard_norm::Symbol = :char
     safeguard_factor::Float64 = 0.99
+    residual_period::Int = 25
+    rho_update_period::Real = Inf
 
     krylov_tries_per_mem::Int = 3
     krylov_operator::Symbol = :tilde_A
