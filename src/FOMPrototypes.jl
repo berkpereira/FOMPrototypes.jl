@@ -13,7 +13,7 @@ using Infiltrator
 using Profile
 using BenchmarkTools
 using SparseArrays
-using SCS
+using SCS, COSMO
 using Random
 using JLD2
 
@@ -179,6 +179,16 @@ function parse_command_line()
         arg_type = Float64
         default = 1e-6
 
+        "--residual-period"
+        help = "How many iterations between residual metric refreshes."
+        arg_type = Int
+        default = 25
+
+        "--rho-update-period"
+        help = "How many iterations between adaptive ρ updates (set to Inf to disable)."
+        arg_type = Real
+        default = Inf
+
         "--run-fast"
         help = "Run fast mode (no plotting, less data recording during run)."
         arg_type = Bool
@@ -292,7 +302,7 @@ function solve_reference(problem::ProblemData,
         set_optimizer_attribute(model, "eps_abs", 1e-5)
         
         # set acceleration_lookback to 0 to disable Anderson acceleration
-        # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
+        set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
         # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10
         # set_optimizer_attribute(model, "max_iters", 150) # default 1e5
         set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
@@ -304,6 +314,9 @@ function solve_reference(problem::ProblemData,
         println("RUNNING CLARABEL...")
         model = Model(Clarabel.Optimizer)
         # set_optimizer_attribute(model, "tol_infeas_rel", 1e-12)
+    elseif reference_solver == :COSMO
+        println("RUNNING COSMO...")
+        model = Model(COSMO.Optimizer)
     else
         error("Invalid reference solver option. Choose between :SCS and :Clarabel.")
     end
@@ -389,12 +402,12 @@ function run_prototype(problem::ProblemData,
         @timeit to "init workspace" begin
             # initialise the workspace
             if config.acceleration == :krylov
-                ws = KrylovWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.krylov_tries_per_mem, config.safeguard_norm, config.krylov_operator, A_gram = A_gram, to = to)
+                ws = KrylovWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.krylov_tries_per_mem, config.safeguard_norm, config.krylov_operator, A_gram = A_gram, residual_period = config.residual_period, to = to)
             elseif config.acceleration == :anderson
                 anderson_log = !config.run_fast
-                ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)
+                ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, residual_period = config.residual_period, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)
             else
-                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, to = to)
+                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, to = to)
             end
         end
     end
