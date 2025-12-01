@@ -335,28 +335,37 @@ function twocol_method_operator!(
 
     if confirm_residual_update
         @views Ax_norm = norm(ws.scratch.extra.temp_m_mat1[:, 1], Inf)
+
+        # note assign -Ax to ws.scratch.base.s_reconst, so we use
+        # it later in this function when computing the full primal residual
+        @views ws.scratch.base.s_reconst .= ws.scratch.extra.temp_m_mat1[:, 1]
+        ws.scratch.base.s_reconst .*= -1.0
     end
 
     @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
-
-    # if updating primal residual
-    if confirm_residual_update
-        ws.scratch.base.bAx_proj_for_res .= ws.scratch.extra.temp_m_mat1[:, 1] # hold A * x - b for now
-        ws.scratch.base.bAx_proj_for_res .*= -1.0 # now holds b - A * x
-        project_to_K!(ws.scratch.base.bAx_proj_for_res, ws.p.K) # project to cone K
-        @views ws.res.r_primal .= ws.scratch.base.bAx_proj_for_res .+ ws.scratch.extra.temp_m_mat1[:, 1] # assign Pi_K(b - Ax) + (Ax - b) = Pi_K(b - Ax) - (b - Ax)
-
-        # at this point the primal residual vector is updated
-
-        # update primal residual metrics
-        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
-        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, ws.p.b_norm_inf))
-    end
-
+    
     ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ
     @views ws.scratch.extra.temp_m_mat1 .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat1[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat1[:, 1] now stores y_{k+1}
+
+    # update ADMM-like primal residual based on reconstruction
+    # of slack variable s
+    if confirm_residual_update
+        @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1]
+        @views ws.res.r_primal .-= ws.vars.state_q[ws.p.n+1:end, 1]
+        ws.res.r_primal .*= (1 / ws.method.ρ)
+
+        # NOTE that from above in this function,
+        # right now ws.scratch.base.s_reconst holds -Ax
+        ws.scratch.base.s_reconst .+= ws.res.r_primal
+        ws.scratch.base.s_reconst .+= ws.p.b
+
+        ws.res.rp_abs = norm(ws.res.r_primal, Inf)
+        s_norm = norm(ws.scratch.base.s_reconst, Inf)
+        ws.res.rp_rel = ws.res.rp_abs / (1 + max(Ax_norm, s_norm, ws.p.b_norm_inf))
+    end
+
 
     # update in-place flags switching affine dynamics based on projection action
     # ws.proj_state.nn_mask = D_k in Goodnotes handwritten notes

@@ -30,6 +30,8 @@ struct BaseScratch{T <: AbstractFloat}
     temp_mn_vec1::Vector{T}
     temp_mn_vec2::Vector{T}
     bAx_proj_for_res::Vector{T} # to hold Pi_K(b - Ax), intermediate in primal residual computation
+    prev_y::Vector{T} # to hold previous dual variable, for residual computation
+    s_reconst::Vector{T}
 
     function BaseScratch{T}(p::ProblemData{T}) where {T <: AbstractFloat}
         new(
@@ -39,6 +41,8 @@ struct BaseScratch{T <: AbstractFloat}
             zeros(T, p.m),
             zeros(T, p.m + p.n),
             zeros(T, p.m + p.n),
+            zeros(T, p.m),
+            zeros(T, p.m),
             zeros(T, p.m),
         )
     end
