@@ -5,6 +5,12 @@
     soc_interesting = 2
 end
 
+"""
+State used to control per-cone projection behaviour.
+
+`nn_mask` holds a flat mask for all nonnegative cones; `soc_states` stores the
+action to apply to each SOC block.
+"""
 struct ProjectionState
     # 1. Nonnegative Cone Data
     # We flatten ALL nonnegative cones into a single boolean mask.
@@ -55,6 +61,47 @@ function ProjectionState(K::Vector{Clarabel.SupportedCone})
     return ProjectionState(nn_mask, soc_states)
 end
 
+# shared helpers for workspace constructors
+function _resolve_vars(::Type{V}, p::ProblemData{T}, vars::Union{V, Nothing}) where {T <: AbstractFloat, V <: AbstractVariables{T}}
+    return vars === nothing ? V(p.m, p.n) : vars
+end
+
+function _resolve_A_gram(p::ProblemData{T}, A_gram::Union{LinearMap{T}, Nothing}) where {T <: AbstractFloat}
+    if A_gram === nothing
+        return LinearMap{T}(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
+    end
+    return A_gram
+end
+
+function _init_common_workspace(::Type{V}, p::ProblemData{T}, vars::Union{V, Nothing}, A_gram::Union{LinearMap{T}, Nothing}) where {T <: AbstractFloat, V <: AbstractVariables{T}}
+    resolved_vars = _resolve_vars(V, p, vars)
+    gram = _resolve_A_gram(p, A_gram)
+    res = ProgressMetrics{T}(p.m, p.n)
+    proj_state = ProjectionState(p.K)
+    return resolved_vars, gram, res, proj_state
+end
+
+function _validate_safeguard_norm(safeguard_norm::Symbol)
+    safeguard_norm in (:euclid, :char, :none) || throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
+    return safeguard_norm
+end
+
+function _validate_krylov_mem(mem::Int, tries_per_mem::Int, limit::Int)
+    (mem - 1) < limit || throw(ArgumentError("(mem - 1) must be less than m + n."))
+    tries_per_mem <= (mem - 1) || throw(ArgumentError("tries_per_mem must be less than or equal to (mem - 1)."))
+    return mem, tries_per_mem
+end
+
+function _validate_krylov_operator(krylov_operator::Symbol)
+    krylov_operator in (:tilde_A, :B) || throw(ArgumentError("krylov_operator must be one of :tilde_A, :B"))
+    return krylov_operator
+end
+
+function _validate_anderson_interval(anderson_interval::Int)
+    anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
+    return anderson_interval
+end
+
 # macro to inject common workspace fields (used inside struct bodies)
 macro common_workspace_fields()
     return esc(quote
@@ -65,7 +112,7 @@ macro common_workspace_fields()
         res::ProgressMetrics{T}
         proj_state::ProjectionState
         
-        residual_period::Int
+        residual_period::I
 
         
         # variant::Symbol # In {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}.
@@ -80,6 +127,10 @@ end
 abstract type AbstractWorkspace{T <: AbstractFloat, I <: Integer, V <: AbstractVariables{T}, M <: AbstractMethod{T, I}} end
 
 # workspace type for when :none acceleration is used
+"""
+Workspace for vanilla iterations (no acceleration).
+Maintains problem data, bookkeeping metrics, and scratch buffers.
+"""
 struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, VanillaVariables{T}, M}
     @common_workspace_fields()
     
@@ -95,15 +146,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
         A_gram::Union{LinearMap{T}, Nothing},
         ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
-        m, n = p.m, p.n
-        res = ProgressMetrics{T}(m, n)
-        if vars === nothing
-            vars = VanillaVariables(m, n)
-        end
-        
-        if A_gram === nothing
-            A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
-        end
+        vars, A_gram, res, proj_state = _init_common_workspace(VanillaVariables{T}, p, vars, A_gram)
 
         new{T, I, M}(
             p,
@@ -111,7 +154,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
             vars,
             A_gram,
             res,
-            ProjectionState(p.K),
+            proj_state,
             residual_period,
             Ref(0),
             scratch
@@ -132,6 +175,10 @@ struct GivensRotation{T <: AbstractFloat}
 end
 
 # workspace type for when Krylov acceleration is used
+"""
+Workspace for Krylov acceleration.
+Tracks Arnoldi state, control flags, and counters for accelerated iterations.
+"""
 struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, KrylovVariables{T}, M}
     @common_workspace_fields()
 
@@ -173,21 +220,9 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
         safeguard_norm::Symbol,
         krylov_operator::Symbol) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
-        if (mem - 1) >= p.m + p.n
-            throw(ArgumentError("(mem - 1) must be less than m + n."))
-        end
-
-        if tries_per_mem > (mem - 1)
-            throw(ArgumentError("tries_per_mem must be less than or equal to (mem - 1)."))
-        end
-
-        if !(krylov_operator in [:tilde_A, :B])
-            throw(ArgumentError("krylov_operator must be one of :tilde_A, :B"))
-        end
-
-        if !(safeguard_norm in [:euclid, :char, :none])
-            throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
-        end
+        _validate_krylov_mem(mem, tries_per_mem, p.m + p.n)
+        _validate_krylov_operator(krylov_operator)
+        _validate_safeguard_norm(safeguard_norm)
 
         # make vector of trigger_givens_counts
         trigger_givens_counts = Vector{Int}(undef, tries_per_mem)
@@ -196,13 +231,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
         end
 
         m, n = p.m, p.n
-        res = ProgressMetrics{T}(m, n)
-        if vars === nothing
-            vars = KrylovVariables(m, n)
-        end
-        if A_gram === nothing
-            A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
-        end
+        vars, A_gram, res, proj_state = _init_common_workspace(KrylovVariables{T}, p, vars, A_gram)
 
         new{T, I, M}(
             p,
@@ -210,7 +239,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             vars,
             A_gram,
             res,
-            ProjectionState(p.K),
+            proj_state,
             residual_period,
             Ref(0),
             Ref(0),
@@ -222,9 +251,9 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             safeguard_norm,
             trigger_givens_counts,
             krylov_operator,
-            UpperHessenberg(zeros(mem, mem-1)),
-            zeros(m + n, mem),
-            Vector{GivensRotation{Float64}}(undef, mem-1),
+            UpperHessenberg(zeros(T, mem, mem-1)),
+            zeros(T, m + n, mem),
+            Vector{GivensRotation{T}}(undef, mem-1),
             Ref(0),
             Ref(false),
             Ref(false)
@@ -233,6 +262,10 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
 end
 
 # workspace type for when Anderson acceleration is used
+"""
+Workspace for Anderson acceleration.
+Stores accelerator state, control flags, counters, and scratch buffers.
+"""
 struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, AndersonVariables{T}, M}
     @common_workspace_fields()
     
@@ -267,25 +300,16 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
         anderson_log::Bool
         ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
-        anderson_interval >= 1 || throw(ArgumentError("Anderson acceleration interval must be at least 1."))
-
-        if !(safeguard_norm in [:euclid, :char, :none])
-            throw(ArgumentError("safeguard_norm must be one of :euclid, :char, :none"))
-        end
+        _validate_anderson_interval(anderson_interval)
+        _validate_safeguard_norm(safeguard_norm)
 
         m, n = p.m, p.n
-        res = ProgressMetrics{T}(m, n)
-        if vars === nothing
-            vars = AndersonVariables(m, n)
-        end
-        if A_gram === nothing
-            A_gram = LinearMap(x -> p.A' * (p.A * x), size(p.A, 2), size(p.A, 2); issymmetric = true)
-        end
+        vars, A_gram, res, proj_state = _init_common_workspace(AndersonVariables{T}, p, vars, A_gram)
 
         # default constructor types:
         # AndersonAccelerator{Float64, Type2{QRDecomp}, RestartedMemory, NoRegularizer}
 
-        aa = AndersonAccelerator{Float64, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
+        aa = AndersonAccelerator{T, broyden_type, memory_type, regulariser_type}(m + n, mem = mem, activate_logging = anderson_log)
         
         new{T, I, M}(
             p,
@@ -293,7 +317,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
             vars,
             A_gram,
             res,
-            ProjectionState(p.K),
+            proj_state,
             residual_period,
             Ref(0),
             Ref(0),
