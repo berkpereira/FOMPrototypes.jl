@@ -266,7 +266,7 @@ function choose_problem(problem_option::Symbol)
 end
 
 function fetch_data(problem_set::String, problem_name::String)
-    if problem_name == "giselsson" || problem_name == "toy"
+    if problem_name in ["giselsson", "toy", "zhang_socp"]
         repo_root = normpath(joinpath(@__DIR__, ".."))
         file = "synthetic_problem_data/$(problem_name)_problem.jld2"
         data = load(joinpath(repo_root, file))
@@ -287,7 +287,8 @@ end
 # Solve the Reference (Clarabel/SCS) #
 ######################################
 
-function solve_reference(problem::ProblemData,
+function solve_reference(
+    problem::ProblemData,
     problem_set::String,
     problem_name::String,
     config::SolverConfig)
@@ -298,16 +299,15 @@ function solve_reference(problem::ProblemData,
     if reference_solver == :SCS
         println("RUNNING SCS...")
         model = Model(SCS.Optimizer)
-        set_optimizer_attribute(model, "eps_rel", 1e-5)
-        set_optimizer_attribute(model, "eps_abs", 1e-5)
+        set_optimizer_attribute(model, "eps_rel", config.rel_kkt_tol)
+        set_optimizer_attribute(model, "eps_abs", config.rel_kkt_tol)
         
         # set acceleration_lookback to 0 to disable Anderson acceleration
-        set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
+        # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
         # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10
-        # set_optimizer_attribute(model, "max_iters", 150) # default 1e5
+        set_optimizer_attribute(model, "max_iters", 10_000) # default 100_000
         set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
-        set_optimizer_attribute(model, "scale", 1) # initial dual scale factor, default 0.1
-        set_optimizer_attribute(model, "adaptive_scale", 0) # whether to heuristically adapt dual scale, default 1
+        # set_optimizer_attribute(model, "adaptive_scale", 0) # whether to heuristically adapt dual scale, default 1
         # set_optimizer_attribute(model, "rho_x", 1) # primal scale factor, default 1e-6
         set_optimizer_attribute(model, "alpha", 1) # relaxation parameter, default 1.5
     elseif reference_solver == :Clarabel
@@ -317,8 +317,10 @@ function solve_reference(problem::ProblemData,
     elseif reference_solver == :COSMO
         println("RUNNING COSMO...")
         model = Model(COSMO.Optimizer)
+        set_optimizer_attribute(model, "eps_rel", config.rel_kkt_tol)
+        set_optimizer_attribute(model, "eps_abs", config.rel_kkt_tol)
     else
-        error("Invalid reference solver option. Choose between :SCS and :Clarabel.")
+        error("Invalid reference solver option. Choose between :SCS, :COSMO, and :Clarabel.")
     end
     println("Problem set/name: $problem_set/$problem_name")
 
