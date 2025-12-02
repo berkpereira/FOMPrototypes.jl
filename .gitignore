@@ -9,7 +9,7 @@ conda-meta/
 *.pdf
 
 # toy problem stuff
-synthetic_problem_data/*toy*
+synthetic_problem_data/*.jld2
 
 # For external solver results
 external_solvers/
