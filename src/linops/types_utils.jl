@@ -14,14 +14,15 @@ function prepare_inv(W::Diagonal{T},
 end
 
 function prepare_inv(W::SparseMatrixCSC{T, I},
-    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10, perm_hint::Union{Vector{I}, Nothing}=nothing) where {T <: AbstractFloat, I <: Integer}
+    to::Union{TimerOutput, Nothing}=nothing; δ::Float64=1e-10, perm_hint::Union{Vector{I}, Nothing}=nothing, shift_hint::Union{Nothing, Float64}=nothing) where {T <: AbstractFloat, I <: Integer}
     # For a symmetric positive definite matrix, compute its Cholesky factorization.
-    shifts = (nothing, δ, δ * 10)
+    base_shift = shift_hint === nothing ? δ : max(shift_hint, δ)
+    shifts = (base_shift, base_shift * 10, base_shift * 100)
     F = nothing
     last_error = nothing
     shift_used = zero(T)
 
-    for (idx, shift) in pairs(shifts)
+    for (idx, shift) in enumerate(shifts)
         try
             if to !== nothing
                 F = @timeit to "Cholesky factorisation" begin
@@ -38,15 +39,14 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
                     F = perm_hint === nothing ? SparseArrays.cholesky(W; shift=shift) : SparseArrays.cholesky(W; shift=shift, perm=perm_hint)
                 end
             end
+            shift_used = shift === nothing ? zero(T) : shift
             break
         catch e
             last_error = e
-            if idx == 1
-                @warn "Cholesky failed; retrying with δ = $δ" exception=e
-                shift_used = δ
-            elseif idx == 2
-                @warn "Cholesky failed even with shift δ=$δ. Retrying with shift $(δ * 10)" exception=e
-                shift_used = δ * 10
+            next_shift = idx < length(shifts) ? shifts[idx + 1] : nothing
+            shift_used = shift === nothing ? zero(T) : shift
+            if next_shift !== nothing
+                @warn "Cholesky failed with shift=$(shift). Retrying with shift=$(next_shift)" exception=e
             else # give up with error
                 rethrow(e)
             end
