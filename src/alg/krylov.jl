@@ -43,7 +43,7 @@ function linearised_proj_step!(
                 inv_nrm = 1 / norm(v_temp)
 
                 if inv_nrm > 1e6
-                    println("🟠 Very small normal vector in linearised projection step for SOC at index $soc_idx !")
+                    # println("🟠 Very small normal vector in linearised projection step for SOC at index $soc_idx !")
                 end
 
                 # make into unit normal vector
@@ -511,10 +511,11 @@ function krylov_step!(
         end
 
         if ws.control_flags.accepted_accel
-            println("✅ Krylov acceleration accepted at iteration $(ws.k[]), givens count $(ws.givens_count[]).")
+            println("Krylov acceleration accepted at iteration $(ws.k[]), givens count $(ws.givens_count[]).")
             # increment effective iter counter (ie excluding unsuccessful acc attempts)
             ws.k_eff[] += 1
             ws.res.residual_check_count[] += 1
+            ws.method.rho_update_count[] += 1
             
             push_update_to_record!(ws, record, false)
 
@@ -540,6 +541,7 @@ function krylov_step!(
         # increment effective iter counter (ie excluding unsuccessful acc attempts)
         ws.k_eff[] += 1
         ws.res.residual_check_count[] += 1
+        ws.method.rho_update_count[] += 1
 
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
         
