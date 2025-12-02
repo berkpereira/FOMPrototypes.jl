@@ -43,10 +43,13 @@ function anderson_step!(
             if ws.control_flags.accepted_accel
                 ws.k_eff[] += 1 # increment effective iter counter (ie excluding unsuccessful acc attempts)
                 ws.res.residual_check_count[] += 1
+                ws.method.rho_update_count[] += 1
 
                 # assign actually
                 ws.vars.state .= ws.scratch.extra.accelerated_point
             end
+        else
+            println("❗ Anderson failed internally (numerical blow-up).")
         end
 
         # note: uses ws.scratch.extra.state_pre_overwrite if acceleration
@@ -60,6 +63,7 @@ function anderson_step!(
     else # vanilla iteration
         ws.k_eff[] += 1
         ws.res.residual_check_count[] += 1
+        ws.method.rho_update_count[] += 1
         ws.k_vanilla[] += 1
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
         

@@ -14,6 +14,8 @@ mutable struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
     dP::Vector{T} # diagonal of P
     dA::Vector{T} # diagonal of A' * A
 
+    rho_update_count::Ref{Int}
+
     function PrePPM{T, I}(
         variant::Symbol,
         ρ::T,
@@ -32,7 +34,7 @@ mutable struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
             throw(ArgumentError("ρ must be positive"))
         end
 
-        new{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+        new{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA, Ref(0))
     end
 end
 

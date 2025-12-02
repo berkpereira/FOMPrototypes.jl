@@ -18,4 +18,5 @@ function vanilla_step!(
     push_update_to_record!(ws, record)
 
     ws.res.residual_check_count[] += 1
+    ws.method.rho_update_count[] += 1
 end
