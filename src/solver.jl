@@ -29,9 +29,8 @@ const HISTORY_KEYS = [
     :acc_attempt_iters,
 ]
 
-const RHO_BALANCE_THRESHOLD = 10.0
-const RHO_SCALE_UP = 2.0
-const RHO_SCALE_DOWN = 0.5
+# analogous value is 5.0 in default OSQP
+const RHO_BALANCE_THRESHOLD = 5.0
 
 accel_ready_for_rho_update(::VanillaWorkspace) = true
 accel_ready_for_rho_update(ws::KrylovWorkspace) = ws.givens_count[] == 0
@@ -40,14 +39,11 @@ accel_ready_for_rho_update(ws::KrylovWorkspace) = ws.givens_count[] == 0
 accel_ready_for_rho_update(ws::AndersonWorkspace) = (ws.accelerator.iter % ws.accelerator.mem) == 0
 
 function propose_new_rho(ws::AbstractWorkspace)
-    rp = ws.res.rp_abs # TODO rel or abs resiuals? other rules a la OSQP to see
-    rd = ws.res.rd_abs
     ρ  = ws.method.ρ
 
-    if rp > RHO_BALANCE_THRESHOLD * rd
-        return ρ * RHO_SCALE_UP
-    elseif rd > RHO_BALANCE_THRESHOLD * rp
-        return ρ * RHO_SCALE_DOWN
+    # TODO based on relative residuals?
+    if ws.res.rp_rel > RHO_BALANCE_THRESHOLD * ws.res.rd_rel || ws.res.rd_rel > RHO_BALANCE_THRESHOLD * ws.res.rp_rel
+        return ρ * sqrt(ws.res.rp_rel / ws.res.rd_rel)
     else
         return ρ
     end
@@ -56,12 +52,13 @@ end
 function update_admm_rho!(ws::AbstractWorkspace, new_ρ::Float64, timer::TimerOutput)
     old_inv = ws.method.W_inv
     perm_hint = old_inv isa CholeskyInvOp ? old_inv.perm : nothing
+    shift_hint = (old_inv isa CholeskyInvOp && old_inv.shift != 0) ? old_inv.shift : nothing
     typed_ρ = convert(typeof(ws.method.ρ), new_ρ)
 
     @timeit timer "rho update" begin
         ws.method.ρ = typed_ρ
         ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ)
-        ws.method.W_inv = prepare_inv(ws.method.W, timer; perm_hint = perm_hint)
+        ws.method.W_inv = prepare_inv(ws.method.W, timer; perm_hint = perm_hint, shift_hint = shift_hint)
     end
 end
 
@@ -79,20 +76,25 @@ function maybe_update_rho!(ws::AbstractWorkspace, config::SolverConfig, timer::T
     # if ws.res.residual_check_count[] != 0
     #     return
     # end
-
+    
     if !accel_ready_for_rho_update(ws)
         return
     end
-
-    period_int = max(1, Int(floor(period)))
-    if ws.k[] % period_int != 0
+    
+    if ws.method.rho_update_count[] < period
         return
     end
+    
+    ws.method.rho_update_count[] = 0
 
     new_ρ = propose_new_rho(ws)
     if new_ρ != ws.method.ρ
-        println("Updating rho now.")
         update_admm_rho!(ws, new_ρ, timer)
+        if new_ρ > ws.method.ρ
+            println(@sprintf("⏩ Increased rho to %.3e", new_ρ))
+        else
+            println(@sprintf("⏪ Decreased rho to %.3e", new_ρ))
+        end
     end
 end
 
