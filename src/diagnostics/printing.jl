@@ -67,6 +67,10 @@ function print_results(
         print_output *= @sprintf(" | state dist: %12.5e", curr_state_dist)
     end
 
+    print_output *= @sprintf(" | rho: %5.3e", ws.method.ρ)
+
+
+
     # Print the final output
     println(print_output)
 

@@ -89,11 +89,12 @@ function maybe_update_rho!(ws::AbstractWorkspace, config::SolverConfig, timer::T
 
     new_ρ = propose_new_rho(ws)
     if new_ρ != ws.method.ρ
+        old_rho = ws.method.ρ
         update_admm_rho!(ws, new_ρ, timer)
-        if new_ρ > ws.method.ρ
-            println(@sprintf("⏩ Increased rho to %.3e", new_ρ))
+        if new_ρ > old_rho
+            println(@sprintf("⏩ Increased rho from %.3e to %.3e", old_rho, new_ρ))
         else
-            println(@sprintf("⏪ Decreased rho to %.3e", new_ρ))
+            println(@sprintf("⏪ Decreased rho from %.3e to %.3e", old_rho, new_ρ))
         end
     end
 end

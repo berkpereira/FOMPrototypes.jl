@@ -1,28 +1,28 @@
 import FOMPrototypes
 using Infiltrator
 
-const ITER_COUNT = 50_000;
+const ITER_COUNT = 20_000;
 
 args = Dict(
-    "ref-solver"   => :SCS,
+    "ref-solver"   => :Clarabel,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
     # "problem-set" => "sslsq",
     # "problem-name" => "NYPA_Maragal_3_lasso",
 
-    # "problem-set"  => "socp",
-    # "problem-name" => "options_pricing_K_20",
+    "problem-set"  => "socp",
+    "problem-name" => "options_pricing_K_20",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case60_c",
 
-    "problem-set" => "synthetic",
-    "problem-name" => "zhang_socp", # in {toy, giselsson, zhang_socp}
+    # "problem-set" => "synthetic",
+    # "problem-name" => "zhang_socp", # in {toy, giselsson, zhang_socp}
     
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-9,
+    "rel-kkt-tol"  => 1e-6,
 
     "accel-memory" => 15,
     "acceleration" => :krylov, # in {:none, :krylov, :anderson}
@@ -34,12 +34,12 @@ args = Dict(
     
     # note defaults are reg = :none, with :restarted and :QR2
     "anderson-interval"     => 10,
-    "anderson-broyden-type" => Symbol(1), # in {Symbol(1), :normal2, :QR2}
-    "anderson-mem-type"     => :rolling, # in {:rolling, :restarted}
+    "anderson-broyden-type" => :QR2, # in {Symbol(1), :normal2, :QR2}
+    "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
-    "rho"   => 0.01,
-    "rho-update-period" => Inf,
+    "rho"   => 0.1,
+    "rho-update-period" => 25,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -73,7 +73,7 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_set,
     config.problem_name,
     config,
-    full_diagnostics = false,
+    full_diagnostics = true,
     spec_plot_period = 50
     );
 
