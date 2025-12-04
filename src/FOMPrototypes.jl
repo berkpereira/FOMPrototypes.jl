@@ -303,7 +303,7 @@ function solve_reference(
         set_optimizer_attribute(model, "eps_abs", config.rel_kkt_tol)
         
         # set acceleration_lookback to 0 to disable Anderson acceleration
-        # set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
+        set_optimizer_attribute(model, "acceleration_lookback", 0) # default 10, set to 0 to DISABLE acceleration
         # set_optimizer_attribute(model, "acceleration_interval", 10) # default 10
         set_optimizer_attribute(model, "max_iters", 10_000) # default 100_000
         set_optimizer_attribute(model, "normalize", 0) # whether to scale data, default 1
@@ -319,6 +319,10 @@ function solve_reference(
         model = Model(COSMO.Optimizer)
         set_optimizer_attribute(model, "eps_rel", config.rel_kkt_tol)
         set_optimizer_attribute(model, "eps_abs", config.rel_kkt_tol)
+        set_optimizer_attribute(model, "check_termination", 1)
+        set_optimizer_attribute(model, "alpha", 1.0)
+        set_optimizer_attribute(model, "scaling", 0)
+        set_optimizer_attribute(model, "rho", 0.1)
     else
         error("Invalid reference solver option. Choose between :SCS, :COSMO, and :Clarabel.")
     end
