@@ -27,6 +27,7 @@ const HISTORY_KEYS = [
 
     :fp_metric_ratios,
     :acc_attempt_iters,
+    :soc_normal_angles,
 ]
 
 # analogous value is 5.0 in default OSQP
@@ -269,9 +270,22 @@ function restart_trigger(restart_period::Union{Real, Symbol}, k::Integer,
 end
 
 """
+Helper function to check if a problem contains any second-order cones.
+
+Returns true if the problem has at least one SOC constraint, false otherwise.
+This is used to determine whether explicit operator construction is feasible.
+"""
+function has_second_order_cones(ws::AbstractWorkspace)
+    return any(cone -> cone isa Clarabel.SecondOrderConeT, ws.p.K)
+end
+
+"""
 (PrePPM) This function is used to modify the explicitly formed linearised operator of
 the method. This is an expensive computation obviously not to be used when
 the code is being run for "real" purposes.
+
+NOTE: This function currently only works for QPs (problems without second-order cones).
+For SOCPs, constructing the explicit operator is not straightforward and should be skipped.
 """
 function construct_explicit_operator!(
     ws::AbstractWorkspace{T, I, V, M},
@@ -384,14 +398,21 @@ function optimise!(
         # dispatches to appropriate step function,
         # which handles all logic internally
         step!(ws, ws_diag, config, record, full_diagnostics, timer)
-        
+
         push_cosines_projs!(ws, record)
-        
-        if full_diagnostics && ws.k[] % spectrum_plot_period == 0
-            # construct explicit operator for spectrum plotting
-            construct_explicit_operator!(ws, ws_diag)
-            # plot spectrum of the linearised operator
-            plot_spectrum(ws_diag.tilde_A, ws.k[])
+
+        # Record SOC normal angles when full diagnostics enabled
+        if full_diagnostics
+            push_soc_normal_angles!(ws, record, ws_diag)
+            rotate_soc_normals!(ws_diag)
+
+            # Only construct explicit operator for QPs (not SOCPs)
+            if ws.k[] % spectrum_plot_period == 0 && !has_second_order_cones(ws)
+                # construct explicit operator for spectrum plotting
+                construct_explicit_operator!(ws, ws_diag)
+                # plot spectrum of the linearised operator
+                plot_spectrum(ws_diag.tilde_A, ws.k[])
+            end
         end
 
         # increment iter counter

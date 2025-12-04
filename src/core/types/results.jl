@@ -9,13 +9,17 @@ mutable struct Results{T <: AbstractFloat, I <: Integer}
 end
 
 # Struct just for diagnostics data
-struct DiagnosticsWorkspace{T <: AbstractFloat}
+mutable struct DiagnosticsWorkspace{T <: AbstractFloat}
     tilde_A::AbstractMatrix{T}
     tilde_b::Vector{T}
     W_inv_mat::AbstractMatrix{T}
 
     # only relevant for Krylov variants
     H_unmod::Union{UpperHessenberg{T}, Nothing}
+
+    # SOC normal direction tracking (only when full_diagnostics=true)
+    soc_normals_prev::Union{Vector{Vector{T}}, Nothing}
+    soc_normals_curr::Union{Vector{Vector{T}}, Nothing}
 end
 
 function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
@@ -27,7 +31,7 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
     else
         H_unmod = nothing
     end
-    
+
     # form dense identity
     dense_I = Matrix{Float64}(I, ws.p.n, ws.p.n)
 
@@ -39,6 +43,27 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
         W_inv_mat = Diagonal(ws.method.W_inv.inv_diag)
     end
 
-    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod)
+    # Initialize SOC normal storage for KrylovWorkspace only
+    if ws isa KrylovWorkspace
+        # Count SOC cones and get their dimensions
+        num_socs = length(ws.proj_state.soc_states)
+        soc_normals_prev = Vector{Vector{T}}(undef, num_socs)
+        soc_normals_curr = Vector{Vector{T}}(undef, num_socs)
+
+        # Allocate storage for each SOC based on cone dimensions
+        soc_idx = 1
+        for cone in ws.p.K
+            if cone isa Clarabel.SecondOrderConeT
+                soc_normals_prev[soc_idx] = Vector{T}(undef, cone.dim)
+                soc_normals_curr[soc_idx] = Vector{T}(undef, cone.dim)
+                soc_idx += 1
+            end
+        end
+    else
+        soc_normals_prev = nothing
+        soc_normals_curr = nothing
+    end
+
+    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod, soc_normals_prev, soc_normals_curr)
 end
 DiagnosticsWorkspace(args...; kwargs...) = DiagnosticsWorkspace{DefaultFloat}(args...; kwargs...)

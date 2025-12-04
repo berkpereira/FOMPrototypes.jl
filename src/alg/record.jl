@@ -26,7 +26,9 @@ using Base: @kwdef
     state_chardist::Vector{Float64} = Float64[]
     current_update_mat_col::Ref{Int} = Ref(1)
     fp_metric_ratios::Vector{Float64} = Float64[]
-    
+
+    # SOC normal direction angle tracking
+    soc_normal_angles::Vector{Vector{Float64}} = Vector{Vector{Float64}}[]
 
     updates_matrix::Matrix{Float64} = Matrix{Float64}(undef, 0, 0)
     curr_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
@@ -213,4 +215,94 @@ function push_cosines_projs!(
     record::NullRecord
     )
     return
+end
+
+"""
+Records angular changes in SOC projection normal directions.
+
+For each SOC that was in `soc_interesting` state for 2+ consecutive iterations,
+computes the angular distance (in radians) between the previous and current
+normal vectors. Stores NaN when angle cannot be computed (state transition,
+first occurrence, or no normals available).
+
+Only called when full_diagnostics=true and workspace is KrylovWorkspace.
+"""
+function push_soc_normal_angles!(
+    ws::KrylovWorkspace,
+    record::IterationRecord,
+    ws_diag::DiagnosticsWorkspace,
+    )
+
+    # Bail early if normal tracking not initialized
+    if isnothing(ws_diag.soc_normals_curr) || isnothing(ws_diag.soc_normals_prev)
+        return
+    end
+
+    num_socs = length(ws.proj_state.soc_states)
+    angles = Vector{Float64}(undef, num_socs)
+    fill!(angles, NaN)  # Default to NaN
+
+    # Only compute angles for SOCs that are currently interesting
+    for soc_idx in 1:num_socs
+        # Check if this SOC is in interesting state
+        if ws.proj_state.soc_states[soc_idx] != soc_interesting
+            # State transition or not interesting -> store NaN
+            continue
+        end
+
+        # Check if we have a previous normal (was interesting last iteration)
+        # This happens when iteration > 0 and SOC was interesting before
+        if ws.k[] == 0
+            # First iteration -> no previous normal
+            continue
+        end
+
+        # Both current and previous normals exist and SOC is interesting
+        # Compute angular distance
+        v_prev = ws_diag.soc_normals_prev[soc_idx]
+        v_curr = ws_diag.soc_normals_curr[soc_idx]
+
+        # Use dot product to compute angle: θ = acos(v_prev · v_curr)
+        # Clamp to handle numerical errors
+        cos_angle = dot(v_prev, v_curr)
+        cos_angle_clamped = clamp(cos_angle, -1.0, 1.0)
+        angles[soc_idx] = acos(cos_angle_clamped)
+    end
+
+    push!(record.soc_normal_angles, angles)
+end
+
+# Overload for non-Krylov workspaces (no-op)
+function push_soc_normal_angles!(
+    ws::AbstractWorkspace,
+    record::IterationRecord,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    )
+    # Do nothing for VanillaWorkspace and AndersonWorkspace
+    return
+end
+
+# Overload for NullRecord (no-op)
+function push_soc_normal_angles!(
+    ws::AbstractWorkspace,
+    record::NullRecord,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    )
+    return
+end
+
+"""
+Rotates SOC normal vector storage: current → previous.
+
+Should be called AFTER recording angles and BEFORE computing next iteration's normals.
+This ensures proper sequencing of normal vector history.
+"""
+function rotate_soc_normals!(ws_diag::Union{DiagnosticsWorkspace, Nothing})
+    if isnothing(ws_diag) || isnothing(ws_diag.soc_normals_curr)
+        return
+    end
+
+    # Swap references (efficient, no copying)
+    ws_diag.soc_normals_prev, ws_diag.soc_normals_curr =
+        ws_diag.soc_normals_curr, ws_diag.soc_normals_prev
 end

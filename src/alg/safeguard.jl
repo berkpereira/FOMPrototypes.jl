@@ -109,7 +109,9 @@ function accel_fp_safeguard!(
     fp_metric_vanilla = compute_fp_metric!(ws, ws.scratch.extra.fp_res)
 
     # optional diagnostics based on tilde_A
-    if !isnothing(ws_diag)
+    # Only available for QPs (not SOCPs) since explicit operator construction
+    # is not yet supported for second-order cones
+    if !isnothing(ws_diag) && !any(cone -> cone isa Clarabel.SecondOrderConeT, ws.p.K)
         try
             # pinv_sol = (tilde_A - I) \ (-tilde_b)
             pinv_sol = pinv(ws_diag.tilde_A - I) * (-ws_diag.tilde_b)
@@ -162,17 +164,17 @@ function accel_fp_safeguard!(
     if full_diagnostics && ws isa KrylovWorkspace
         krylov_basis_svdvals = svdvals(ws.krylov_basis)
         krylov_basis_svdvals = krylov_basis_svdvals[findall(krylov_basis_svdvals .>= 1e-10)]
-        max_sval = maximum(krylov_basis_svdvals)
-        min_sval = minimum(krylov_basis_svdvals)
-        cond_no = max_sval / min_sval
-        if cond_no > 1.1
-            println("❌ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
-            println("largest singular value: ", max_sval)
-            println("smallest singular value: ", min_sval)
-            @show krylov_basis_svdvals
-        else
-            println("✅ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
-        end
+        # max_sval = maximum(krylov_basis_svdvals)
+        # min_sval = minimum(krylov_basis_svdvals)
+        # cond_no = max_sval / min_sval
+        # if cond_no > 1.1
+        #     println("❌ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
+        #     println("largest singular value: ", max_sval)
+        #     println("smallest singular value: ", min_sval)
+        #     @show krylov_basis_svdvals
+        # else
+        #     println("✅ condition number of Krylov basis at iter $(ws.k[]) is ", cond_no)
+        # end
     end
 
     # compute FOM(accelerated_state) into ws.scratch.extra.state_lookahead and fp_res_acc in ws.scratch.extra.fp_res

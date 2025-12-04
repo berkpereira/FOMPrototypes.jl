@@ -606,6 +606,19 @@ function plot_results(
         yscale=:log10)
     add_vlines!(fp_metric_plot)
     display(fp_metric_plot)
+
+    # SOC normal direction angles plot (only if data available)
+    if haskey(results.metrics_history, :soc_normal_angles) &&
+       !isempty(results.metrics_history[:soc_normal_angles])
+        soc_angles_plot = plot_soc_normal_angles(
+            results.metrics_history[:soc_normal_angles],
+            title_common
+        )
+        if !isnothing(soc_angles_plot)
+            add_vlines!(soc_angles_plot; include_active_set_changes=false)
+            display(soc_angles_plot)
+        end
+    end
 end
 
 plot_results(ws::AbstractWorkspace, results, problem_set::String, problem_name::String, config::AbstractDict, backend::Symbol = :plotlyjs) =

@@ -265,3 +265,91 @@ function _diff_counts(history, total_iters)
     end
     return counts
 end
+
+"""
+Plots angular changes in SOC projection normal directions over iterations.
+
+Creates a line plot with one series per SOC cone, showing how the normal
+direction changes (in radians) between consecutive iterations when the SOC
+is in the interesting state.
+
+# Arguments
+- `soc_normal_angles::Vector{Vector{Float64}}`: Outer vector = iterations,
+  inner vector = angles for each SOC at that iteration
+- `title_prefix::String`: Prefix for plot title (default: "")
+
+# Returns
+- Plot object or nothing if no data available
+
+# Notes
+- Handles cases with zero SOCs gracefully (returns nothing)
+- NaN values are automatically handled by Plots.jl (gaps in lines)
+- Only shows SOCs that have at least one non-NaN value
+- Uses log scale on y-axis to show small angle changes
+"""
+function plot_soc_normal_angles(
+    soc_normal_angles::Vector{Vector{Float64}},
+    title_prefix::String = "",
+    )
+
+    # Handle empty input
+    if isempty(soc_normal_angles)
+        println("Warning: No SOC normal angle history available to plot.")
+        return nothing
+    end
+
+    total_iters = length(soc_normal_angles)
+    num_socs = isempty(soc_normal_angles) ? 0 : length(soc_normal_angles[1])
+
+    # Handle zero SOCs case
+    if num_socs == 0
+        println("Info: No SOC cones in problem, skipping normal angles plot.")
+        return nothing
+    end
+
+    iter_axis = 1:total_iters
+
+    # Create base plot
+    p = plot(
+        xlabel="Solver Iteration",
+        ylabel="Angular Change (radians)",
+        title="$(title_prefix)SOC Normal Direction Angular Changes",
+        legend=:outerright,
+        ylims=(-π, π),
+        minorgrid=true,
+    )
+
+    # Add horizontal reference line at π radians
+    hline!(p, [π]; color=:gray, linestyle=:dash,
+           linewidth=1, label="π rad (reversal)", alpha=0.5)
+
+    # Define color palette for SOCs
+    colors = [:dodgerblue, :crimson, :forestgreen, :darkorange, :purple,
+              :deeppink, :teal, :gold, :brown, :navy]
+
+    # Plot one series per SOC
+    for soc_idx in 1:num_socs
+        # Extract angle history for this SOC
+        angles_for_soc = [soc_normal_angles[iter][soc_idx]
+                          for iter in 1:total_iters]
+
+        # Only plot if there's at least one non-NaN value
+        if any(!isnan, angles_for_soc)
+            color = colors[(soc_idx - 1) % length(colors) + 1]
+            plot!(
+                p,
+                iter_axis,
+                angles_for_soc;
+                seriestype=:line,
+                linewidth=2,
+                marker=:circle,
+                markersize=2,
+                label="SOC $soc_idx",
+                color=color,
+                alpha=0.8,
+            )
+        end
+    end
+
+    return p
+end

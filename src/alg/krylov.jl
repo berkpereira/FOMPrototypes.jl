@@ -18,6 +18,7 @@ function linearised_proj_step!(
     K::Vector{Clarabel.SupportedCone},
     proj_state::ProjectionState,
     temp_normal::AbstractVector{Float64},
+    ws_diag::Union{DiagnosticsWorkspace, Nothing} = nothing,
     )
     start_idx = 1
     soc_idx = 1
@@ -48,7 +49,12 @@ function linearised_proj_step!(
 
                 # make into unit normal vector
                 @. v_temp *= inv_nrm
-                
+
+                # Copy normal vector to diagnostics if requested
+                if !isnothing(ws_diag) && !isnothing(ws_diag.soc_normals_curr)
+                    @views copyto!(ws_diag.soc_normals_curr[soc_idx], v_temp)
+                end
+
                 # orthogonal projection with one-dimensional null space v_temp
                 scalar_proj = dot(v_y, v_temp)
                 @. v_y -= scalar_proj * v_temp
@@ -250,7 +256,7 @@ function krylov_usual_step!(
     timer::TimerOutput;
     )
     # apply method operator (to both state and Arnoldi (q) vectors)
-    twocol_method_operator!(ws, Val{ws.method.variant}(), true, true)
+    twocol_method_operator!(ws, Val{ws.method.variant}(), true, true, ws_diag)
 
     # Arnoldi "step", orthogonalises the incoming basis vector
     # and updates the Hessenberg matrix appropriately, all in-place
@@ -325,6 +331,7 @@ function twocol_method_operator!(
     ::Val{P},
     update_proj_action::Bool = false,
     update_residuals::Bool = false,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing} = nothing,
     ) where {T, I, M <: PrePPM, P} # note dispatch on PrePPM
     
     confirm_residual_update = update_residuals && ws.res.residual_check_count[] >= ws.residual_period
@@ -384,6 +391,7 @@ function twocol_method_operator!(
         ws.p.K,
         ws.proj_state,
         ws.scratch.extra.projection_normal,
+        ws_diag,
         )
 
     # now compute bar iterates (y and q_m) concurrently
@@ -487,9 +495,11 @@ function krylov_step!(
         # use safeguard if the Krylov procedure suffered no breakdowns
         if ws.control_flags.krylov_status == :success
 
-            if full_diagnostics # best to update for use here
+            # Only perform Arnoldi relation diagnostics for QPs (not SOCPs)
+            # For SOCPs, explicit operator construction is not yet supported
+            if full_diagnostics && !any(cone -> cone isa Clarabel.SecondOrderConeT, ws.p.K)
                 construct_explicit_operator!(ws, ws_diag)
-                
+
                 BQ = (ws_diag.tilde_A - I) * ws.krylov_basis[:, 1:ws.givens_count[]]
                 arnoldi_relation_err = BQ - ws.krylov_basis[:, 1:ws.givens_count[] + 1] * ws_diag.H_unmod[1:ws.givens_count[] + 1, 1:ws.givens_count[]]
                 norm_arnoldi_err = norm(arnoldi_relation_err)
