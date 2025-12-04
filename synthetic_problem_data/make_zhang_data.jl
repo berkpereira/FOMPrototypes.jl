@@ -7,6 +7,8 @@ using SparseArrays, Random, LinearAlgebra
 using JLD2
 include("../src/alg/cones.jl")
 
+Random.seed!(42)
+
 # sizes (paper example)
 m = 3000
 @assert m % 3 == 0 && m % 2 == 0 "m must be multiple of 6"
