@@ -1,11 +1,11 @@
 using Plots
 
 function enforced_constraints_plot(
-    nn_flags::Vector{Vector{Bool}},
-    soc_states::Vector{Vector{SOCAction}},
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
     iter_gap::Int = 10,
     )
-    total_iters = max(length(nn_flags), length(soc_states))
+    total_iters = max(_total_iters(nn_flags), _total_iters(soc_states))
     if total_iters == 0
         println("Warning: No projection history available to plot.")
         return
@@ -26,10 +26,10 @@ function enforced_constraints_plot(
         x_qp = Int[]
         y_qp = Int[]
         for i in outer_indices
-            if i > length(nn_flags)
+            if i > _total_iters(nn_flags)
                 continue
             end
-            vec = nn_flags[i]
+            vec = _get_at_iter(nn_flags, i)
             for (j, val) in enumerate(vec)
                 if !val
                     push!(x_qp, i)
@@ -75,10 +75,10 @@ function enforced_constraints_plot(
             xs = Int[]
             ys = Int[]
             for i in outer_indices
-                if i > length(soc_states)
+                if i > _total_iters(soc_states)
                     continue
                 end
-                vec = soc_states[i]
+                vec = _get_at_iter(soc_states, i)
                 for (j, state) in enumerate(vec)
                     if state == action
                         push!(xs, i)
@@ -111,10 +111,10 @@ end
 # count of differences, it simply plots the counts
 # of enforced constraints per iteration.
 function plot_enforced_constraints_count(
-    nn_flags::Vector{Vector{Bool}},
-    soc_states::Vector{Vector{SOCAction}},
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
     )
-    total_iters = max(length(nn_flags), length(soc_states))
+    total_iters = max(_total_iters(nn_flags), _total_iters(soc_states))
     if total_iters == 0
         println("Warning: No projection history available to plot.")
         return
@@ -184,10 +184,10 @@ function plot_enforced_constraints_count(
 end
 
 function plot_projection_diffs(
-    nn_flags::Vector{Vector{Bool}},
-    soc_states::Vector{Vector{SOCAction}},
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
     )
-    total_iters = max(length(nn_flags), length(soc_states))
+    total_iters = max(_total_iters(nn_flags), _total_iters(soc_states))
     if total_iters < 2
         println("Warning: Need at least two iteration vectors to compute differences. Nothing to plot.")
         return
@@ -226,14 +226,40 @@ function plot_projection_diffs(
     return p
 end
 
-function _first_vector_length(history)
+function _first_vector_length(history::Matrix)
+    if isempty(history)
+        return 0
+    end
+    return size(history, 1)  # Return number of rows (number of entities)
+end
+
+function _first_vector_length(history::Vector{Vector{T}}) where T
     for vec in history
         return length(vec)
     end
     return 0
 end
 
-function _nn_counts(history, total_iters)
+# Helper to get total iterations from either format
+_total_iters(history::Matrix) = size(history, 2)
+_total_iters(history::Vector) = length(history)
+
+# Helper to get data at iteration i
+_get_at_iter(history::Matrix, i::Int) = history[:, i]
+_get_at_iter(history::Vector{Vector{T}}, i::Int) where T = history[i]
+
+function _nn_counts(history::Matrix{Bool}, total_iters)
+    counts = fill(NaN, total_iters)
+    _, num_cols = size(history)
+    for i in 1:total_iters
+        if i <= num_cols
+            counts[i] = sum(history[:, i])
+        end
+    end
+    return counts
+end
+
+function _nn_counts(history::Vector{Vector{Bool}}, total_iters)
     counts = fill(NaN, total_iters)
     for i in 1:total_iters
         if i <= length(history)
@@ -243,7 +269,18 @@ function _nn_counts(history, total_iters)
     return counts
 end
 
-function _soc_counts(history, total_iters, target::SOCAction)
+function _soc_counts(history::Matrix{SOCAction}, total_iters, target::SOCAction)
+    counts = fill(NaN, total_iters)
+    _, num_cols = size(history)
+    for i in 1:total_iters
+        if i <= num_cols
+            counts[i] = count(==(target), history[:, i])
+        end
+    end
+    return counts
+end
+
+function _soc_counts(history::Vector{Vector{SOCAction}}, total_iters, target::SOCAction)
     counts = fill(NaN, total_iters)
     for i in 1:total_iters
         if i <= length(history)
@@ -253,7 +290,21 @@ function _soc_counts(history, total_iters, target::SOCAction)
     return counts
 end
 
-function _diff_counts(history, total_iters)
+function _diff_counts(history::Matrix, total_iters)
+    if total_iters < 2
+        return Float64[]
+    end
+    counts = fill(0.0, total_iters - 1)
+    _, num_cols = size(history)
+    for i in 2:total_iters
+        if i <= num_cols && i - 1 <= num_cols
+            counts[i - 1] = sum(history[:, i - 1] .!= history[:, i])
+        end
+    end
+    return counts
+end
+
+function _diff_counts(history::Vector{Vector{T}}, total_iters) where T
     if total_iters < 2
         return Float64[]
     end
@@ -274,8 +325,8 @@ direction changes (in radians) between consecutive iterations when the SOC
 is in the interesting state.
 
 # Arguments
-- `soc_normal_angles::Vector{Vector{Float64}}`: Outer vector = iterations,
-  inner vector = angles for each SOC at that iteration
+- `soc_normal_angles::Matrix{Float64}`: Matrix of size (num_socs × num_iterations)
+  where each row corresponds to one SOC and each column to one iteration
 - `title_prefix::String`: Prefix for plot title (default: "")
 
 # Returns
@@ -288,7 +339,7 @@ is in the interesting state.
 - Uses log scale on y-axis to show small angle changes
 """
 function plot_soc_normal_angles(
-    soc_normal_angles::Vector{Vector{Float64}},
+    soc_normal_angles::Matrix{Float64},
     title_prefix::String = "",
     )
 
@@ -298,8 +349,7 @@ function plot_soc_normal_angles(
         return nothing
     end
 
-    total_iters = length(soc_normal_angles)
-    num_socs = isempty(soc_normal_angles) ? 0 : length(soc_normal_angles[1])
+    num_socs, total_iters = size(soc_normal_angles)
 
     # Handle zero SOCs case
     if num_socs == 0
@@ -315,7 +365,8 @@ function plot_soc_normal_angles(
         ylabel="Angular Change (radians)",
         title="$(title_prefix)SOC Normal Direction Angular Changes",
         legend=:outerright,
-        ylims=(-π, π),
+        yaxis=:log10,
+        ylims=(1e-9, π),
         minorgrid=true,
     )
 
@@ -329,9 +380,8 @@ function plot_soc_normal_angles(
 
     # Plot one series per SOC
     for soc_idx in 1:num_socs
-        # Extract angle history for this SOC
-        angles_for_soc = [soc_normal_angles[iter][soc_idx]
-                          for iter in 1:total_iters]
+        # Extract angle history for this SOC (row of the matrix)
+        angles_for_soc = soc_normal_angles[soc_idx, :]
 
         # Only plot if there's at least one non-NaN value
         if any(!isnan, angles_for_soc)

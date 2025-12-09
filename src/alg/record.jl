@@ -5,13 +5,14 @@ end
 
 using Base: @kwdef
 
-@kwdef struct IterationRecord <: AbstractRecord
+@kwdef mutable struct IterationRecord <: AbstractRecord
     primal_obj_vals::Vector{Float64} = Float64[]
     pri_res_norms::Vector{Float64} = Float64[]
     dual_obj_vals::Vector{Float64} = Float64[]
     dual_res_norms::Vector{Float64} = Float64[]
     record_proj_flags::Vector{Vector{Bool}} = Vector{Vector{Bool}}[]
-    record_soc_states::Vector{Vector{SOCAction}} = Vector{Vector{SOCAction}}[]
+    record_soc_states::Matrix{SOCAction} = Matrix{SOCAction}(undef, 0, 0)
+    soc_states_col::Ref{Int} = Ref(1)
     update_mat_ranks::Vector{Float64} = Float64[]
     update_mat_singval_ratios::Vector{Float64} = Float64[]
     update_mat_iters::Vector{Int} = Int[]
@@ -27,8 +28,9 @@ using Base: @kwdef
     current_update_mat_col::Ref{Int} = Ref(1)
     fp_metric_ratios::Vector{Float64} = Float64[]
 
-    # SOC normal direction angle tracking
-    soc_normal_angles::Vector{Vector{Float64}} = Vector{Vector{Float64}}[]
+    # SOC normal direction angle tracking (num_socs × num_iterations)
+    soc_normal_angles::Matrix{Float64} = Matrix{Float64}(undef, 0, 0)
+    soc_angles_col::Ref{Int} = Ref(1)
 
     updates_matrix::Matrix{Float64} = Matrix{Float64}(undef, 0, 0)
     curr_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
@@ -38,17 +40,24 @@ using Base: @kwdef
 end
 
 function IterationRecord(ws::AbstractWorkspace)
-    
+
     char_norm_mat = [(ws.method.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.method.ρ]
     function char_norm(vector::AbstractArray{Float64})
         return sqrt(dot(vector, char_norm_mat * vector))
     end
-    
+
+    # Count number of SOCs for angle tracking matrix
+    num_socs = count(cone -> cone isa Clarabel.SecondOrderConeT, ws.p.K)
+    # Preallocate for reasonable number of iterations (will grow if needed)
+    initial_iter_capacity = 1000
+
     # fix some number of past updates to monitor here, 20 in this case
     return IterationRecord(
         updates_matrix = zeros(Float64, ws.p.n + ws.p.m, 20),
         curr_state_update = zeros(Float64, ws.p.n + ws.p.m),
         prev_state_update = zeros(Float64, ws.p.n + ws.p.m),
+        soc_normal_angles = fill(NaN, num_socs, initial_iter_capacity),
+        record_soc_states = Matrix{SOCAction}(undef, num_socs, initial_iter_capacity),
         char_norm_func = char_norm,
     )
 end
@@ -207,7 +216,24 @@ function push_cosines_projs!(
     # of flags used for core dynamics in hot loops versus interpretation
     # in terms of active set (might be the NEGATION of PrePPM's interpretations)
     push!(record.record_proj_flags, copy(ws.proj_state.nn_mask))
-    push!(record.record_soc_states, copy(ws.proj_state.soc_states))
+
+    # Store SOC states in matrix (grow if needed)
+    num_socs = length(ws.proj_state.soc_states)
+    if num_socs > 0
+        col_idx = record.soc_states_col[]
+
+        # Grow matrix if needed (double capacity when full)
+        if col_idx > size(record.record_soc_states, 2)
+            new_capacity = 2 * size(record.record_soc_states, 2)
+            new_matrix = Matrix{SOCAction}(undef, num_socs, new_capacity)
+            new_matrix[:, 1:size(record.record_soc_states, 2)] .= record.record_soc_states
+            record.record_soc_states = new_matrix
+        end
+
+        # Store current SOC states
+        record.record_soc_states[:, col_idx] .= ws.proj_state.soc_states
+        record.soc_states_col[] += 1
+    end
 end
 
 function push_cosines_projs!(
@@ -226,6 +252,8 @@ normal vectors. Stores NaN when angle cannot be computed (state transition,
 first occurrence, or no normals available).
 
 Only called when full_diagnostics=true and workspace is KrylovWorkspace.
+
+Stores angles in a matrix (num_socs × num_iterations), growing as needed.
 """
 function push_soc_normal_angles!(
     ws::KrylovWorkspace,
@@ -239,8 +267,18 @@ function push_soc_normal_angles!(
     end
 
     num_socs = length(ws.proj_state.soc_states)
-    angles = Vector{Float64}(undef, num_socs)
-    fill!(angles, NaN)  # Default to NaN
+    col_idx = record.soc_angles_col[]
+
+    # Grow matrix if needed (double capacity when full)
+    if col_idx > size(record.soc_normal_angles, 2)
+        new_capacity = 2 * size(record.soc_normal_angles, 2)
+        new_matrix = fill(NaN, num_socs, new_capacity)
+        new_matrix[:, 1:size(record.soc_normal_angles, 2)] .= record.soc_normal_angles
+        record.soc_normal_angles = new_matrix
+    end
+
+    # Fill column with NaN by default
+    record.soc_normal_angles[:, col_idx] .= NaN
 
     # Only compute angles for SOCs that are currently interesting
     for soc_idx in 1:num_socs
@@ -266,10 +304,11 @@ function push_soc_normal_angles!(
         # Clamp to handle numerical errors
         cos_angle = dot(v_prev, v_curr)
         cos_angle_clamped = clamp(cos_angle, -1.0, 1.0)
-        angles[soc_idx] = acos(cos_angle_clamped)
+        record.soc_normal_angles[soc_idx, col_idx] = acos(cos_angle_clamped)
     end
 
-    push!(record.soc_normal_angles, angles)
+    # Increment column counter
+    record.soc_angles_col[] += 1
 end
 
 # Overload for non-Krylov workspaces (no-op)

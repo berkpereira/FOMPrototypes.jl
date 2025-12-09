@@ -465,7 +465,17 @@ function optimise!(
         # assign results
         for key in HISTORY_KEYS
             # pull record.key via getfield since key is a symbol
-            results.metrics_history[key] = getfield(record, key)
+            val = getfield(record, key)
+            # Trim soc_normal_angles matrix to actual used columns
+            if key == :soc_normal_angles && val isa Matrix && !isempty(val)
+                actual_cols = record.soc_angles_col[] - 1
+                results.metrics_history[key] = val[:, 1:actual_cols]
+            elseif key == :record_soc_states && val isa Matrix && !isempty(val)
+                actual_cols = record.soc_states_col[] - 1
+                results.metrics_history[key] = val[:, 1:actual_cols]
+            else
+                results.metrics_history[key] = val
+            end
         end
     else
         print_results(ws, config.print_mod, relative = config.print_res_rel, terminated = true, exit_status = exit_status)

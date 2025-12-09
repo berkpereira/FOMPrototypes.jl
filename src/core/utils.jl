@@ -206,22 +206,34 @@ end
 #     )
 # end;
 
+# Helper functions to get total iterations
+_get_total_iters(data::Matrix) = size(data, 2)
+_get_total_iters(data::Vector) = length(data)
+
+# Helper functions to check if iteration is valid
+_is_valid_iter(data::Matrix, i::Int) = i <= size(data, 2)
+_is_valid_iter(data::Vector, i::Int) = i <= length(data)
+
+# Helper functions to check if data changed between iterations
+_data_changed(data::Matrix, i::Int) = any(data[:, i] .!= data[:, i - 1])
+_data_changed(data::Vector{Vector{T}}, i::Int) where T = data[i] != data[i - 1]
+
 function constraint_changes(
-    nn_flags::Vector{Vector{Bool}},
-    soc_states::Vector{Vector{SOCAction}},
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
     )
-    total_iters = max(length(nn_flags), length(soc_states))
+    total_iters = max(_get_total_iters(nn_flags), _get_total_iters(soc_states))
     if total_iters < 2
         return Int[]
     end
 
     changes = Int[]
     for i in 2:total_iters
-        nn_changed = i <= length(nn_flags) && i - 1 <= length(nn_flags) && nn_flags[i] != nn_flags[i - 1]
-        soc_changed = i <= length(soc_states) && i - 1 <= length(soc_states) && soc_states[i] != soc_states[i - 1]
+        nn_changed = _is_valid_iter(nn_flags, i) && _is_valid_iter(nn_flags, i - 1) && _data_changed(nn_flags, i)
+        soc_changed = _is_valid_iter(soc_states, i) && _is_valid_iter(soc_states, i - 1) && _data_changed(soc_states, i)
         if nn_changed || soc_changed
             push!(changes, i)
         end
     end
     return changes
- end
+end
