@@ -133,7 +133,7 @@ function plot_enforced_constraints_count(
         xlabel="Solver Iteration",
         ylabel="Count",
         title="Constraint Status per Iteration",
-        legend=:topright,
+        legend=:topleft,
         lw=2,
         marker=:circle,
         markersize=3,
@@ -179,6 +179,8 @@ function plot_enforced_constraints_count(
         label="SOC boundary",
         color=:darkorange,
     )
+
+    
 
     return p
 end
