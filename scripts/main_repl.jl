@@ -25,7 +25,7 @@ args = Dict(
     "rel-kkt-tol"  => 1e-6,
 
     "accel-memory" => 15,
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
+    "acceleration" => :vanilla, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.99, # factor for fixed-point residual safeguard check in accelerated methods
 
@@ -41,10 +41,15 @@ args = Dict(
     "rho"   => 0.1,
     "rho-update-period" => 25,
     "theta" => 1.0,
-    
+
     # "restart-period"    => Inf,
-    # "linesearch-period" => Inf,
-    # "linesearch-eps"    => 0.001,
+
+    # Adaptive linesearch settings
+    "linesearch-enabled"          => true,
+    "linesearch-cosine-threshold" => 0.999,
+    "linesearch-cosine-window"    => 10,
+    "linesearch-initial-step"     => 2.0,
+    "linesearch-max-step"         => 1000.0,
 
     "max-iter"           => ITER_COUNT, # ONLY relevant with no acceleration!
     "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov

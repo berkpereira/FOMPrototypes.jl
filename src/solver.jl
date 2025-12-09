@@ -320,7 +320,7 @@ function step!(
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
-    vanilla_step!(ws, record)
+    vanilla_step!(ws, config, record)
 end
 
 function step!(

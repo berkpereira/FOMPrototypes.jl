@@ -588,6 +588,17 @@ function krylov_step!(
 
             krylov_usual_step!(ws, ws_diag, timer)
 
+            # Attempt linesearch on the state component only (not Arnoldi vector)
+            @views linesearch_success = adaptive_linesearch!(
+                ws, config, record,
+                ws.vars.state_prev,
+                ws.vars.state_q[:, 1],
+                ws.scratch.base.temp_mn_vec2
+            )
+            if linesearch_success && record isa IterationRecord
+                push!(record.linesearch_iters, ws.k[])
+            end
+
             # ws.givens_count has had "time" to be incremented past
             # a trigger point, so we can relax this flag in order
             # to allow the next acceleration attempt when it comes up

@@ -5,6 +5,12 @@
     soc_interesting = 2
 end
 
+# mutable state for adaptive linesearch
+@kwdef mutable struct LinesearchState
+    global_step_size::Float64 = 2.0
+    consecutive_successes::Int = 0
+end
+
 """
 State used to control per-cone projection behaviour.
 
@@ -133,9 +139,11 @@ Maintains problem data, bookkeeping metrics, and scratch buffers.
 """
 struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, VanillaVariables{T}, M}
     @common_workspace_fields()
-    
+
     k::Base.RefValue{Int} # iter counter
     scratch::VanillaScratch{T}
+    linesearch_state::LinesearchState
+    safeguard_norm::Symbol # needed for linesearch metric computation
 
     function VanillaWorkspace{T, I, M}(
         p::ProblemData{T},
@@ -144,8 +152,10 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
         scratch::VanillaScratch{T},
         vars::Union{VanillaVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
+        safeguard_norm::Symbol = :char,
         ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
+        _validate_safeguard_norm(safeguard_norm)
         vars, A_gram, res, proj_state = _init_common_workspace(VanillaVariables{T}, p, vars, A_gram)
 
         new{T, I, M}(
@@ -157,9 +167,11 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
             proj_state,
             residual_period,
             Ref(0),
-            scratch
+            scratch,
+            LinesearchState(),
+            safeguard_norm
         )
-    end 
+    end
 end
 
 # type used to store Givens rotation
@@ -186,6 +198,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING unsuccessul Krylov acceleration attempts
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     scratch::KrylovScratch{T}
+    linesearch_state::LinesearchState
 
     control_flags::KrylovControlFlags
 
@@ -245,6 +258,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             Ref(0),
             Ref(0),
             scratch,
+            LinesearchState(),
             KrylovControlFlags(),
             mem,
             tries_per_mem,
@@ -268,13 +282,14 @@ Stores accelerator state, control flags, counters, and scratch buffers.
 """
 struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, AndersonVariables{T}, M}
     @common_workspace_fields()
-    
+
     k::Base.RefValue{Int} # iter counter
     k_eff::Base.RefValue{Int} # effective iter counter, ie EXCLUDING UNsuccessul (Anderson) acceleration attempts
     k_vanilla::Base.RefValue{Int} # this counts just vanilla iterations throughout the run --- as expected by COSMOAccelerators functions (just for its logging purposes)
     k_operator::Base.RefValue{Int} # this counts number of operator applications, whether in vanilla iterations, for safeguarding, or acceleration. probably most useful notion of iter count
     composition_counter::Base.RefValue{Int} # counts the number of compositions of the operator, important for monitoring of data passed into COSMOAccelerators functions
     scratch::AndersonScratch{T}
+    linesearch_state::LinesearchState
 
     control_flags::AndersonControlFlags
 
@@ -325,6 +340,7 @@ struct AndersonWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T
             Ref(0),
             Ref(0),
             scratch,
+            LinesearchState(),
             AndersonControlFlags(),
             mem,
             anderson_interval,

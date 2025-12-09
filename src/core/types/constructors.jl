@@ -91,6 +91,7 @@ function VanillaWorkspace{T, I}(
     residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{VanillaVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
+    safeguard_norm::Symbol = :char,
     to::Union{TimerOutput, Nothing} = nothing
     ) where {T <: AbstractFloat, I <: Integer}
 
@@ -114,7 +115,7 @@ function VanillaWorkspace{T, I}(
     scratch = build_scratch(p, VanillaWorkspace, PrePPM)
 
     # delegate to the inner constructor
-    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, residual_period, scratch, vars, A_gram)
+    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, residual_period, scratch, vars, A_gram, safeguard_norm)
 end
 
 VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)

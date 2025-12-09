@@ -66,7 +66,7 @@ function anderson_step!(
         ws.method.rho_update_count[] += 1
         ws.k_vanilla[] += 1
         ws.k_operator[] += 1 # note: applies even when using recycled iterate from safeguard, since in safeguarding step only counted 1 operator application
-        
+
         # copy older iterate before iterating
         ws.vars.state_prev .= ws.vars.state
 
@@ -79,6 +79,17 @@ function anderson_step!(
             onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state, ws.scratch.extra.swap_vec, true, true)
             # swap contents of ws.vars.state and ws.scratch.extra.swap_vec
             custom_swap!(ws.vars.state, ws.scratch.extra.swap_vec, ws.scratch.base.temp_mn_vec1)
+
+            # Attempt linesearch on vanilla step (only when not recycling)
+            linesearch_success = adaptive_linesearch!(
+                ws, config, record,
+                ws.vars.state_prev,
+                ws.vars.state,
+                ws.scratch.base.temp_mn_vec2
+            )
+            if linesearch_success && record isa IterationRecord
+                push!(record.linesearch_iters, ws.k[])
+            end
         end
 
         # just applied onecol operator, so we increment

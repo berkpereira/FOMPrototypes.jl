@@ -28,11 +28,11 @@ include(joinpath(@__DIR__, "alg/cones.jl"))
 include(joinpath(@__DIR__, "linops/alg_utils.jl"))
 include(joinpath(@__DIR__, "linops/residuals.jl"))
 include(joinpath(@__DIR__, "alg/record.jl"))
+include(joinpath(@__DIR__, "alg/safeguard.jl"))
+include(joinpath(@__DIR__, "alg/linesearch.jl"))
 include(joinpath(@__DIR__, "alg/vanilla.jl"))
 include(joinpath(@__DIR__, "alg/krylov.jl"))
 include(joinpath(@__DIR__, "alg/anderson.jl"))
-include(joinpath(@__DIR__, "alg/linesearch.jl"))
-include(joinpath(@__DIR__, "alg/safeguard.jl"))
 include(joinpath(@__DIR__, "diagnostics/printing.jl"))
 include(joinpath(@__DIR__, "diagnostics/plotting.jl"))
 include(joinpath(@__DIR__, "solver.jl"))
@@ -221,15 +221,30 @@ function parse_command_line()
         arg_type = Real
         default = Inf
 
-        "--linesearch-period"
-        help = "Period for performing line search."
-        arg_type = Real
-        default = Inf
+        "--linesearch-enabled"
+        help = "Enable adaptive linesearch."
+        arg_type = Bool
+        default = false
 
-        "--linesearch-eps"
-        help = "Epsilon parameter for line search."
+        "--linesearch-cosine-threshold"
+        help = "Cosine threshold for triggering linesearch (rolling avg must exceed this)."
         arg_type = Float64
-        default = 0.001
+        default = 0.999
+
+        "--linesearch-cosine-window"
+        help = "Window size for rolling cosine average."
+        arg_type = Int
+        default = 10
+
+        "--linesearch-initial-step"
+        help = "Initial/reset step size for linesearch."
+        arg_type = Float64
+        default = 2.0
+
+        "--linesearch-max-step"
+        help = "Maximum step size cap."
+        arg_type = Float64
+        default = 16.0
     end
 
     return SolverConfig(parse_args(s))
@@ -414,7 +429,7 @@ function run_prototype(problem::ProblemData,
                 anderson_log = !config.run_fast
                 ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, residual_period = config.residual_period, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)
             else
-                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, to = to)
+                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, safeguard_norm = config.safeguard_norm, to = to)
             end
         end
     end

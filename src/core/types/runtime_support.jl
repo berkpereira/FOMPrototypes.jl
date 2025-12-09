@@ -73,9 +73,13 @@ abstract type ScratchExtra{T <: AbstractFloat} end
 
 struct VanillaScratchExtra{T} <: ScratchExtra{T}
     swap_vec::Vector{T}
+    # For linesearch safeguard computation
+    state_lookahead::Vector{T}
+    fp_res::Vector{T}
 
     function VanillaScratchExtra{T}(p::ProblemData{T}) where {T <: AbstractFloat}
-        new(zeros(T, p.m + p.n))
+        len = p.m + p.n
+        new(zeros(T, len), zeros(T, len), zeros(T, len))
     end
 end
 

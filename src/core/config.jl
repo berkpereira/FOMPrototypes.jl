@@ -26,8 +26,14 @@
     theta::Float64 = 1.0
 
     restart_period::Real = Inf
-    linesearch_period::Real = Inf
-    linesearch_eps::Float64 = 0.001
+
+    # Linesearch settings
+    linesearch_enabled::Bool = false
+    linesearch_cosine_threshold::Float64 = 0.999
+    linesearch_cosine_window::Int = 10
+    linesearch_step_growth::Float64 = 1.4142135623730951  # sqrt(2)
+    linesearch_max_step::Float64 = 16.0
+    linesearch_initial_step::Float64 = 2.0
 
     max_iter::Int = 1000
     max_k_operator::Int = 1000

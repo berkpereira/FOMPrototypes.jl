@@ -36,8 +36,27 @@ using Base: @kwdef
     curr_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
     prev_state_update::Vector{Float64} = Vector{Float64}(undef, 0)
 
+    # Rolling cosine average for adaptive linesearch triggering
+    cosine_rolling_sum::Float64 = 0.0
+    cosine_rolling_window::Vector{Float64} = zeros(10)
+    cosine_window_idx::Ref{Int} = Ref(1)
+    cosine_window_count::Ref{Int} = Ref(0)
+
     char_norm_func::Function
 end
+
+"""
+Get the rolling average of update cosines for adaptive linesearch triggering.
+Returns 0.0 if not enough data has been collected yet.
+"""
+function get_rolling_cosine_avg(record::IterationRecord, window_size::Int)::Float64
+    if record.cosine_window_count[] < window_size
+        return 0.0
+    end
+    return record.cosine_rolling_sum / window_size
+end
+
+get_rolling_cosine_avg(record::NullRecord, window_size::Int)::Float64 = 0.0
 
 function IterationRecord(ws::AbstractWorkspace)
 
@@ -203,11 +222,28 @@ function push_cosines_projs!(
     ws::AbstractWorkspace,
     record::IterationRecord,
     )
-    
+
     # store cosine between last two iterate updates
     if ws.k[] >= 1
         state_prev_updates_cos = abs(dot(record.curr_state_update, record.prev_state_update) / (norm(record.curr_state_update) * norm(record.prev_state_update)))
         push!(record.state_update_cosines, state_prev_updates_cos)
+
+        # Update rolling cosine average (allocation-free circular buffer)
+        window_size = length(record.cosine_rolling_window)
+        idx = record.cosine_window_idx[]
+
+        # Subtract old value from sum if buffer is full
+        if record.cosine_window_count[] >= window_size
+            record.cosine_rolling_sum -= record.cosine_rolling_window[idx]
+        end
+
+        # Add new value
+        record.cosine_rolling_window[idx] = state_prev_updates_cos
+        record.cosine_rolling_sum += state_prev_updates_cos
+
+        # Update index (circular) and count
+        record.cosine_window_idx[] = mod1(idx + 1, window_size)
+        record.cosine_window_count[] += 1
     end
     record.prev_state_update .= record.curr_state_update
 
