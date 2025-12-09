@@ -65,7 +65,7 @@ config = FOMPrototypes.SolverConfig(args);
 problem = FOMPrototypes.fetch_data(config.problem_set, config.problem_name);
 
 # call reference solver:
-model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, config.problem_set, config.problem_name, config);
+# model_ref, state_ref, obj_ref = FOMPrototypes.solve_reference(problem, config.problem_set, config.problem_name, config);
 
 # call my solver:
 ws, ws_diag, results, to = FOMPrototypes.run_prototype(

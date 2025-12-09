@@ -43,7 +43,7 @@ function linearised_proj_step!(
                 @. v_temp = v_post - v_pre
                 inv_nrm = 1 / norm(v_temp)
 
-                if inv_nrm > 1e6
+                if inv_nrm > 1e4
                     println("🟠 Very small normal vector in linearised projection step for SOC at index $soc_idx !")
                 end
 
@@ -374,8 +374,9 @@ function twocol_method_operator!(
     end
 
 
-    # update in-place flags switching affine dynamics based on projection action
+    # update in-place flags switching dynamics based on projection action
     # ws.proj_state.nn_mask = D_k in Goodnotes handwritten notes
+    # ws.proj_state.soc_states gives state (region) for each SOC
     if update_proj_action
         @views update_proj_flags!(ws.proj_state, ws.vars.preproj_vec, ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K)
     end
