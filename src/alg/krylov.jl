@@ -32,13 +32,16 @@ function linearised_proj_step!(
         elseif cone isa Clarabel.SecondOrderConeT
             if proj_state.soc_states[soc_idx] == soc_identity
                 nothing # identity operation
+            # TODO!!!! reintroduce the principled zero mapping for the
+            # negative SOC region!!!
             elseif proj_state.soc_states[soc_idx] == soc_zero
                 @views y[start_idx:end_idx] .= 0.0
+            # @warn "Using hack in zero region linearisation!" maxlog=1
             else # interesting case
-                v_temp = view(temp_normal, start_idx:end_idx)
+                v_temp = view(temp_normal,  start_idx:end_idx)
                 v_post = view(postproj_vec, start_idx:end_idx)
-                v_pre  = view(preproj_vec, start_idx:end_idx)
-                v_y    = view(y, start_idx:end_idx)
+                v_pre  = view(preproj_vec,  start_idx:end_idx)
+                v_y    = view(y,            start_idx:end_idx)
 
                 @. v_temp = v_post - v_pre
                 inv_nrm = 1 / norm(v_temp)
