@@ -1,0 +1,10 @@
+#SEARCH{set:socp,min_m:1,max_m:20000,min_n:1,max_n:20000}
+options_pricing_K_45
+options_pricing_K_35
+options_pricing_K_40
+options_pricing_K_30
+options_pricing_K_10
+options_pricing_K_20
+options_pricing_K_50
+lasso
+options_pricing_K_5
