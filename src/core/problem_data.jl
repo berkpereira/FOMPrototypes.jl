@@ -52,7 +52,7 @@ function filter_clarabel_problems(
     max_n::Union{Int, Nothing} = nothing,
     min_num_cones::Union{Int, Nothing} = nothing,
     max_num_cones::Union{Int, Nothing} = nothing,
-    admissible_cones::Union{Vector{DataType}, Nothing} = [Clarabel.NonnegativeConeT, Clarabel.ZeroConeT]
+    admissible_cones::Union{Vector{DataType}, Nothing} = [Clarabel.NonnegativeConeT, Clarabel.ZeroConeT, Clarabel.SecondOrderConeT]
 )
     # Retrieve all problems in the specified problem set
     all_problems = ClarabelBenchmarks.PROBLEMS[problem_set]
