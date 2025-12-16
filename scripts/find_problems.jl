@@ -1,12 +1,13 @@
-include("../src/problem_data.jl")
+include("../src/core/problem_data.jl")
 
-SEARCH_PROBLEM_SET = "netlib_feasible" # in keys(ClarabelBenchmarks.PROBLEMS)
+SEARCH_PROBLEM_SET = "socp" # in keys(ClarabelBenchmarks.PROBLEMS)
+bench_type = :fom # bench_type in {:fom, :spmv}
 
 # Define search criteria
 MIN_M = 1
-MAX_M = 100_000
+MAX_M = 20_000
 MIN_N = 1
-MAX_N = 100_000
+MAX_N = 20_000
 
 suitable_problems = filter_clarabel_problems(
     SEARCH_PROBLEM_SET,
@@ -17,7 +18,6 @@ suitable_problems = filter_clarabel_problems(
 )
 
 # Write results to a text file including an info header line.
-bench_type = :spmv # bench_type in {:fom, :spmv}
 if bench_type == :fom
     names_file = "./problem_search_results_fom/search_results_$SEARCH_PROBLEM_SET.txt"
 elseif bench_type == :spmv

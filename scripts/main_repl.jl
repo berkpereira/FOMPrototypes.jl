@@ -10,11 +10,14 @@ args = Dict(
     # "problem-set" => "sslsq",
     # "problem-name" => "NYPA_Maragal_3_lasso",
 
-    "problem-set"  => "socp",
-    "problem-name" => "options_pricing_K_20",
+    # "problem-set"  => "socp",
+    # "problem-name" => "options_pricing_K_20",
 
     # "problem-set"  => "opf_socp",
-    # "problem-name" => "case60_c",
+    # "problem-name" => "case3_lmbd",
+    
+    "problem-set"  => "opf_socp",
+    "problem-name" => "case89_pegase__sad",
 
     # "problem-set" => "synthetic",
     # "problem-name" => "zhang_socp", # in {toy, giselsson, zhang_socp}
@@ -22,12 +25,12 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-6,
+    "rel-kkt-tol"  => 1e-3,
 
     "accel-memory" => 15,
     "acceleration" => :krylov, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
-    "safeguard-factor" => 0.99, # factor for fixed-point residual safeguard check in accelerated methods
+    "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
 
     "krylov-tries-per-mem"  => 2,
     "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
@@ -39,7 +42,7 @@ args = Dict(
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
     "rho"   => 0.1,
-    "rho-update-period" => 25,
+    "rho-update-period" => 100,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -51,7 +54,7 @@ args = Dict(
     "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
-    "run-fast"           => false,
+    "run-fast"           => true,
     "global-timeout"     => Inf, # seconds, including set-up time
     "loop-timeout"       => Inf, # seconds, loop excluding set-up time
 );
