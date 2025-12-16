@@ -345,9 +345,20 @@ function step!(
     anderson_step!(ws, ws_diag, config, record, full_diagnostics, timer)
 end
 
+function step!(
+    ws::RandomizedWorkspace,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing},
+    config::SolverConfig,
+    record::AbstractRecord,
+    full_diagnostics::Bool,
+    timer::TimerOutput,
+    )
+    randomized_step!(ws, ws_diag, config, record, full_diagnostics, timer)
+end
+
 """
 Run the optimiser for the initial inputs and solver options given.
-acceleration is a Symbol in {:none, :krylov, :anderson}
+acceleration is a Symbol in {:none, :krylov, :anderson, :randomized}
 """
 function optimise!(
     ws::AbstractWorkspace,
@@ -361,7 +372,7 @@ function optimise!(
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
         @views view_state = ws.vars.state_q[:, 1]
-    elseif ws.vars isa VanillaVariables || ws.vars isa AndersonVariables
+    elseif ws.vars isa VanillaVariables || ws.vars isa AndersonVariables || ws.vars isa RandomizedVariables
         view_state = ws.vars.state # point to same place in memory
     else
         error("Unknown variable type in workspace.")

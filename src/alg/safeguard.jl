@@ -74,11 +74,11 @@ function compute_fp_metric!(
 end
 
 """
-Check for acceptance of a Krylov acceleration candidate.
+Check for acceptance of a Krylov/Randomized acceleration candidate.
 Refactored to call helper routines that encapsulate FOM and fixed-point metric computations.
 """
 function accel_fp_safeguard!(
-    ws::Union{KrylovWorkspace, AndersonWorkspace},
+    ws::Union{KrylovWorkspace, AndersonWorkspace, RandomizedWorkspace},
     ws_diag::Union{DiagnosticsWorkspace, Nothing},
     current_state::AbstractVector{Float64},
     accelerated_state::AbstractVector{Float64},
@@ -95,10 +95,14 @@ function accel_fp_safeguard!(
     # compute FOM(current_state) in ws.scratch.extra.state_lookahead and fp_res_current in ws.scratch.extra.fp_res
     if ws isa AndersonWorkspace
         compute_fom_and_fp!(ws, current_state, ws.scratch.extra.state_lookahead, ws.scratch.extra.fp_res)
-    else # Krylov case
+    elseif ws isa KrylovWorkspace
         # here we can recycle from specialised cache container written to
         # in the GMRES setup inside compute_krylov_accelerant!
         ws.scratch.extra.state_lookahead .= ws.scratch.extra.step_when_computing_krylov
+        ws.scratch.extra.fp_res .= ws.scratch.extra.state_lookahead - current_state
+    else # RandomizedWorkspace case
+        # recycle from cache written to in compute_randomized_accelerant!
+        ws.scratch.extra.state_lookahead .= ws.scratch.extra.step_when_computing_randomized
         ws.scratch.extra.fp_res .= ws.scratch.extra.state_lookahead - current_state
     end
 
@@ -198,7 +202,7 @@ function accel_fp_safeguard!(
         if ws isa KrylovWorkspace
             println("Givens count is $(ws.givens_count[]),")
         end
-        println("✅ accel success, safeguard ratio: $(fp_metric_acc / fp_metric_vanilla)")
+        println("✅ accel success at iter $(ws.k[]), safeguard ratio: $(fp_metric_acc / fp_metric_vanilla). new fp metric: $(fp_metric_acc)")
         ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead    # ws.scratch.extra.state_lookahead == FOM(accelerated_state)
     end
 

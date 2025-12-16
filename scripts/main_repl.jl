@@ -8,7 +8,10 @@ args = Dict(
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
     # "problem-set" => "sslsq",
-    # "problem-name" => "NYPA_Maragal_3_lasso",
+    # "problem-name" => "NYPA_Maragal_5_lasso",
+
+    "problem-set" => "sslsq",
+    "problem-name" => "NYPA_Maragal_3_huber",
 
     # "problem-set"  => "socp",
     # "problem-name" => "options_pricing_K_20",
@@ -16,8 +19,8 @@ args = Dict(
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
     
-    "problem-set"  => "opf_socp",
-    "problem-name" => "case89_pegase__sad",
+    # "problem-set"  => "opf_socp",
+    # "problem-name" => "case89_pegase__sad",
 
     # "problem-set" => "synthetic",
     # "problem-name" => "zhang_socp", # in {toy, giselsson, zhang_socp}
@@ -25,12 +28,12 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-3,
+    "rel-kkt-tol"  => 1e-4,
 
-    "accel-memory" => 15,
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson}
+    "accel-memory" => 150,
+    "acceleration" => :randomized, # in {:none, :krylov, :anderson}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
-    "safeguard-factor" => 1.0, # factor for fixed-point residual safeguard check in accelerated methods
+    "safeguard-factor" => 0.98, # factor for fixed-point residual safeguard check in accelerated methods
 
     "krylov-tries-per-mem"  => 2,
     "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
@@ -42,7 +45,7 @@ args = Dict(
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
 
     "rho"   => 0.1,
-    "rho-update-period" => 100,
+    "rho-update-period" => Inf,
     "theta" => 1.0,
     
     # "restart-period"    => Inf,
@@ -76,7 +79,7 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_set,
     config.problem_name,
     config,
-    full_diagnostics = true,
+    full_diagnostics = false,
     spec_plot_period = 50
     );
 

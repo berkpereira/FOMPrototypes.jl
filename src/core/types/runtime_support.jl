@@ -19,6 +19,16 @@ end
 # NOTE default init values
 AndersonControlFlags() = AndersonControlFlags(false, false)
 
+mutable struct RandomizedControlFlags <: AbstractControlFlags
+    recycle_next::Bool
+    accepted_accel::Bool
+    need_regenerate::Bool  # Flag to regenerate Ω after rejection
+    randomized_status::Symbol
+end
+
+# NOTE default init values
+RandomizedControlFlags() = RandomizedControlFlags(false, false, true, :init)
+
 
 # Types for scratch areas/working vectors to avoid heap allocations
 
@@ -116,10 +126,10 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
     temp_n_vec_complex1::Vector{Complex{T}}
     temp_n_vec_complex2::Vector{Complex{T}}
     temp_m_vec_complex::Vector{Complex{T}}
-    
+
     # to hold normal vectors of SOC projection.
     # needs at the very most m entries. usually much fewer
-    projection_normal::Vector{T} 
+    projection_normal::Vector{T}
 
     # holds the rhs residual set up for GMRES solution
     # we use a view into it, since the relevant working
@@ -129,7 +139,7 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
 
     # briefly holds initial iterate
     initial_vec::Vector{T}
-    
+
     accelerated_point::Vector{T}
     # recycled iterate --- to recycle work done when computing fixed-point
     # residuals for acceleration acceptance criteria, then assigned
@@ -172,6 +182,55 @@ struct KrylovScratchExtra{T} <: ScratchExtra{T}
     end
 end
 
+"""
+Scratch buffers for randomized subspace acceleration.
+Uses batch (s-column) operations instead of Krylov's 2-column complex trick.
+"""
+struct RandomizedScratchExtra{T} <: ScratchExtra{T}
+    # Batch operator scratch matrices (for s-column operations)
+    temp_n_mat::Matrix{T}           # n × s scratch for primal variables
+    temp_m_mat1::Matrix{T}          # m × s scratch for dual variables
+    temp_m_mat2::Matrix{T}          # m × s scratch for dual variables
+    y_qm_bar_mat::Matrix{T}         # m × s for extrapolated dual
+
+    # to hold normal vectors of SOC projection (same as Krylov)
+    projection_normal::Vector{T}
+
+    # Least-squares solution vectors
+    lls_rhs::Vector{T}              # V' * residual (length s)
+    lls_sol::Vector{T}              # Solution to G*z = V'*r (length s)
+    subspace_increment::Vector{T}   # V * lls_sol (length m+n)
+
+    accelerated_point::Vector{T}
+    # recycled iterate --- to recycle work done when computing fixed-point
+    state_recycled::Vector{T}
+    state_lookahead::Vector{T}
+    fp_res::Vector{T}
+
+    # cache for FOM(current) to recycle in safeguard
+    step_when_computing_randomized::Vector{T}
+
+    function RandomizedScratchExtra{T}(p::ProblemData{T}, subspace_dim::Int) where {T <: AbstractFloat}
+        m, n = p.m, p.n
+        s = subspace_dim
+        new{T}(
+            zeros(T, n, s),         # temp_n_mat
+            zeros(T, m, s),         # temp_m_mat1
+            zeros(T, m, s),         # temp_m_mat2
+            zeros(T, m, s),         # y_qm_bar_mat
+            zeros(T, m),            # projection_normal
+            zeros(T, s),            # lls_rhs
+            zeros(T, s),            # lls_sol
+            zeros(T, m + n),        # subspace_increment
+            zeros(T, m + n),        # accelerated_point
+            zeros(T, m + n),        # state_recycled
+            zeros(T, m + n),        # state_lookahead
+            zeros(T, m + n),        # fp_res
+            zeros(T, m + n),        # step_when_computing_randomized
+        )
+    end
+end
+
 
 # Composite types which fit all scratch components together
 abstract type AbstractWorkspaceScratch{T <: AbstractFloat} end
@@ -193,4 +252,10 @@ struct KrylovScratch{T} <: AbstractWorkspaceScratch{T}
     method::AbstractMethodScratchVecs{T}
     method_mats::AbstractMethodScratchMats{T}
     extra::KrylovScratchExtra{T}
+end
+
+struct RandomizedScratch{T} <: AbstractWorkspaceScratch{T}
+    base::BaseScratch{T}
+    method::AbstractMethodScratchVecs{T}
+    extra::RandomizedScratchExtra{T}
 end

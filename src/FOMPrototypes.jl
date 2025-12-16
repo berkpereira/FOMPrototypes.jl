@@ -31,6 +31,7 @@ include(joinpath(@__DIR__, "alg/record.jl"))
 include(joinpath(@__DIR__, "alg/vanilla.jl"))
 include(joinpath(@__DIR__, "alg/krylov.jl"))
 include(joinpath(@__DIR__, "alg/anderson.jl"))
+include(joinpath(@__DIR__, "alg/randomized.jl"))
 include(joinpath(@__DIR__, "alg/linesearch.jl"))
 include(joinpath(@__DIR__, "alg/safeguard.jl"))
 include(joinpath(@__DIR__, "diagnostics/printing.jl"))
@@ -402,7 +403,7 @@ function run_prototype(problem::ProblemData,
         println("RUNNING PROTOTYPE VARIANT $(config.variant)...")
         println("Problem set/name: $(problem_set)/$(problem_name)")
         println("Acceleration: $(config.acceleration)")
-        if config.acceleration in [:krylov, :anderson]
+        if config.acceleration in [:krylov, :anderson, :randomized]
             println("Acceleration memory: $(config.accel_memory)")
         end
 
@@ -413,6 +414,8 @@ function run_prototype(problem::ProblemData,
             elseif config.acceleration == :anderson
                 anderson_log = !config.run_fast
                 ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, residual_period = config.residual_period, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)
+            elseif config.acceleration == :randomized
+                ws = RandomizedWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.randomized_regularization, config.safeguard_norm, config.randomized_operator, A_gram = A_gram, residual_period = config.residual_period, to = to)
             else
                 ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, to = to)
             end

@@ -72,9 +72,23 @@ function build_scratch(
     # --- Krylov-specific step ---
     # Also build the method matrices
     method_mats = _build_method_mats(p, M)
-    
+
     # Note the different field names in the final struct
     return KrylovScratch(base, method_vecs, method_mats, extra)
+end
+
+function build_scratch(
+    p::ProblemData{T},
+    ::Type{<:RandomizedWorkspace}, # Dispatch on Randomized
+    ::Type{M},
+    subspace_dim::Int
+) where {T, M <: AbstractMethod}
+
+    base = BaseScratch{T}(p)
+    method_vecs = _build_method_vecs(p, M)
+    extra = RandomizedScratchExtra{T}(p, subspace_dim)
+
+    return RandomizedScratch(base, method_vecs, extra)
 end
 
 
@@ -261,3 +275,56 @@ function AndersonWorkspace{T, I}(
 end
 
 AndersonWorkspace(args...; kwargs...) = AndersonWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)
+
+# Outer constructor for RandomizedWorkspace
+function RandomizedWorkspace{T, I}(
+    p::ProblemData{T},
+    ::Type{PrePPM}, # note dispatch on PrePPM type
+    variant::Symbol, # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
+    τ::Union{T, Nothing},
+    ρ::T,
+    θ::T,
+    subspace_dim::Int,
+    regularization::T,
+    safeguard_norm::Symbol,
+    rand_operator::Symbol;
+    residual_period::I = DEFAULT_RESIDUAL_PERIOD,
+    vars::Union{RandomizedVariables{T}, Nothing} = nothing,
+    A_gram::Union{LinearMap{T}, Nothing} = nothing,
+    to::Union{TimerOutput, Nothing} = nothing
+    ) where {T <: AbstractFloat, I <: Integer}
+
+    @timeit to "W op prep" begin
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+    end
+
+    W_inv = prepare_inv(W, to)
+
+    @timeit to "dP prep" begin
+        dP = Vector(diag(p.P))
+    end
+
+    @timeit to "dA prep" begin
+        dA = vec(sum(abs2, p.A; dims=1))
+    end
+
+    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+
+    scratch = build_scratch(p, RandomizedWorkspace, PrePPM, subspace_dim)
+
+    # delegate to the inner constructor
+    return RandomizedWorkspace{T, I, PrePPM{T, I}}(
+        p,
+        method,
+        residual_period,
+        scratch,
+        vars,
+        A_gram,
+        subspace_dim,
+        regularization,
+        safeguard_norm,
+        rand_operator
+    )
+end
+
+RandomizedWorkspace(args...; kwargs...) = RandomizedWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)

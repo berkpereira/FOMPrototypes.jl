@@ -185,7 +185,7 @@ TODO find and reduce intense heap allocs in this function
 function M1_op!(
     x::AbstractVector{Float64},
     result_vec::AbstractVector{Float64},
-    ws::Union{KrylovWorkspace, AndersonWorkspace},
+    ws::Union{KrylovWorkspace, AndersonWorkspace, RandomizedWorkspace},
     variant::Symbol,
     temp_n_vec::Vector{Float64},
     temp_m_vec::Vector{Float64},
