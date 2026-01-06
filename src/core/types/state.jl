@@ -75,12 +75,23 @@ struct VanillaVariables{T <: AbstractFloat} <: AbstractVariables{T}
 
     @common_var_fields()
     # TODO perhaps add y_bar field for temporary storage, to be multiplied by A'
-    
+
     function VanillaVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
         new(zeros(n + m), zeros(n + m), zeros(m))
     end
 end
 VanillaVariables(args...) = VanillaVariables{DefaultFloat}(args...)
+
+struct RandomizedVariables{T <: AbstractFloat} <: AbstractVariables{T}
+    state::Vector{T}
+
+    @common_var_fields()
+
+    function RandomizedVariables{T}(m::Int, n::Int) where {T <: AbstractFloat}
+        new(zeros(n + m), zeros(n + m), zeros(m))
+    end
+end
+RandomizedVariables(args...) = RandomizedVariables{DefaultFloat}(args...)
 
 # Type for storing residuals in the workspace
 mutable struct ProgressMetrics{T <: AbstractFloat}

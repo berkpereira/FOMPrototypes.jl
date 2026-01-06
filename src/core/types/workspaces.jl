@@ -261,6 +261,75 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     end
 end
 
+# workspace type for when Randomized subspace acceleration is used
+"""
+Workspace for randomized subspace acceleration.
+Uses random Gaussian embeddings instead of Krylov subspaces.
+"""
+struct RandomizedWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, RandomizedVariables{T}, M}
+    @common_workspace_fields()
+
+    k::Base.RefValue{Int}           # iter counter
+    k_eff::Base.RefValue{Int}       # effective iter counter (excluding unsuccessful acceleration attempts)
+    k_operator::Base.RefValue{Int}  # counts number of operator applications
+    scratch::RandomizedScratch{T}
+
+    control_flags::RandomizedControlFlags
+
+    # Randomized subspace parameters
+    subspace_dim::Int               # s (embedding dimension)
+    regularization::T               # λ for G = V'V + λI
+    safeguard_norm::Symbol          # in {:euclid, :char, :none}
+    rand_operator::Symbol           # either :tilde_A or :B (use L-I or L)
+
+    # Randomized subspace data (pre-allocated)
+    Omega::Matrix{T}                # Random embedding: (m+n) × s
+    V::Matrix{T}                    # Operator image: (m+n) × s
+    G::Matrix{T}                    # Gram matrix V'V + λI: s × s
+
+    function RandomizedWorkspace{T, I, M}(
+        p::ProblemData{T},
+        method::M,
+        residual_period::I,
+        scratch::RandomizedScratch{T},
+        vars::Union{RandomizedVariables{T}, Nothing},
+        A_gram::Union{LinearMap{T}, Nothing},
+        subspace_dim::Int,
+        regularization::T,
+        safeguard_norm::Symbol,
+        rand_operator::Symbol) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
+
+        _validate_safeguard_norm(safeguard_norm)
+        rand_operator in (:tilde_A, :B) || throw(ArgumentError("rand_operator must be one of :tilde_A, :B"))
+        subspace_dim >= 1 || throw(ArgumentError("subspace_dim must be at least 1"))
+
+        m, n = p.m, p.n
+        vars, A_gram, res, proj_state = _init_common_workspace(RandomizedVariables{T}, p, vars, A_gram)
+
+        new{T, I, M}(
+            p,
+            method,
+            vars,
+            A_gram,
+            res,
+            proj_state,
+            residual_period,
+            Ref(0),                             # k
+            Ref(0),                             # k_eff
+            Ref(0),                             # k_operator
+            scratch,
+            RandomizedControlFlags(),
+            subspace_dim,
+            regularization,
+            safeguard_norm,
+            rand_operator,
+            zeros(T, m + n, subspace_dim),      # Omega
+            zeros(T, m + n, subspace_dim),      # V
+            zeros(T, subspace_dim, subspace_dim), # G
+        )
+    end
+end
+
 # workspace type for when Anderson acceleration is used
 """
 Workspace for Anderson acceleration.

@@ -8,7 +8,7 @@
     rel_kkt_tol::Float64 = 1e-6
 
     accel_memory::Int = 20
-    acceleration::Symbol = :none # in {:none, :krylov, :anderson}
+    acceleration::Symbol = :none # in {:none, :krylov, :anderson, :randomized}
     safeguard_norm::Symbol = :char
     safeguard_factor::Float64 = 0.99
     residual_period::Int = 25
@@ -21,6 +21,9 @@
     anderson_broyden_type::Symbol = :normal2
     anderson_mem_type::Symbol = :rolling
     anderson_reg::Symbol = :none
+
+    randomized_regularization::Float64 = 1e-8
+    randomized_operator::Symbol = :tilde_A # in {:tilde_A, :B}
 
     rho::Float64 = 1.0
     theta::Float64 = 1.0
