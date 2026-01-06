@@ -211,6 +211,18 @@ function generate_random_subspace!(
     # Generate Gaussian random matrix Ω ~ N(0, 1)
     randn!(rng, ws.Omega)
 
+    # Augment with FP residual if enabled
+    if ws.augment_fp
+        # Normalize cached FP residual
+        fp_norm = norm(ws.fp_residual_cached)
+
+        if fp_norm > 1e-14  # Check for non-zero FP residual
+            # Set first column to normalized FP residual
+            @views ws.Omega[:, 1] .= ws.fp_residual_cached ./ fp_norm
+            # remaining columns are Gaussian, just been generated fresh
+        end
+    end
+
     # Compute V = (L - I) * Omega
     # First, need to update the projection state from current iterate
     # This should have been done before calling this function
@@ -263,6 +275,11 @@ function compute_randomized_accelerant!(
     # 2. Compute fixed-point residual r_k = FOM(current) - current
     ws.scratch.base.temp_mn_vec1 .= result_vec
     ws.scratch.base.temp_mn_vec1 .-= ws.vars.state
+
+    # Cache FP residual for potential augmentation
+    if ws.augment_fp
+        ws.fp_residual_cached .= ws.scratch.base.temp_mn_vec1
+    end
 
     # 3. Compute V' * r_k
     mul!(ws.scratch.extra.lls_rhs, ws.V', ws.scratch.base.temp_mn_vec1)
@@ -407,7 +424,11 @@ function randomized_step!(
                     false,  # don't update proj action
                     true    # DO update residuals
                 )
-                # Keep same subspace for next iteration
+
+                # Force regeneration if augmenting to get fresh FP residual
+                if ws.augment_fp
+                    ws.control_flags.need_regenerate = true
+                end
             else
                 # Reject: take vanilla step and flag for regeneration
                 ws.vars.state .= ws.scratch.extra.state_recycled

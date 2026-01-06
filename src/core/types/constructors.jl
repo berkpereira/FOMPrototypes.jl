@@ -287,7 +287,8 @@ function RandomizedWorkspace{T, I}(
     subspace_dim::Int,
     regularization::T,
     safeguard_norm::Symbol,
-    rand_operator::Symbol;
+    rand_operator::Symbol,
+    augment_fp::Bool;
     residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{RandomizedVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
@@ -323,7 +324,8 @@ function RandomizedWorkspace{T, I}(
         subspace_dim,
         regularization,
         safeguard_norm,
-        rand_operator
+        rand_operator,
+        augment_fp
     )
 end
 

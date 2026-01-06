@@ -24,6 +24,7 @@
 
     randomized_regularization::Float64 = 1e-8
     randomized_operator::Symbol = :tilde_A # in {:tilde_A, :B}
+    randomized_augment_fp::Bool = false # augment subspace with FP residual
 
     rho::Float64 = 1.0
     theta::Float64 = 1.0

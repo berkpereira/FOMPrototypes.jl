@@ -281,11 +281,13 @@ struct RandomizedWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod
     regularization::T               # λ for G = V'V + λI
     safeguard_norm::Symbol          # in {:euclid, :char, :none}
     rand_operator::Symbol           # either :tilde_A or :B (use L-I or L)
+    augment_fp::Bool                # augment subspace with FP residual
 
     # Randomized subspace data (pre-allocated)
     Omega::Matrix{T}                # Random embedding: (m+n) × s
     V::Matrix{T}                    # Operator image: (m+n) × s
     G::Matrix{T}                    # Gram matrix V'V + λI: s × s
+    fp_residual_cached::Vector{T}   # Cached FP residual for augmentation: (m+n)
 
     function RandomizedWorkspace{T, I, M}(
         p::ProblemData{T},
@@ -297,7 +299,8 @@ struct RandomizedWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod
         subspace_dim::Int,
         regularization::T,
         safeguard_norm::Symbol,
-        rand_operator::Symbol) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
+        rand_operator::Symbol,
+        augment_fp::Bool) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         _validate_safeguard_norm(safeguard_norm)
         rand_operator in (:tilde_A, :B) || throw(ArgumentError("rand_operator must be one of :tilde_A, :B"))
@@ -323,9 +326,11 @@ struct RandomizedWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod
             regularization,
             safeguard_norm,
             rand_operator,
+            augment_fp,
             zeros(T, m + n, subspace_dim),      # Omega
             zeros(T, m + n, subspace_dim),      # V
             zeros(T, subspace_dim, subspace_dim), # G
+            zeros(T, m + n),                    # fp_residual_cached
         )
     end
 end
