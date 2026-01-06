@@ -26,23 +26,30 @@ args = Dict(
     # "problem-name" => "zhang_socp", # in {toy, giselsson, zhang_socp}
     
     #####################
+    # Acceleration Settings
+    #####################
 
     "res-norm"     => Inf,
     "rel-kkt-tol"  => 1e-4,
 
     "accel-memory" => 150,
-    "acceleration" => :randomized, # in {:none, :krylov, :anderson}
+    "acceleration" => :randomized, # in {:none, :krylov, :anderson, :randomized}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
-    "safeguard-factor" => 0.98, # factor for fixed-point residual safeguard check in accelerated methods
+    "safeguard-factor" => 0.98, # factor for fixed-point residual safeguard check
 
+    # Krylov-specific
     "krylov-tries-per-mem"  => 2,
     "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
-    
-    # note defaults are reg = :none, with :restarted and :QR2
+
+    # Anderson-specific (defaults: reg = :none, with :restarted and :QR2)
     "anderson-interval"     => 10,
     "anderson-broyden-type" => :QR2, # in {Symbol(1), :normal2, :QR2}
     "anderson-mem-type"     => :restarted, # in {:rolling, :restarted}
     "anderson-reg"          => :none, # in {:none, :tikonov, :frobenius}
+
+    # Randomized-specific
+    "randomized-regularization" => 1e-8, # λ for G = V'V + λI (Tikhonov regularization)
+    "randomized-operator" => :tilde_A, # in {:tilde_A, :B} - use L-I or L operator
 
     "rho"   => 0.1,
     "rho-update-period" => Inf,
@@ -53,7 +60,7 @@ args = Dict(
     # "linesearch-eps"    => 0.001,
 
     "max-iter"           => ITER_COUNT, # ONLY relevant with no acceleration!
-    "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov
+    "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov/Randomized
     "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
     "show-vlines"        => true,
