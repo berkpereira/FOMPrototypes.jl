@@ -215,7 +215,7 @@ function generate_random_subspace!(
     # First, need to update the projection state from current iterate
     # This should have been done before calling this function
 
-    use_shift = (ws.rand_operator == :tilde_A)
+    use_shift = (ws.rand_operator != :tilde_A)
     apply_linearized_operator_batch!(ws, ws.Omega, ws.V, Val{ws.method.variant}(), use_shift)
 
     # Count operator applications (s applications)
