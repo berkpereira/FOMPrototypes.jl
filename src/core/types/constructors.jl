@@ -105,6 +105,7 @@ function VanillaWorkspace{T, I}(
     residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{VanillaVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
+    config::Union{SolverConfig, Nothing} = nothing,
     to::Union{TimerOutput, Nothing} = nothing
     ) where {T <: AbstractFloat, I <: Integer}
 
@@ -127,8 +128,13 @@ function VanillaWorkspace{T, I}(
 
     scratch = build_scratch(p, VanillaWorkspace, PrePPM)
 
+    # If config not provided, create a default one
+    if config === nothing
+        config = SolverConfig()
+    end
+
     # delegate to the inner constructor
-    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, residual_period, scratch, vars, A_gram)
+    return VanillaWorkspace{T, I, PrePPM{T, I}}(p, method, residual_period, scratch, vars, A_gram, config)
 end
 
 VanillaWorkspace(args...; kwargs...) = VanillaWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)

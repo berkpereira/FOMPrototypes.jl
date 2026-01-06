@@ -133,9 +133,14 @@ Maintains problem data, bookkeeping metrics, and scratch buffers.
 """
 struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}} <: AbstractWorkspace{T, I, VanillaVariables{T}, M}
     @common_workspace_fields()
-    
+
     k::Base.RefValue{Int} # iter counter
     scratch::VanillaScratch{T}
+
+    # For diagnostic tracking (only used when !run_fast)
+    config::SolverConfig
+    safeguard_norm::Symbol  # Needed for compute_fp_metric! (from config.safeguard_norm)
+    prev_fp_metric::Base.RefValue{Float64}
 
     function VanillaWorkspace{T, I, M}(
         p::ProblemData{T},
@@ -144,6 +149,7 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
         scratch::VanillaScratch{T},
         vars::Union{VanillaVariables{T}, Nothing},
         A_gram::Union{LinearMap{T}, Nothing},
+        config::SolverConfig,
         ) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         vars, A_gram, res, proj_state = _init_common_workspace(VanillaVariables{T}, p, vars, A_gram)
@@ -157,7 +163,10 @@ struct VanillaWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T,
             proj_state,
             residual_period,
             Ref(0),
-            scratch
+            scratch,
+            config,
+            config.safeguard_norm,
+            Ref(Inf)
         )
     end 
 end

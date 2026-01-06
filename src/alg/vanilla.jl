@@ -5,11 +5,35 @@ using Clarabel
 function vanilla_step!(
     ws::VanillaWorkspace,
     record::AbstractRecord,
+    config::SolverConfig,
     )
     # copy older iterate before iterating
     ws.vars.state_prev .= ws.vars.state
 
     onecol_method_operator!(ws, Val{ws.method.variant}(), ws.vars.state, ws.scratch.extra.swap_vec, true, true)
+
+    # Compute fixed-point metric BEFORE swap (when !run_fast)
+    # At this point:
+    # - ws.vars.state contains old state
+    # - ws.scratch.extra.swap_vec contains FOM(old state)
+    if !config.run_fast && ws.k[] > 0
+        # Compute fp_residual = FOM(state) - state
+        # Use temp_mn_vec1 as storage for fp_residual (it gets overwritten by custom_swap! anyway)
+        ws.scratch.base.temp_mn_vec1 .= ws.scratch.extra.swap_vec .- ws.vars.state
+
+        # Compute metric
+        fp_metric = compute_fp_metric!(ws, ws.scratch.base.temp_mn_vec1)
+
+        # Print ratio (skip first iteration since prev_fp_metric = Inf)
+        if ws.prev_fp_metric[] < Inf
+            metric_ratio = fp_metric / ws.prev_fp_metric[]
+            println("Vanilla iter $(ws.k[]): fp metric ratio: $(metric_ratio), metric: $(fp_metric)")
+        end
+
+        # Update for next iteration
+        ws.prev_fp_metric[] = fp_metric
+    end
+
     # swap contents of ws.vars.state and ws.scratch.extra.swap_vec
     custom_swap!(ws.vars.state, ws.scratch.extra.swap_vec, ws.scratch.base.temp_mn_vec1)
     # now ws.vars.state contains newer iterate, while

@@ -417,7 +417,7 @@ function run_prototype(problem::ProblemData,
             elseif config.acceleration == :randomized
                 ws = RandomizedWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.randomized_regularization, config.safeguard_norm, config.randomized_operator, config.randomized_augment_fp, A_gram = A_gram, residual_period = config.residual_period, to = to)
             else
-                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, to = to)
+                ws = VanillaWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, A_gram = A_gram, residual_period = config.residual_period, config = config, to = to)
             end
         end
     end
