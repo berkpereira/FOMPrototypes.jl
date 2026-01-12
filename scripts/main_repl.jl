@@ -1,7 +1,36 @@
 import FOMPrototypes
 using Infiltrator
+using JLD2
 
 const ITER_COUNT = 20_000;
+const SAVE_MATRIX = true  # Set to true when you want to save
+const MATRIX_TAG = "optimal"  # Set to "optimal" or "non-optimal"
+
+function save_diagnostic_matrix(ws_diag, problem_set, problem_name, tag, variant, rho)
+    if ws_diag === nothing
+        @warn "Cannot save matrix: ws_diag is nothing (full_diagnostics was false)"
+        return
+    end
+
+    # Create output directory
+    output_dir = joinpath(@__DIR__, "experimental", "saved_matrices")
+    mkpath(output_dir)
+
+    # Format rho for filename (e.g., 0.1 -> rho0p1, 1.0 -> rho1p0)
+    rho_str = replace(string(rho), "." => "p")
+
+    # Create filename: problemset_problemname_variant_rhoXpY_tag.jld2
+    filename = "$(problem_set)_$(problem_name)_$(variant)_rho$(rho_str)_$(tag).jld2"
+    filepath = joinpath(output_dir, filename)
+
+    # Save matrices and metadata
+    @save filepath tilde_A=ws_diag.tilde_A tilde_b=ws_diag.tilde_b W_inv_mat=ws_diag.W_inv_mat problem_set problem_name tag variant rho
+
+    @info "Matrix saved to: $filepath"
+    @info "  tilde_A size: $(size(ws_diag.tilde_A))"
+    @info "  tilde_b size: $(size(ws_diag.tilde_b))"
+    @info "  W_inv_mat size: $(size(ws_diag.W_inv_mat))"
+end
 
 args = Dict(
     "ref-solver"   => :Clarabel,
@@ -10,8 +39,8 @@ args = Dict(
     # "problem-set" => "sslsq",
     # "problem-name" => "NYPA_Maragal_5_lasso",
 
-    "problem-set" => "sslsq",
-    "problem-name" => "NYPA_Maragal_3_huber",
+    "problem-set"  => "sslsq",
+    "problem-name" => "NYPA_Maragal_1_lasso",
 
     # "problem-set"  => "socp",
     # "problem-name" => "options_pricing_K_20",
@@ -30,7 +59,7 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-4,
+    "rel-kkt-tol"  => 1e-9,
 
     "accel-memory" => 150,
     "acceleration" => :none, # in {:none, :krylov, :anderson, :randomized}
@@ -86,9 +115,14 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_set,
     config.problem_name,
     config,
-    full_diagnostics = false,
+    full_diagnostics = true,
     spec_plot_period = 50
     );
+
+# save diagnostic matrices if requested:
+if SAVE_MATRIX
+    save_diagnostic_matrix(ws_diag, config.problem_set, config.problem_name, MATRIX_TAG, config.variant, config.rho)
+end
 
 # plot results if applicable:
 if !config.run_fast
