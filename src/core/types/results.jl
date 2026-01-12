@@ -32,11 +32,11 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
         H_unmod = nothing
     end
 
-    # form dense identity
-    dense_I = Matrix{Float64}(I, ws.p.n, ws.p.n)
-
+    
     # form matrix inverse of W (= P + M_1)
     if ws.method.W_inv isa CholeskyInvOp
+        # form dense identity
+        dense_I = Matrix{Float64}(I, ws.p.n, ws.p.n)
         W_inv_mat = ws.method.W_inv.F \ dense_I
         W_inv_mat = Symmetric(W_inv_mat)
     elseif ws.method.W_inv isa DiagInvOp
