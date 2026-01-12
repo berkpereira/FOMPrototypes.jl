@@ -292,15 +292,35 @@ function construct_explicit_operator!(
     ws_diag::DiagnosticsWorkspace
     ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
     
-    D_A = Diagonal(ws.proj_state.nn_mask)
+    D_A_vec = zeros(T, ws.p.m)
 
-    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= I(ws.p.n) - ws_diag.W_inv_mat * ws.p.P - 2 * ws.method.ρ * ws_diag.W_inv_mat * ws.p.A' * D_A * ws.p.A
-    ws_diag.tilde_A[1:ws.p.n, ws.p.n+1:end] .= - ws_diag.W_inv_mat * ws.p.A' * (2 * D_A - I(ws.p.m))
+    # fill in D_A matrix. note that nn_mask is only for inequality constraints,
+    # so we need to pad for zero cone (equality) constraints.
+    # since the projection step is to the dual cone, this is padded with ones.
+    D_A_idx = 1
+    nn_mask_idx = 1
+    for cone in ws.p.K
+        if cone isa Clarabel.NonnegativeConeT
+            # assign into D_A_vec as in entries in nn_mask
+            D_A_vec[D_A_idx:D_A_idx + cone.dim - 1] .= ws.proj_state.nn_mask[nn_mask_idx:nn_mask_idx + cone.dim - 1]
+            nn_mask_idx += cone.dim
+        elseif cone isa Clarabel.ZeroConeT
+            # we project to dual cone, so this is ones
+            D_A_vec[D_A_idx:D_A_idx + cone.dim - 1] .= ones(T, cone.dim)
+        else
+            error("construct_explicit_operator! currently only supports QPs.")
+        end
+        D_A_idx += cone.dim
+    end
+    D_A = Diagonal(D_A_vec)
+
+    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= LinearAlgebra.I - ws_diag.W_inv_mat * (ws.p.P + ws.p.A' * 2 * D_A * ws.method.ρ * ws.p.A)
+    ws_diag.tilde_A[1:ws.p.n, ws.p.n+1:end] .= -ws_diag.W_inv_mat * ws.p.A' * (2 * D_A - LinearAlgebra.I)
     ws_diag.tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.method.ρ * D_A * ws.p.A
     ws_diag.tilde_A[ws.p.n+1:end, ws.p.n+1:end] .= D_A
 
     ws_diag.tilde_b[1:ws.p.n] .= ws_diag.W_inv_mat * (2 * ws.method.ρ * ws.p.A' * D_A * ws.p.b - ws.p.c)
-    @views ws_diag.tilde_b[ws.p.n+1:end] .= - ws.method.ρ * D_A * ws.p.b
+    ws_diag.tilde_b[ws.p.n+1:end] .= -ws.method.ρ * D_A * ws.p.b
 
     # # compute fixed-points, ie solutions (if existing, and potentially
     # # non-unique) to the system (tilde_A - I) z = -tilde_b
