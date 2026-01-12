@@ -14,6 +14,9 @@ using IterativeSolvers
 using Plots
 using Random
 
+# Set GR backend with high DPI for crisp plots
+gr(dpi=500)
+
 # Directory containing saved matrices
 const MATRICES_DIR = joinpath(@__DIR__, "saved_matrices")
 
@@ -64,7 +67,7 @@ rho = data["rho"]
 
 # Compute some basic properties
 @info "Matrix properties:"
-@info "  tilde_A sparsity: $(nnz(tilde_A)) / $(prod(size(tilde_A))) = $(nnz(tilde_A) / prod(size(tilde_A)))"
+@info "  tilde_A sparsity (note might be wrong because it is stored as dense): $(nnz(sparse(tilde_A))) / $(prod(size(tilde_A))) = $(nnz(sparse(tilde_A)) / prod(size(tilde_A)))"
 @info "  tilde_A norm: $(norm(tilde_A))"
 
 # =============================================================================
@@ -85,21 +88,22 @@ b_system = -tilde_b     # The RHS
 # =============================================================================
 # Iterative Method Configuration
 # =============================================================================
-const MAX_ITERS = 500
-const RELTOL = 1e-10
+const MAX_ITERS = 300     # For randomized methods: max LS solves (NOT matvecs)
+const ABSTOL = 1e-6       # Absolute residual tolerance (used consistently for all methods)
 
 # Randomized subspace method parameters
 const RAND_SUBSPACE_DIM = 20       # Default subspace dimension (s)
 const RAND_REGULARIZATION = 1e-8   # Tikhonov regularization for Gram matrix
-const RAND_RESTART_EVERY = 50      # Regenerate subspace every N LS solves
+const RAND_REGEN_EVERY = 1       # Regenerate subspace every N LS solves (1 = every iteration, GPU-friendly)
 
 # =============================================================================
 # GMRES with convergence logging
 # =============================================================================
 """
 Run GMRES and return the convergence history (residual norms per iteration).
+Note: Uses absolute tolerance for consistency with randomized methods.
 """
-function run_gmres(A, b; maxiter=MAX_ITERS, reltol=RELTOL, restart=nothing)
+function run_gmres(A, b; maxiter=MAX_ITERS, abstol=ABSTOL, restart=nothing)
     # Use full GMRES (no restart) by default, or specify restart
     restart_val = isnothing(restart) ? min(maxiter, size(A, 1)) : restart
 
@@ -107,6 +111,9 @@ function run_gmres(A, b; maxiter=MAX_ITERS, reltol=RELTOL, restart=nothing)
     residual_history = Float64[]
 
     # Initial residual
+    # NB we're not even initialising this in the better
+    # way which would be to derive a better guess from a
+    # current optimisation iterate.
     x0 = zeros(length(b))
     r0_norm = norm(b - A * x0)
     push!(residual_history, r0_norm)
@@ -116,11 +123,12 @@ function run_gmres(A, b; maxiter=MAX_ITERS, reltol=RELTOL, restart=nothing)
         push!(residual_history, resnorm)
     end
 
-    # Run GMRES
+    # Run GMRES with absolute tolerance
     x, history = gmres(A, b;
         maxiter=maxiter,
         restart=restart_val,
-        reltol=reltol,
+        abstol=abstol,
+        reltol=0.0,  # Disable relative tolerance, use only absolute
         log=true,
         initially_zero=true
     )
@@ -143,11 +151,15 @@ The method iteratively:
 3. Forms Gram matrix G = V'V + λI
 4. Solves least-squares problems min ||Vz - r|| to update x
 
-Returns (solution, residual_history, matvec_counts) where:
+Returns (solution, residual_history, matvec_counts, subspace_regenerations) where:
 - residual_history[i] is the residual norm after the i-th LS solve
 - matvec_counts[i] is the cumulative matvec count at that point
+- subspace_regenerations is the total number of times the subspace was regenerated
+- NOTE: iterations are counted as LS solves, NOT matvecs
 
 Parameters:
+- maxiter: Maximum number of LS solves (NOT matvecs)
+- abstol: Absolute residual tolerance for convergence
 - subspace_dim (s): Dimension of random subspace
 - regularization (λ): Tikhonov regularization for numerical stability
 - restart_every: Regenerate subspace after this many LS solves
@@ -155,10 +167,10 @@ Parameters:
 """
 function run_randomized_subspace(A, b;
     maxiter=MAX_ITERS,
-    reltol=RELTOL,
+    abstol=ABSTOL,
     subspace_dim=RAND_SUBSPACE_DIM,
     regularization=RAND_REGULARIZATION,
-    restart_every=RAND_RESTART_EVERY,
+    restart_every=RAND_REGEN_EVERY,
     augment_with_residual=false)
 
     n = size(A, 1)
@@ -172,7 +184,7 @@ function run_randomized_subspace(A, b;
     # Initialize solution
     x = zeros(n)
 
-    # Track convergence (residual norm after each LS solve, indexed by matvec count)
+    # Track convergence (residual norm after each LS solve)
     residual_history = Float64[]
     matvec_counts = Int[]
 
@@ -183,10 +195,11 @@ function run_randomized_subspace(A, b;
     push!(matvec_counts, 0)
 
     total_matvecs = 0
+    total_ls_solves = 0
     ls_solves_since_restart = 0
     subspace_regenerations = 0
 
-    while total_matvecs < maxiter && r_norm > reltol
+    while total_ls_solves < maxiter && r_norm > abstol
         # Generate random subspace
         randn!(Ω)
 
@@ -217,14 +230,14 @@ function run_randomized_subspace(A, b;
         ls_solves_since_restart = 0
 
         # Inner loop: solve LS problems with current subspace
-        while ls_solves_since_restart < restart_every && total_matvecs < maxiter && r_norm > reltol
+        while ls_solves_since_restart < restart_every && total_ls_solves < maxiter && r_norm > abstol
             # Compute current residual
             r .= b
             mul!(r, A, x, -1.0, 1.0)  # r = b - A*x
             r_norm = norm(r)
 
             # Check convergence before LS solve
-            if r_norm <= reltol
+            if r_norm <= abstol
                 push!(residual_history, r_norm)
                 push!(matvec_counts, total_matvecs)
                 break
@@ -242,6 +255,7 @@ function run_randomized_subspace(A, b;
             mul!(x, Ω, z, 1.0, 1.0)  # x += Ω * z
 
             ls_solves_since_restart += 1
+            total_ls_solves += 1
 
             # Compute new residual and log
             r .= b
@@ -282,38 +296,38 @@ rand_metadata = Dict{String, NamedTuple{(:matvec_counts, :regenerations), Tuple{
 # --- Randomized (s=20, pure random) ---
 @info "Running Randomized(s=20)..."
 x_rand20, hist_rand20, mvcs_rand20, regens_rand20 = run_randomized_subspace(
-    A_system, b_system; subspace_dim=20, augment_with_residual=false)
+    A_system, b_system; subspace_dim=20, augment_with_residual=false, restart_every=1)
 results["Rand(s=20)"] = (x_rand20, hist_rand20)
 rand_metadata["Rand(s=20)"] = (matvec_counts=mvcs_rand20, regenerations=regens_rand20)
 @info "  Final residual: $(hist_rand20[end])"
-@info "  LS solves: $(length(hist_rand20) - 1), Subspace regenerations: $regens_rand20"
+@info "  Iterations (= LS solves): $(length(hist_rand20) - 1), Subspace regenerations: $regens_rand20"
 
 # --- Randomized (s=20, augmented with residual) ---
 @info "Running Randomized(s=20,aug)..."
 x_rand20_aug, hist_rand20_aug, mvcs_rand20_aug, regens_rand20_aug = run_randomized_subspace(
-    A_system, b_system; subspace_dim=20, augment_with_residual=true)
+    A_system, b_system; subspace_dim=20, augment_with_residual=true, restart_every=1)
 results["Rand(s=20,aug)"] = (x_rand20_aug, hist_rand20_aug)
 rand_metadata["Rand(s=20,aug)"] = (matvec_counts=mvcs_rand20_aug, regenerations=regens_rand20_aug)
 @info "  Final residual: $(hist_rand20_aug[end])"
-@info "  LS solves: $(length(hist_rand20_aug) - 1), Subspace regenerations: $regens_rand20_aug"
+@info "  Iterations (= LS solves): $(length(hist_rand20_aug) - 1), Subspace regenerations: $regens_rand20_aug"
 
 # --- Randomized (s=50, pure random) ---
 @info "Running Randomized(s=50)..."
 x_rand50, hist_rand50, mvcs_rand50, regens_rand50 = run_randomized_subspace(
-    A_system, b_system; subspace_dim=50, augment_with_residual=false)
+    A_system, b_system; subspace_dim=50, augment_with_residual=false, restart_every=1)
 results["Rand(s=50)"] = (x_rand50, hist_rand50)
 rand_metadata["Rand(s=50)"] = (matvec_counts=mvcs_rand50, regenerations=regens_rand50)
 @info "  Final residual: $(hist_rand50[end])"
-@info "  LS solves: $(length(hist_rand50) - 1), Subspace regenerations: $regens_rand50"
+@info "  Iterations (= LS solves): $(length(hist_rand50) - 1), Subspace regenerations: $regens_rand50"
 
-# --- Randomized (s=10, for comparison) ---
-@info "Running Randomized(s=10)..."
-x_rand10, hist_rand10, mvcs_rand10, regens_rand10 = run_randomized_subspace(
-    A_system, b_system; subspace_dim=10, augment_with_residual=false)
-results["Rand(s=10)"] = (x_rand10, hist_rand10)
-rand_metadata["Rand(s=10)"] = (matvec_counts=mvcs_rand10, regenerations=regens_rand10)
-@info "  Final residual: $(hist_rand10[end])"
-@info "  LS solves: $(length(hist_rand10) - 1), Subspace regenerations: $regens_rand10"
+# --- Randomized (s=100, for comparison) ---
+@info "Running Randomized(s=100)..."
+x_rand100, hist_rand100, mvcs_rand100, regens_rand100 = run_randomized_subspace(
+    A_system, b_system; subspace_dim=100, augment_with_residual=false, restart_every=1)
+results["Rand(s=100)"] = (x_rand100, hist_rand100)
+rand_metadata["Rand(s=100)"] = (matvec_counts=mvcs_rand100, regenerations=regens_rand100)
+@info "  Final residual: $(hist_rand100[end])"
+@info "  Iterations (= LS solves): $(length(hist_rand100) - 1), Subspace regenerations: $regens_rand100"
 
 # =============================================================================
 # Plot Convergence
@@ -321,7 +335,7 @@ rand_metadata["Rand(s=10)"] = (matvec_counts=mvcs_rand10, regenerations=regens_r
 function plot_convergence(results; title_suffix="")
     plt = plot(
         title="Iterative Method Convergence" * title_suffix,
-        xlabel="Iteration",
+        xlabel="Iteration (GMRES) / LS Solves (Rand)",
         ylabel="Residual Norm",
         yscale=:log10,
         legend=:topright,
@@ -334,7 +348,7 @@ function plot_convergence(results; title_suffix="")
     end
 
     # Add tolerance line
-    hline!(plt, [RELTOL], linestyle=:dash, color=:gray, label="Tolerance")
+    hline!(plt, [ABSTOL], linestyle=:dash, color=:gray, label="Tolerance")
 
     return plt
 end
@@ -348,14 +362,16 @@ display(plt)
 @info "=== Summary ==="
 for (name, (x, hist)) in results
     final_res = hist[end]
+    initial_res = hist[1]
     iters = length(hist) - 1
-    converged = final_res < RELTOL
+    # Check absolute convergence (consistent across all methods)
+    converged = final_res < ABSTOL
 
     if haskey(rand_metadata, name)
-        # Randomized method: show both LS solves and subspace regenerations
+        # Randomized method: iterations = LS solves
         meta = rand_metadata[name]
         total_matvecs = isempty(meta.matvec_counts) ? 0 : meta.matvec_counts[end]
-        @info "  $name: $(iters) LS solves, $(meta.regenerations) regenerations, " *
+        @info "  $name: $(iters) iterations (= LS solves), $(meta.regenerations) regenerations, " *
               "$(total_matvecs) matvecs, residual=$(final_res), converged=$converged"
     else
         # GMRES: iterations = matvecs
