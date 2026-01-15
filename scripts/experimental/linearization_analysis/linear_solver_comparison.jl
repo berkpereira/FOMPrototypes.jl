@@ -1,74 +1,69 @@
 """
-This script is meant to try playing with linearisation matrices,
-saved into JLD2 files in the saved_matrices directory.
+Linear Solver Comparison for Linearization Matrices
 
-These are Jacobian matrices of the operator T using some method
-(eg ADMM) on the problem at hand. It depends on the method (ADMM vs PDHG vs ...)
-as well as step size parameters, along with problem data P, A, ...
+This script compares iterative linear system solvers on the system:
+    (tilde_A - I) x = -tilde_b
+
+where tilde_A is the Jacobian matrix of the operator T using some method
+(e.g., ADMM) on the problem at hand.
+
+Solvers compared:
+- GMRES (full, no restart)
+- GMRES with restart (e.g., GMRES(10))
+- Randomized subspace methods (various configurations)
+
+This script is fully standalone and does NOT require fp_residuals_history.
 """
 
 using JLD2
 using LinearAlgebra
 using SparseArrays
+using Statistics
 using IterativeSolvers
 using Plots
 using Random
 
-# Set GR backend with high DPI for crisp plots
-gr(dpi=500)
+# Include shared utilities
+include("utils.jl")
 
-# Directory containing saved matrices
-const MATRICES_DIR = joinpath(@__DIR__, "saved_matrices")
+# Set up plotting
+setup_plotting()
 
-# TODO store also a fixed point residual vector so that
-# I can construct a random subspace augmented with that
-# direction, for comparison of that too
+# =============================================================================
+# Configuration
+# =============================================================================
+# Import defaults from utils.jl (can override locally if needed)
+const MAX_ITERS = DEFAULT_MAX_ITERS
+const ABSTOL = DEFAULT_ABSTOL
+const RAND_SUBSPACE_DIM = DEFAULT_RAND_SUBSPACE_DIM
+const RAND_REGULARIZATION = DEFAULT_RAND_REGULARIZATION
+const RAND_REGEN_EVERY = DEFAULT_RAND_REGEN_EVERY
 
+# =============================================================================
+# File Selection
+# =============================================================================
 # Select which file to load by specifying its components
-const PROBLEM_SET = "sslsq"
-const PROBLEM_NAME = "NYPA_Maragal_1_lasso"
+const MATRICES_DIR = @__DIR__
+const PROBLEM_SET = "mpc"
+const PROBLEM_NAME = "pendulum_1"
 const VARIANT = :ADMM  # e.g., :ADMM, :PDHG
-const RHO = 0.1        # e.g., 0.1, 1.0
-const TAG = "optimal"  # "optimal" or "non-optimal"
+const RHO = 100.0       # e.g., 0.1, 1.0
+const TAG = "non-optimal"  # "optimal" or "non-optimal"
 
-# Construct the filename from components
-rho_str = replace(string(RHO), "." => "p")
-filename = "$(PROBLEM_SET)_$(PROBLEM_NAME)_$(VARIANT)_rho$(rho_str)_$(TAG).jld2"
-filepath = joinpath(MATRICES_DIR, filename)
-
-if !isfile(filepath)
-    error("File not found: $filepath")
-end
-
+# =============================================================================
+# Load Data
+# =============================================================================
+filename, filepath = construct_filepath(MATRICES_DIR, PROBLEM_SET, PROBLEM_NAME, VARIANT, RHO, TAG)
 @info "Loading matrix data from: $filename"
 
-# Load all data from the JLD2 file
-data = load(filepath)
+data = load_matrix_data(filepath)
+display_matrix_info(data)
 
-# Extract the matrices and metadata
+# Extract the matrices
 tilde_A = data["tilde_A"]
 tilde_b = data["tilde_b"]
-W_inv_mat = data["W_inv_mat"]
-problem_set = data["problem_set"]
-problem_name = data["problem_name"]
-tag = data["tag"]
-variant = data["variant"]
-rho = data["rho"]
 
-# Display information about the loaded data
-@info "Loaded data summary:"
-@info "  Problem: $problem_set / $problem_name"
-@info "  Variant: $variant, ρ = $rho"
-@info "  Tag: $tag"
-@info "  tilde_A size: $(size(tilde_A))"
-@info "  tilde_b size: $(size(tilde_b))"
-@info "  W_inv_mat size: $(size(W_inv_mat))"
-@info "  tilde_A type: $(typeof(tilde_A))"
-
-# Compute some basic properties
-@info "Matrix properties:"
-@info "  tilde_A sparsity (note might be wrong because it is stored as dense): $(nnz(sparse(tilde_A))) / $(prod(size(tilde_A))) = $(nnz(sparse(tilde_A)) / prod(size(tilde_A)))"
-@info "  tilde_A norm: $(norm(tilde_A))"
+display_matrix_properties(tilde_A)
 
 # =============================================================================
 # Linear System Setup
@@ -84,17 +79,6 @@ b_system = -tilde_b     # The RHS
 @info "  System size: $n × $n"
 @info "  ||A_system||: $(norm(A_system))"
 @info "  ||b_system||: $(norm(b_system))"
-
-# =============================================================================
-# Iterative Method Configuration
-# =============================================================================
-const MAX_ITERS = 300     # For randomized methods: max LS solves (NOT matvecs)
-const ABSTOL = 1e-6       # Absolute residual tolerance (used consistently for all methods)
-
-# Randomized subspace method parameters
-const RAND_SUBSPACE_DIM = 20       # Default subspace dimension (s)
-const RAND_REGULARIZATION = 1e-8   # Tikhonov regularization for Gram matrix
-const RAND_REGEN_EVERY = 1       # Regenerate subspace every N LS solves (1 = every iteration, GPU-friendly)
 
 # =============================================================================
 # GMRES with convergence logging
@@ -284,11 +268,11 @@ results["GMRES"] = (x_gmres, hist_gmres)
 @info "  Iterations: $(length(hist_gmres) - 1)"
 
 # --- GMRES with restart (for comparison) ---
-@info "Running GMRES(50) (restarted)..."
-x_gmres50, hist_gmres50 = run_gmres(A_system, b_system; restart=50)
-results["GMRES(50)"] = (x_gmres50, hist_gmres50)
-@info "  Final residual: $(hist_gmres50[end])"
-@info "  Iterations: $(length(hist_gmres50) - 1)"
+@info "Running GMRES(10) (restarted)..."
+x_gmres10, hist_gmres10 = run_gmres(A_system, b_system; restart=10)
+results["GMRES(10)"] = (x_gmres10, hist_gmres10)
+@info "  Final residual: $(hist_gmres10[end])"
+@info "  Iterations: $(length(hist_gmres10) - 1)"
 
 # Store randomized method metadata separately (for enhanced summary)
 rand_metadata = Dict{String, NamedTuple{(:matvec_counts, :regenerations), Tuple{Vector{Int}, Int}}}()
