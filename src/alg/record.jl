@@ -21,7 +21,7 @@ using Base: @kwdef
     linesearch_iters::Vector{Int} = Int[]
     state_step_norms::Vector{Float64} = Float64[]
     state_step_char_norms::Vector{Float64} = Float64[]
-    state_update_cosines::Vector{Float64} = Float64[]
+    state_update_angles::Vector{Float64} = Float64[]
     x_dist_to_sol::Vector{Float64} = Float64[]
     y_dist_to_sol::Vector{Float64} = Float64[]
     state_chardist::Vector{Float64} = Float64[]
@@ -204,10 +204,12 @@ function push_cosines_projs!(
     record::IterationRecord,
     )
     
-    # store cosine between last two iterate updates
+    # store angle (in radians) between last two iterate updates
     if ws.k[] >= 1
-        state_prev_updates_cos = abs(dot(record.curr_state_update, record.prev_state_update) / (norm(record.curr_state_update) * norm(record.prev_state_update)))
-        push!(record.state_update_cosines, state_prev_updates_cos)
+        cos_val = abs(dot(record.curr_state_update, record.prev_state_update) / (norm(record.curr_state_update) * norm(record.prev_state_update)))
+        # clamp to handle numerical errors that could push |cos| slightly above 1
+        state_prev_updates_angle = acos(clamp(cos_val, 0.0, 1.0))
+        push!(record.state_update_angles, state_prev_updates_angle)
     end
     record.prev_state_update .= record.curr_state_update
 
