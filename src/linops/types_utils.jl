@@ -81,7 +81,11 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
 end
 
 # we also define in-place operators of these preconditioners
-function apply_inv!(op::DiagInvOp, x::AbstractArray)
+function apply_inv!(
+    op::DiagInvOp,
+    x::AbstractArray,
+    scratch::AbstractArray,
+    )
     # Elementwise in-place multiplication: x becomes op.inv_diag .* x.
     # NB matrices get scaled column by column, as expected
     x .*= op.inv_diag
