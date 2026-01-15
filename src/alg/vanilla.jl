@@ -6,6 +6,7 @@ function vanilla_step!(
     ws::VanillaWorkspace,
     record::AbstractRecord,
     config::SolverConfig,
+    ws_diag::Union{DiagnosticsWorkspace, Nothing} = nothing,
     )
     # copy older iterate before iterating
     ws.vars.state_prev .= ws.vars.state
@@ -20,6 +21,13 @@ function vanilla_step!(
         # Compute fp_residual = FOM(state) - state
         # Use temp_mn_vec1 as storage for fp_residual (it gets overwritten by custom_swap! anyway)
         ws.scratch.base.temp_mn_vec1 .= ws.scratch.extra.swap_vec .- ws.vars.state
+
+        # Save FP residual to diagnostics history if enabled
+        if !isnothing(ws_diag)
+            col_idx = ws_diag.fp_history_col[]
+            ws_diag.fp_residuals_history[:, col_idx] .= ws.scratch.base.temp_mn_vec1
+            ws_diag.fp_history_col[] = mod1(col_idx + 1, FP_HISTORY_SIZE)
+        end
 
         # Compute metric
         fp_metric = compute_fp_metric!(ws, ws.scratch.base.temp_mn_vec1)
