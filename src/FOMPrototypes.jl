@@ -46,14 +46,15 @@ function initialise_misc(backend::Symbol = :plotlyjs)
     # Set Plots backend.
     # For interactive plots: plotlyjs()
     # For faster plotting: gr()
+    RES = 500
     if backend == :plotlyjs
-        plotlyjs()
+        plotlyjs(dpi=RES)
     elseif backend == :plotly
-        plotly()
+        plotly(dpi=RES)
     elseif backend == :pyplot
-        pyplot()
+        pyplot(dpi=RES)
     elseif backend == :gr
-        gr()
+        gr(dpi=RES)
     else
         error("Invalid backend specified. Use :plotlyjs, :pyplot, or :gr.")
     end
@@ -577,12 +578,13 @@ function plot_results(
     # add_vlines!(update_ranks_plot)
     # display(update_ranks_plot)
 
-    # Consecutive update state cosines plot.
-    state_update_cosines_plot = plot(1:k_final-1, results.metrics_history[:state_update_cosines], linewidth=LINEWIDTH,
-        label="Prototype Update Cosine", xlabel="Iteration", ylabel="Cosine of Consecutive Updates",
-        title="$title_common Consecutive state Update Cosines")
-    add_vlines!(state_update_cosines_plot)
-    display(state_update_cosines_plot)
+    # Consecutive update state angles plot (in degrees).
+    state_update_angles_deg = rad2deg.(results.metrics_history[:state_update_angles])
+    state_update_angles_plot = plot(1:k_final-1, state_update_angles_deg, linewidth=LINEWIDTH,
+        label="Prototype Update Angle", xlabel="Iteration", ylabel="Angle between Consecutive Updates (degrees)",
+        title="$title_common Consecutive State Update Angles")
+    add_vlines!(state_update_angles_plot)
+    display(state_update_angles_plot)
 
     # Projection flags plot (often intensive)
     # enforced_constraints_plot(nn_history, soc_history)
