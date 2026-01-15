@@ -8,6 +8,9 @@ mutable struct Results{T <: AbstractFloat, I <: Integer}
     k_operator_final::I
 end
 
+# Fixed-point residual history buffer size
+const FP_HISTORY_SIZE = 20
+
 # Struct just for diagnostics data
 mutable struct DiagnosticsWorkspace{T <: AbstractFloat}
     tilde_A::AbstractMatrix{T}
@@ -20,6 +23,10 @@ mutable struct DiagnosticsWorkspace{T <: AbstractFloat}
     # SOC normal direction tracking (only when full_diagnostics=true)
     soc_normals_prev::Union{Vector{Vector{T}}, Nothing}
     soc_normals_curr::Union{Vector{Vector{T}}, Nothing}
+
+    # Fixed-point residual history: circular buffer of last FP_HISTORY_SIZE residuals
+    fp_residuals_history::Matrix{T}
+    fp_history_col::Ref{Int}  # current column index (1-indexed, wraps at FP_HISTORY_SIZE)
 end
 
 function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
@@ -64,6 +71,10 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
         soc_normals_curr = nothing
     end
 
-    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod, soc_normals_prev, soc_normals_curr)
+    # Initialize fixed-point residual history buffer
+    fp_residuals_history = zeros(T, m + n, FP_HISTORY_SIZE)
+    fp_history_col = Ref(1)
+
+    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod, soc_normals_prev, soc_normals_curr, fp_residuals_history, fp_history_col)
 end
 DiagnosticsWorkspace(args...; kwargs...) = DiagnosticsWorkspace{DefaultFloat}(args...; kwargs...)

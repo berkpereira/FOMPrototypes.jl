@@ -23,7 +23,7 @@ const HISTORY_KEYS = [
     :linesearch_iters,
     :state_step_norms,
     :state_step_char_norms,
-    :state_update_cosines,
+    :state_update_angles,
 
     :fp_metric_ratios,
     :acc_attempt_iters,
@@ -340,7 +340,7 @@ function step!(
     full_diagnostics::Bool,
     timer::TimerOutput,
     )
-    vanilla_step!(ws, record, config)
+    vanilla_step!(ws, record, config, ws_diag)
 end
 
 function step!(

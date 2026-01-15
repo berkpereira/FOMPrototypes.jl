@@ -15,18 +15,21 @@ Plots the spectrum of matrix A in the complex plane.
 Adds some reference elements relevant to our spectral analysis.
 """
 function plot_spectrum(A::AbstractMatrix{Float64}, k::Union{Int, Nothing} = nothing)
+    # Determine newline character based on backend.
+    newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
+
     eig_decomp = eigen(Matrix(A))
-    
+
     # Compute the spectral radius.
     spectral_radius = maximum(abs.(eig_decomp.values))
-    
+
     # Build the title string.
     title_str = "Spectrum, k = $k"
-    title_str *= ", spectral radius = " * @sprintf("%0.5f", spectral_radius)
+    title_str *= ", spectral radius = " * @sprintf("%0.5f", spectral_radius) * ",$newline_char"
     max_imag = maximum(imag.(eig_decomp.values))
-    title_str *= ", max imag: " * @sprintf("%0.5f", max_imag)
+    title_str *= "dim " * string(size(A, 1)) * ", max imag: " * @sprintf("%0.5f", max_imag)
     # Define tolerances for "small" distances
-    tol0 = 1e-4  # tolerance for eigenvalues near 0 
+    tol0 = 1e-4  # tolerance for eigenvalues near 0
     tol1 = 1e-4  # tolerance for eigenvalues near 1
 
     # Count eigenvalues near 0 and near 1
