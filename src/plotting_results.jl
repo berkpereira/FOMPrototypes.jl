@@ -158,6 +158,16 @@ function plot_results(
     add_vlines!(enforced_constraints_plot)
     display(enforced_constraints_plot)
 
+    # plot active set deviation from final iteration
+    deviation_plot = plot_active_set_deviation_from_final(nn_history, soc_history)
+    add_vlines!(deviation_plot)
+    display(deviation_plot)
+
+    # plot unseen deviations from final (constraints that need to flip but never have)
+    unseen_plot = plot_unseen_deviations_from_final(nn_history, soc_history)
+    add_vlines!(unseen_plot)
+    display(unseen_plot)
+
     # FP Metric Ratio plot.
     acc_attempt_iters = results.metrics_history[:acc_attempt_iters]
     fp_metric_ratios = results.metrics_history[:fp_metric_ratios]

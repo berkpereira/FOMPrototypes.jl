@@ -228,6 +228,92 @@ function plot_projection_diffs(
     return p
 end
 
+function plot_active_set_deviation_from_final(
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
+    )
+    total_iters = max(_total_iters(nn_flags), _total_iters(soc_states))
+    if total_iters < 1
+        println("Warning: No projection history available to plot.")
+        return
+    end
+
+    iter_axis = 1:total_iters
+    nn_diffs = _diff_counts_to_final(nn_flags, total_iters)
+    soc_diffs = _diff_counts_to_final(soc_states, total_iters)
+
+    p = plot(
+        iter_axis,
+        nn_diffs;
+        seriestype=:line,
+        xlabel="Solver Iteration",
+        ylabel="Number of Differences",
+        title="Active Set Deviation from Final",
+        legend=:topright,
+        lw=2,
+        marker=:circle,
+        markersize=3,
+        label="NN deviation",
+        color=:seagreen,
+    )
+    plot!(
+        p,
+        iter_axis,
+        soc_diffs;
+        seriestype=:line,
+        lw=2,
+        marker=:diamond,
+        markersize=3,
+        label="SOC deviation",
+        color=:darkorange,
+    )
+
+    return p
+end
+
+function plot_unseen_deviations_from_final(
+    nn_flags::Union{Vector{Vector{Bool}}, Matrix{Bool}},
+    soc_states::Union{Vector{Vector{SOCAction}}, Matrix{SOCAction}},
+    )
+    total_iters = max(_total_iters(nn_flags), _total_iters(soc_states))
+    if total_iters < 1
+        println("Warning: No projection history available to plot.")
+        return
+    end
+
+    iter_axis = 1:total_iters
+    nn_unseen = _unseen_deviation_counts(nn_flags, total_iters)
+    soc_unseen = _unseen_deviation_counts(soc_states, total_iters)
+
+    p = plot(
+        iter_axis,
+        nn_unseen;
+        seriestype=:line,
+        xlabel="Solver Iteration",
+        ylabel="Count",
+        title="Unseen Deviations from Final Active Set",
+        legend=:topright,
+        lw=2,
+        marker=:circle,
+        markersize=3,
+        label="NN unseen",
+        color=:seagreen,
+    )
+    plot!(
+        p,
+        iter_axis,
+        soc_unseen;
+        seriestype=:line,
+        lw=2,
+        marker=:diamond,
+        markersize=3,
+        label="SOC unseen",
+        color=:darkorange,
+    )
+
+    return p
+end
+
 function _first_vector_length(history::Matrix)
     if isempty(history)
         return 0
@@ -314,6 +400,84 @@ function _diff_counts(history::Vector{Vector{T}}, total_iters) where T
     for i in 2:total_iters
         if i <= length(history) && i - 1 <= length(history)
             counts[i - 1] = sum(history[i - 1] .!= history[i])
+        end
+    end
+    return counts
+end
+
+function _diff_counts_to_final(history::Matrix, total_iters)
+    if total_iters < 1
+        return Float64[]
+    end
+    _, num_cols = size(history)
+    if num_cols == 0
+        return fill(0.0, total_iters)
+    end
+    final_col = history[:, num_cols]
+    counts = fill(0.0, total_iters)
+    for i in 1:total_iters
+        if i <= num_cols
+            counts[i] = sum(history[:, i] .!= final_col)
+        end
+    end
+    return counts
+end
+
+function _diff_counts_to_final(history::Vector{Vector{T}}, total_iters) where T
+    if total_iters < 1 || isempty(history)
+        return fill(0.0, total_iters)
+    end
+    final_vec = history[end]
+    counts = fill(0.0, total_iters)
+    for i in 1:total_iters
+        if i <= length(history)
+            counts[i] = sum(history[i] .!= final_vec)
+        end
+    end
+    return counts
+end
+
+function _unseen_deviation_counts(history::Matrix, total_iters)
+    if total_iters < 1
+        return Float64[]
+    end
+    num_constraints, num_cols = size(history)
+    if num_cols == 0 || num_constraints == 0
+        return fill(0.0, total_iters)
+    end
+    final_col = history[:, num_cols]
+    has_ever_flipped = falses(num_constraints)
+    counts = fill(0.0, total_iters)
+    for i in 1:total_iters
+        if i <= num_cols
+            if i > 1
+                has_ever_flipped .|= (history[:, i] .!= history[:, i - 1])
+            end
+            differs_from_final = history[:, i] .!= final_col
+            counts[i] = sum(differs_from_final .& .!has_ever_flipped)
+        end
+    end
+    return counts
+end
+
+function _unseen_deviation_counts(history::Vector{Vector{T}}, total_iters) where T
+    if total_iters < 1 || isempty(history)
+        return fill(0.0, total_iters)
+    end
+    num_constraints = length(history[1])
+    if num_constraints == 0
+        return fill(0.0, total_iters)
+    end
+    final_vec = history[end]
+    has_ever_flipped = falses(num_constraints)
+    counts = fill(0.0, total_iters)
+    for i in 1:total_iters
+        if i <= length(history)
+            if i > 1
+                has_ever_flipped .|= (history[i] .!= history[i - 1])
+            end
+            differs_from_final = history[i] .!= final_vec
+            counts[i] = sum(differs_from_final .& .!has_ever_flipped)
         end
     end
     return counts
