@@ -29,8 +29,8 @@ function plot_spectrum(A::AbstractMatrix{Float64}, k::Union{Int, Nothing} = noth
     max_imag = maximum(imag.(eig_decomp.values))
     title_str *= "dim " * string(size(A, 1)) * ", max imag: " * @sprintf("%0.5f", max_imag)
     # Define tolerances for "small" distances
-    tol0 = 1e-4  # tolerance for eigenvalues near 0
-    tol1 = 1e-4  # tolerance for eigenvalues near 1
+    tol0 = 1e-5  # tolerance for eigenvalues near 0
+    tol1 = 0.03  # tolerance for eigenvalues near 1
 
     # Count eigenvalues near 0 and near 1
     num_near_zero = count(x -> abs(x) < tol0, eig_decomp.values)
