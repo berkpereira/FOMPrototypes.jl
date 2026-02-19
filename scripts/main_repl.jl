@@ -4,7 +4,7 @@ using JLD2
 
 include("script_utils.jl")  # For save_diagnostic_matrix
 
-const ITER_COUNT = 200;
+const ITER_COUNT = 10_000
 const SAVE_MATRIX = false  # Set to true when you want to save
 const MATRIX_TAG = "optimal"  # Set to "optimal" or "non-optimal"
 
@@ -13,13 +13,16 @@ args = Dict(
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
     # "problem-set" => "sslsq",
-    # "problem-name" => "NYPA_Maragal_2_huber",
+    # "problem-name" => "NYPA_Maragal_2_lasso",
 
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash292_huber",
 
     "problem-set"  => "mpc",
     "problem-name" => "pendulum_1",
+
+    # "problem-set"  => "mpc",
+    # "problem-name" => "aircraft_2",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
@@ -35,12 +38,12 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-10,
+    "rel-kkt-tol"  => 1e-4,
 
     "accel-memory" => 15,
-    "acceleration" => :none, # in {:none, :krylov, :anderson, :randomized}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson, :randomized}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
-    "safeguard-factor" => 0.80, # factor for fixed-point residual safeguard check
+    "safeguard-factor" => 0.9, # factor for fixed-point residual safeguard check
 
     # Krylov-specific
     "krylov-tries-per-mem"  => 2,
@@ -56,8 +59,8 @@ args = Dict(
     "randomized-regularization" => 1e-8, # λ for G = V'V + λI (Tikhonov regularization)
     "randomized-operator" => :tilde_A, # in {:tilde_A, :B} - use L-I or L operator
 
-    "rho"   => 100.0,
-    "rho-update-period" => Inf,
+    "rho"   => 0.1,
+    "rho-update-period" => 50,
     "theta" => 1.0,
 
     # "restart-period"    => Inf,
@@ -68,6 +71,7 @@ args = Dict(
     "max-k-operator"     => ITER_COUNT, # ONLY relevant with Anderson/Krylov/Randomized
     "print-mod"          => 100,
     "print-res-rel"      => true, # print relative (or absolute) residuals
+    "plot-set"           => :full, # in {:none, :minimal, :standard, :full} or a group/plot name
     "show-vlines"        => true,
     "run-fast"           => false,
     "global-timeout"     => Inf, # seconds, including set-up time
@@ -91,7 +95,7 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_set,
     config.problem_name,
     config,
-    full_diagnostics = true,
+    full_diagnostics = false,
     spec_plot_period = 50
     );
 
