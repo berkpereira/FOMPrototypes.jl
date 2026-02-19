@@ -41,6 +41,9 @@ include("solver.jl")
 # Initialization utilities
 include("initialization.jl")
 
+# Plot selection logic
+include("plot_selection.jl")
+
 # Results plotting
 include("plotting_results.jl")
 

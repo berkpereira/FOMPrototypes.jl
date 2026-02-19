@@ -569,3 +569,197 @@ function plot_soc_normal_angles(
 
     return p
 end
+
+"""
+    nn_to_full_indices(K) -> Vector{Int}
+
+Map nn_mask index space to full m-dimensional preproj_vec index space.
+Returns a vector where entry j gives the position in the full m-vector
+corresponding to nn_mask[j].
+"""
+function nn_to_full_indices(K)
+    indices = Int[]
+    full_idx = 1
+    for cone in K
+        if cone isa Clarabel.NonnegativeConeT
+            append!(indices, full_idx:(full_idx + cone.dim - 1))
+        end
+        full_idx += cone.dim
+    end
+    return indices
+end
+
+"""
+    find_late_flipping_nn_constraints(nn_flags, n_constraints=10) -> Vector{Int}
+
+Identify the NN constraint indices (in nn_mask index space) that were the
+last to settle to the final active set.
+
+For each constraint, finds the last iteration where it disagreed with the
+final value. Returns up to `n_constraints` indices sorted by settling
+iteration (latest-settling first). Constraints that never disagreed are excluded.
+"""
+function find_late_flipping_nn_constraints(
+    nn_flags::Vector{Vector{Bool}},
+    n_constraints::Int = 5,
+    )
+
+    if isempty(nn_flags)
+        return Int[]
+    end
+
+    num_constraints = length(nn_flags[1])
+    total_iters = length(nn_flags)
+    final_flags = nn_flags[end]
+
+    # For each constraint, find the last iteration where it differed from final.
+    settling_iters = zeros(Int, num_constraints)
+
+    for j in 1:num_constraints
+        for i in total_iters:-1:1
+            if nn_flags[i][j] != final_flags[j]
+                settling_iters[j] = i + 1
+                break
+            end
+        end
+        # settling_iters[j] == 0 means it never disagreed with the final value.
+    end
+
+    # Sort by settling iteration (descending), only include those that flipped
+    flipped_indices = findall(s -> s > 0, settling_iters)
+    sort!(flipped_indices, by = j -> settling_iters[j], rev = true)
+
+    return flipped_indices[1:min(n_constraints, length(flipped_indices))]
+end
+
+"""
+    plot_preproj_late_flippers(preproj_history, nn_flags, K; ...) -> Plot
+
+Plot |u_i| over iterations for the last `n_constraints` NN constraints
+to settle to the final active set. Log scale on y-axis.
+"""
+function plot_preproj_late_flippers(
+    preproj_history::Vector{Vector{Float64}},
+    nn_flags::Vector{Vector{Bool}},
+    K;
+    n_constraints::Int = 5,
+    title_prefix::String = "",
+    )
+
+    if isempty(preproj_history) || isempty(nn_flags)
+        println("Warning: No pre-projection or flag history available.")
+        return nothing
+    end
+
+    late_flippers = find_late_flipping_nn_constraints(nn_flags, n_constraints)
+
+    if isempty(late_flippers)
+        println("Info: No NN constraints flipped during the solve; skipping pre-projection plot.")
+        return nothing
+    end
+
+    idx_map = nn_to_full_indices(K)
+
+    total_iters = length(preproj_history)
+    iter_axis = 1:total_iters
+
+    p = plot(
+        xlabel = "Solver Iteration",
+        ylabel = "|u_i| (pre-projection magnitude)",
+        title = "$(title_prefix)|u_i| for Late-Settling NN Constraints",
+        legend = :outerright,
+        yaxis = :log10,
+        minorgrid = true,
+    )
+
+    colors = [:dodgerblue, :crimson, :forestgreen, :darkorange, :purple,
+              :deeppink, :teal, :gold, :brown, :navy]
+
+    for (plot_idx, nn_idx) in enumerate(late_flippers)
+        full_idx = idx_map[nn_idx]
+
+        abs_u = [max(abs(preproj_history[k][full_idx]), 1e-16) for k in 1:total_iters]
+
+        color = colors[(plot_idx - 1) % length(colors) + 1]
+        plot!(p, iter_axis, abs_u;
+            seriestype = :line,
+            linewidth = 1.5,
+            label = "NN #$(nn_idx)",
+            color = color,
+            alpha = 0.85,
+        )
+    end
+
+    return p
+end
+
+"""
+    plot_scaled_preproj_late_flippers(preproj_history, nn_flags, K, A, ρ; ...) -> Plot
+
+Plot |ũ_i| = |u_i| / (1 + ρ‖a_i‖₂) over iterations for the last
+`n_constraints` NN constraints to settle. Log scale on y-axis.
+
+Uses the final ρ value for scaling; this is approximate if ρ changed mid-solve.
+"""
+function plot_scaled_preproj_late_flippers(
+    preproj_history::Vector{Vector{Float64}},
+    nn_flags::Vector{Vector{Bool}},
+    K,
+    A::AbstractMatrix,
+    ρ::Float64;
+    n_constraints::Int = 5,
+    title_prefix::String = "",
+    )
+
+    if isempty(preproj_history) || isempty(nn_flags)
+        println("Warning: No pre-projection or flag history available.")
+        return nothing
+    end
+
+    late_flippers = find_late_flipping_nn_constraints(nn_flags, n_constraints)
+
+    if isempty(late_flippers)
+        println("Info: No NN constraints flipped during the solve; skipping scaled pre-projection plot.")
+        return nothing
+    end
+
+    idx_map = nn_to_full_indices(K)
+
+    # Compute row norms of A once
+    m = size(A, 1)
+    row_norms = [norm(A[i, :]) for i in 1:m]
+
+    total_iters = length(preproj_history)
+    iter_axis = 1:total_iters
+
+    p = plot(
+        xlabel = "Solver Iteration",
+        ylabel = "|ũ_i| (scaled pre-projection)",
+        title = "$(title_prefix)Scaled |ũ_i| for Late-Settling NN Constraints",
+        legend = :outerright,
+        yaxis = :log10,
+        minorgrid = true,
+    )
+
+    colors = [:dodgerblue, :crimson, :forestgreen, :darkorange, :purple,
+              :deeppink, :teal, :gold, :brown, :navy]
+
+    for (plot_idx, nn_idx) in enumerate(late_flippers)
+        full_idx = idx_map[nn_idx]
+        scale_factor = 1.0 + ρ * row_norms[full_idx]
+
+        abs_u_scaled = [max(abs(preproj_history[k][full_idx]) / scale_factor, 1e-16)
+                        for k in 1:total_iters]
+
+        color = colors[(plot_idx - 1) % length(colors) + 1]
+        plot!(p, iter_axis, abs_u_scaled;
+            seriestype = :line,
+            linewidth = 1.5,
+            label = "NN #$(nn_idx)",
+            color = color,
+            alpha = 0.85,
+        )
+    end
+
+    return p
+end

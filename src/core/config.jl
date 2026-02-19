@@ -39,6 +39,7 @@
     print_res_rel::Bool = true
     show_vlines::Bool = false
     run_fast::Bool = true
+    plot_set::Symbol = :full
     global_timeout::Float64 = 60.0
     loop_timeout::Float64 = 30.0
 end
