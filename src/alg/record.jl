@@ -29,6 +29,8 @@ using Base: @kwdef
     fp_metric_ratios::Vector{Float64} = Float64[]
 
     # SOC normal direction angle tracking (num_socs × num_iterations)
+    record_preproj_vecs::Vector{Vector{Float64}} = Vector{Vector{Float64}}[]
+
     soc_normal_angles::Matrix{Float64} = Matrix{Float64}(undef, 0, 0)
     soc_angles_col::Ref{Int} = Ref(1)
 
@@ -218,6 +220,7 @@ function push_cosines_projs!(
     # of flags used for core dynamics in hot loops versus interpretation
     # in terms of active set (might be the NEGATION of PrePPM's interpretations)
     push!(record.record_proj_flags, copy(ws.proj_state.nn_mask))
+    push!(record.record_preproj_vecs, copy(ws.vars.preproj_vec))
 
     # Store SOC states in matrix (grow if needed)
     num_socs = length(ws.proj_state.soc_states)
