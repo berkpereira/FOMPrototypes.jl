@@ -9,6 +9,7 @@ const ALL_PLOTS = [
     :proj_diffs, :enforced_constraints,
     :active_set_deviation, :unseen_deviations,
     :preproj_late_flippers, :scaled_preproj_late_flippers,
+    :flip_prediction_quality,
     :fp_metric,
 ]
 
@@ -20,7 +21,8 @@ const PLOT_GROUPS = Dict{Symbol, Vector{Symbol}}(
     :angles       => [:update_angles, :soc_angles],
     :active_set   => [:proj_diffs, :enforced_constraints,
                       :active_set_deviation, :unseen_deviations,
-                      :preproj_late_flippers, :scaled_preproj_late_flippers],
+                      :preproj_late_flippers, :scaled_preproj_late_flippers,
+                      :flip_prediction_quality],
     :acceleration => [:fp_metric],
 )
 

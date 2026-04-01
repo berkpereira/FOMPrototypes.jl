@@ -215,6 +215,17 @@ function plot_results(
         end
     end
 
+    # plot flip-prediction quality for the min-|u_i| predictor
+    if should_plot(active, :flip_prediction_quality) && !isempty(preproj_history)
+        flip_pred_plot = plot_flip_prediction_quality(
+            preproj_history, nn_history, ws.p.K;
+            title_prefix = title_common,
+        )
+        if !isnothing(flip_pred_plot)
+            display(flip_pred_plot)
+        end
+    end
+
     # FP Metric Ratio plot.
     if should_plot(active, :fp_metric)
         acc_attempt_iters = results.metrics_history[:acc_attempt_iters]
