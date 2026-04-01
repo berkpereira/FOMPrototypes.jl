@@ -35,7 +35,6 @@ function vanilla_step!(
         # Print ratio (skip first iteration since prev_fp_metric = Inf)
         if ws.prev_fp_metric[] < Inf
             metric_ratio = fp_metric / ws.prev_fp_metric[]
-            println("Vanilla iter $(ws.k[]): fp metric ratio: $(metric_ratio), metric: $(fp_metric)")
         end
 
         # Update for next iteration
