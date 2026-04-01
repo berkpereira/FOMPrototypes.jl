@@ -18,11 +18,11 @@ args = Dict(
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash292_huber",
 
-    "problem-set"  => "mpc",
-    "problem-name" => "pendulum_1",
-
     # "problem-set"  => "mpc",
-    # "problem-name" => "aircraft_2",
+    # "problem-name" => "pendulum_2",
+
+    "problem-set"  => "mpc",
+    "problem-name" => "aircraft_2",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
@@ -41,7 +41,7 @@ args = Dict(
     "rel-kkt-tol"  => 1e-4,
 
     "accel-memory" => 15,
-    "acceleration" => :krylov, # in {:none, :krylov, :anderson, :randomized}
+    "acceleration" => :none, # in {:none, :krylov, :anderson, :randomized}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.9, # factor for fixed-point residual safeguard check
 
