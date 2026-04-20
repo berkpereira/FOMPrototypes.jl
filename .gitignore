@@ -25,3 +25,6 @@ test_custom_linalg/
 
 # misc jupyter notebooks
 *.ipynb
+
+# worker script
+worker.sh
