@@ -207,7 +207,7 @@ function plot_results(
     # plot scaled |ũ_i| for late-flipping constraints
     if should_plot(active, :scaled_preproj_late_flippers) && !isempty(preproj_history)
         scaled_preproj_plot = plot_scaled_preproj_late_flippers(
-            preproj_history, nn_history, ws.p.K, ws.p.A, ws.method.ρ;
+            preproj_history, nn_history, ws.p.K, ws.p.A, ws.method.ρ[1];
             title_prefix = title_common,
         )
         if !isnothing(scaled_preproj_plot)

@@ -128,7 +128,7 @@ function apply_linearized_operator_batch!(
 
     # temp_m_mat1 now holds A * X_n
     # Scale by ρ: ρ * A * X_n
-    temp_m_mat1 .*= ws.method.ρ
+    temp_m_mat1 .*= ws.method.ρ[1]
 
     # Add current dual part: ρ * A * X_n + X_m
     temp_m_mat1 .+= X_m_in

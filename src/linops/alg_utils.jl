@@ -201,7 +201,7 @@ function M1_op!(
         # required for intermediate product
         mul!(temp_m_vec, ws.p.A, result_vec)
         mul!(result_vec, ws.p.A', temp_m_vec)
-        result_vec .*= ws.method.ρ
+        result_vec .*= ws.method.ρ[1]
         
         # add small shift component from Cholesky regularisation
         if ws.method.W_inv.shift != 0.0
@@ -214,7 +214,7 @@ function M1_op!(
         result_vec .*= -1.0 # result_vec = -R(P) * x
         
         broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
+        temp_n_vec .*= ws.method.ρ[1] # temp_n_vec = ρ * D(A' * A) * x
 
         result_vec .+= temp_n_vec # result_vec = -R(P) * x + ρ * D(A' * A) * x
 
@@ -235,7 +235,7 @@ function M1_op!(
         result_vec .*= -1.0 # result_vec = -P * x
 
         broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.method.ρ # temp_n_vec = ρ * D(A' * A) * x
+        temp_n_vec .*= ws.method.ρ[1] # temp_n_vec = ρ * D(A' * A) * x
         result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x
 
         temp_n_vec .= x

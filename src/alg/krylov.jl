@@ -166,9 +166,9 @@ function tilde_A_prod(ws::AbstractWorkspace,
     enforced_constraints::BitVector,
     q::AbstractArray{Float64})
 
-    @views top_left = q[1:ws.p.n, :] - (ws.method.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.method.ρ * ws.A_gram * q[1:ws.p.n, :]))
+    @views top_left = q[1:ws.p.n, :] - (ws.method.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.method.ρ[1] * ws.A_gram * q[1:ws.p.n, :]))
     bot_left = - ws.p.A * top_left
-    @views top_right = ws.method.ρ * ws.method.W_inv * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
+    @views top_right = ws.method.ρ[1] * ws.method.W_inv * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
     @views bot_right = - ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
 
     # NB: matrix, NOT vector, is returned.
@@ -361,7 +361,7 @@ function twocol_method_operator!(
 
     @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
     
-    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ
+    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ[1]
     @views ws.scratch.extra.temp_m_mat1 .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat1[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat1[:, 1] now stores y_{k+1}
@@ -371,7 +371,7 @@ function twocol_method_operator!(
     if confirm_residual_update
         @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1]
         @views ws.res.r_primal .-= ws.vars.state_q[ws.p.n+1:end, 1]
-        ws.res.r_primal .*= (1 / ws.method.ρ)
+        ws.res.r_primal .*= (1 / ws.method.ρ[1])
 
         # NOTE that from above in this function,
         # right now ws.scratch.base.s_reconst holds -Ax

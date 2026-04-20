@@ -41,7 +41,7 @@ accel_ready_for_rho_update(ws::KrylovWorkspace) = ws.givens_count[] == 0
 accel_ready_for_rho_update(ws::AndersonWorkspace) = (ws.accelerator.iter % ws.accelerator.mem) == 0
 
 function propose_new_rho(ws::AbstractWorkspace)
-    ρ  = ws.method.ρ
+    ρ = ws.method.ρ[1]
 
     # TODO based on relative residuals?
     if ws.res.rp_rel > RHO_BALANCE_THRESHOLD * ws.res.rd_rel || ws.res.rd_rel > RHO_BALANCE_THRESHOLD * ws.res.rp_rel
@@ -55,11 +55,11 @@ function update_admm_rho!(ws::AbstractWorkspace, new_ρ::Float64, timer::TimerOu
     old_inv = ws.method.W_inv
     perm_hint = old_inv isa CholeskyInvOp ? old_inv.perm : nothing
     shift_hint = (old_inv isa CholeskyInvOp && old_inv.shift != 0) ? old_inv.shift : nothing
-    typed_ρ = convert(typeof(ws.method.ρ), new_ρ)
+    typed_ρ = convert(eltype(ws.method.ρ), new_ρ)
 
     @timeit timer "rho update" begin
-        ws.method.ρ = typed_ρ
-        ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ)
+        fill!(ws.method.ρ, typed_ρ)
+        ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ[1])
         ws.method.W_inv = prepare_inv(ws.method.W, timer; perm_hint = perm_hint, shift_hint = shift_hint)
     end
 end
@@ -90,8 +90,8 @@ function maybe_update_rho!(ws::AbstractWorkspace, config::SolverConfig, timer::T
     ws.method.rho_update_count[] = 0
 
     new_ρ = propose_new_rho(ws)
-    if new_ρ != ws.method.ρ
-        old_rho = ws.method.ρ
+    if new_ρ != ws.method.ρ[1]
+        old_rho = ws.method.ρ[1]
         update_admm_rho!(ws, new_ρ, timer)
         if new_ρ > old_rho
             println(@sprintf("⏩ Increased rho from %.3e to %.3e", old_rho, new_ρ))
@@ -155,7 +155,7 @@ function onecol_method_operator!(
     ws.scratch.base.temp_m_vec1 .-= ws.p.b
 
     # multiply by ρ
-    ws.scratch.base.temp_m_vec1 .*= ws.method.ρ
+    ws.scratch.base.temp_m_vec1 .*= ws.method.ρ[1]
     # add to current y_k
     @views ws.scratch.base.temp_m_vec1 .+= state_in[ws.p.n+1:end]
     # this is what's fed through the projection to dual cone
@@ -173,7 +173,7 @@ function onecol_method_operator!(
     if confirm_residual_update
         ws.res.r_primal .= ws.scratch.base.temp_m_vec1
         ws.res.r_primal .-= state_in[ws.p.n+1:end]
-        ws.res.r_primal .*= (1 / ws.method.ρ)
+        ws.res.r_primal .*= (1 / ws.method.ρ[1])
 
         # NOTE that from above in this function,
         # right now ws.scratch.base.s_reconst holds -Ax
@@ -315,13 +315,13 @@ function construct_explicit_operator!(
     end
     D_A = Diagonal(D_A_vec)
 
-    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= LinearAlgebra.I - ws_diag.W_inv_mat * (ws.p.P + ws.p.A' * 2 * D_A * ws.method.ρ * ws.p.A)
+    ws_diag.tilde_A[1:ws.p.n, 1:ws.p.n] .= LinearAlgebra.I - ws_diag.W_inv_mat * (ws.p.P + ws.p.A' * 2 * D_A * ws.method.ρ[1] * ws.p.A)
     ws_diag.tilde_A[1:ws.p.n, ws.p.n+1:end] .= -ws_diag.W_inv_mat * ws.p.A' * (2 * D_A - LinearAlgebra.I)
-    ws_diag.tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.method.ρ * D_A * ws.p.A
+    ws_diag.tilde_A[ws.p.n+1:end, 1:ws.p.n] .= ws.method.ρ[1] * D_A * ws.p.A
     ws_diag.tilde_A[ws.p.n+1:end, ws.p.n+1:end] .= D_A
 
-    ws_diag.tilde_b[1:ws.p.n] .= ws_diag.W_inv_mat * (2 * ws.method.ρ * ws.p.A' * D_A * ws.p.b - ws.p.c)
-    ws_diag.tilde_b[ws.p.n+1:end] .= -ws.method.ρ * D_A * ws.p.b
+    ws_diag.tilde_b[1:ws.p.n] .= ws_diag.W_inv_mat * (2 * ws.method.ρ[1] * ws.p.A' * D_A * ws.p.b - ws.p.c)
+    ws_diag.tilde_b[ws.p.n+1:end] .= -ws.method.ρ[1] * D_A * ws.p.b
 
     # # compute fixed-points, ie solutions (if existing, and potentially
     # # non-unique) to the system (tilde_A - I) z = -tilde_b

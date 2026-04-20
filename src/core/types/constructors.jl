@@ -109,6 +109,9 @@ function VanillaWorkspace{T, I}(
     to::Union{TimerOutput, Nothing} = nothing
     ) where {T <: AbstractFloat, I <: Integer}
 
+    ρ_vec = fill(ρ, p.m)
+    Asq = abs2.(p.A)
+
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -124,7 +127,7 @@ function VanillaWorkspace{T, I}(
     end
 
     # construct method object
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+    method = PrePPM{T, I}(variant, ρ_vec, τ, θ, W, W_inv, dP, dA, Asq)
 
     scratch = build_scratch(p, VanillaWorkspace, PrePPM)
 
@@ -159,6 +162,9 @@ function KrylovWorkspace{T, I}(
     to::Union{TimerOutput, Nothing} = nothing
     ) where {T <: AbstractFloat, I <: Integer}
 
+    ρ_vec = fill(ρ, p.m)
+    Asq = abs2.(p.A)
+
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -174,7 +180,7 @@ function KrylovWorkspace{T, I}(
         dA = vec(sum(abs2, p.A; dims=1))
     end
 
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+    method = PrePPM{T, I}(variant, ρ_vec, τ, θ, W, W_inv, dP, dA, Asq)
 
     scratch = build_scratch(p, KrylovWorkspace, PrePPM)
     
@@ -245,6 +251,9 @@ function AndersonWorkspace{T, I}(
         throw(ArgumentError("Unknown regulariser type: $regulariser_type."))
     end
 
+    ρ_vec = fill(ρ, p.m)
+    Asq = abs2.(p.A)
+
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
@@ -260,7 +269,7 @@ function AndersonWorkspace{T, I}(
         dA = vec(sum(abs2, p.A; dims=1))
     end
 
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+    method = PrePPM{T, I}(variant, ρ_vec, τ, θ, W, W_inv, dP, dA, Asq)
 
     scratch = build_scratch(p, AndersonWorkspace, PrePPM)
     
@@ -303,6 +312,9 @@ function RandomizedWorkspace{T, I}(
     to::Union{TimerOutput, Nothing} = nothing
     ) where {T <: AbstractFloat, I <: Integer}
 
+    ρ_vec = fill(ρ, p.m)
+    Asq = abs2.(p.A)
+
     @timeit to "W op prep" begin
         W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
     end
@@ -317,7 +329,7 @@ function RandomizedWorkspace{T, I}(
         dA = vec(sum(abs2, p.A; dims=1))
     end
 
-    method = PrePPM{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA)
+    method = PrePPM{T, I}(variant, ρ_vec, τ, θ, W, W_inv, dP, dA, Asq)
 
     scratch = build_scratch(p, RandomizedWorkspace, PrePPM, subspace_dim)
 

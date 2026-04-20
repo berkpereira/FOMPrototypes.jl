@@ -5,7 +5,7 @@ abstract type AbstractMethod{T <: AbstractFloat, I <: Integer} end
 # TODO restate existing code in terms of this new struct in the workspace
 mutable struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
     variant::Symbol # in {:ADMM, :PDHG, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
-    ρ::T
+    ρ::Vector{T}   # per-constraint penalty vector (length m); uniform when scalar rho is used
     τ::Union{T, Nothing}
     θ::T
     W::AbstractMatrix{T} # all initialised when constructing workspace
@@ -13,28 +13,30 @@ mutable struct PrePPM{T <: AbstractFloat, I <: Integer} <: AbstractMethod{T, I}
 
     dP::Vector{T} # diagonal of P
     dA::Vector{T} # diagonal of A' * A
+    Asq::SparseMatrixCSC{T, I} # element-wise square of A; used for diag(A'*Diagonal(ρ)*A) = Asq'*ρ
 
     rho_update_count::Ref{Int}
 
     function PrePPM{T, I}(
         variant::Symbol,
-        ρ::T,
+        ρ::Vector{T},
         τ::Union{T, Nothing},
         θ::T,
         W::AbstractMatrix{T},
         W_inv::AbstractInvOp,
         dP::Vector{T},
         dA::Vector{T},
+        Asq::SparseMatrixCSC{T, I},
         ) where {T <: AbstractFloat, I <: Integer}
         if θ != 1.0
             throw(ArgumentError("θ ≠ 1.0 is not yet supported"))
         end
 
-        if ρ <= 0.0
-            throw(ArgumentError("ρ must be positive"))
+        if !all(ρ .> 0.0)
+            throw(ArgumentError("all entries of ρ must be positive"))
         end
 
-        new{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA, Ref(0))
+        new{T, I}(variant, ρ, τ, θ, W, W_inv, dP, dA, Asq, Ref(0))
     end
 end
 
