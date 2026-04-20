@@ -166,9 +166,10 @@ function tilde_A_prod(ws::AbstractWorkspace,
     enforced_constraints::BitVector,
     q::AbstractArray{Float64})
 
-    @views top_left = q[1:ws.p.n, :] - (ws.method.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.method.ρ[1] * ws.A_gram * q[1:ws.p.n, :]))
+    @views Aqx = ws.p.A * q[1:ws.p.n, :]  # m × k
+    @views top_left = q[1:ws.p.n, :] - (ws.method.W_inv * (ws.p.P * q[1:ws.p.n, :] + ws.p.A' * (ws.method.ρ .* Aqx)))
     bot_left = - ws.p.A * top_left
-    @views top_right = ws.method.ρ[1] * ws.method.W_inv * (ws.p.A' * ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :]))
+    @views top_right = ws.method.W_inv * (ws.p.A' * (ws.method.ρ .* ((enforced_constraints - .!enforced_constraints) .* q[ws.p.n+1:end, :])))
     @views bot_right = - ws.p.A * top_right + enforced_constraints .* q[ws.p.n+1:end, :]
 
     # NB: matrix, NOT vector, is returned.

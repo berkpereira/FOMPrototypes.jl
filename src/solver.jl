@@ -59,7 +59,7 @@ function update_admm_rho!(ws::AbstractWorkspace, new_ρ::Float64, timer::TimerOu
 
     @timeit timer "rho update" begin
         fill!(ws.method.ρ, typed_ρ)
-        ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ[1])
+        ws.method.W = W_operator(ws.method.variant, ws.p.P, ws.p.A, ws.A_gram, ws.method.τ, ws.method.ρ)
         ws.method.W_inv = prepare_inv(ws.method.W, timer; perm_hint = perm_hint, shift_hint = shift_hint)
     end
 end

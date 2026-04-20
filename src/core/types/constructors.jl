@@ -114,7 +114,7 @@ function VanillaWorkspace{T, I}(
 
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ_vec)
     end
 
     W_inv = prepare_inv(W, to)
@@ -167,7 +167,7 @@ function KrylovWorkspace{T, I}(
 
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ_vec)
     end
 
     W_inv = prepare_inv(W, to)
@@ -256,7 +256,7 @@ function AndersonWorkspace{T, I}(
 
     # TODO simplify syntax of call to W_operator using method struct
     @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ_vec)
     end
 
     W_inv = prepare_inv(W, to)
@@ -316,7 +316,7 @@ function RandomizedWorkspace{T, I}(
     Asq = abs2.(p.A)
 
     @timeit to "W op prep" begin
-        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ)
+        W = W_operator(variant, p.P, p.A, A_gram, τ, ρ_vec)
     end
 
     W_inv = prepare_inv(W, to)

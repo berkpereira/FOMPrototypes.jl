@@ -195,28 +195,27 @@ function M1_op!(
 
     if variant == :PDHG # M1 = 1/τ * I
         result_vec ./= ws.method.τ
-    elseif variant == :ADMM # M1 = ρ * A' * A
+    elseif variant == :ADMM # M1 = A' * Diagonal(ρ) * A
         result_vec .= x
         # avoid using A_gram linear map --- will silently allocate memory
         # required for intermediate product
         mul!(temp_m_vec, ws.p.A, result_vec)
+        temp_m_vec .*= ws.method.ρ  # scale per-constraint before A' multiply
         mul!(result_vec, ws.p.A', temp_m_vec)
-        result_vec .*= ws.method.ρ[1]
-        
+
         # add small shift component from Cholesky regularisation
         if ws.method.W_inv.shift != 0.0
             temp_n_vec .= x
             temp_n_vec .*= ws.method.W_inv.shift
             result_vec .+= temp_n_vec
         end
-    elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + ρ * D(A' * A)
+    elseif variant == Symbol(1) # M1 = 1/τ * I - R(P) + Diagonal(Asq' * ρ)
         mul_P_nodiag!(x, result_vec, ws) # result_vec = R(P) * x
         result_vec .*= -1.0 # result_vec = -R(P) * x
-        
-        broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.method.ρ[1] # temp_n_vec = ρ * D(A' * A) * x
 
-        result_vec .+= temp_n_vec # result_vec = -R(P) * x + ρ * D(A' * A) * x
+        temp_n_vec .= (ws.method.Asq' * ws.method.ρ) .* x  # D(A'*Diagonal(ρ)*A) * x
+
+        result_vec .+= temp_n_vec # result_vec = -R(P) * x + D(A'*Diagonal(ρ)*A) * x
 
         temp_n_vec .= x
         temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
@@ -228,15 +227,14 @@ function M1_op!(
 
         temp_n_vec .= x
         temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
-        
+
         result_vec .+= temp_n_vec # result_vec = -P * x + 1/τ * I * x
-    elseif variant == Symbol(3) # M1 = 1/τ * I - P + ρ * D(A' * A)
+    elseif variant == Symbol(3) # M1 = 1/τ * I - P + Diagonal(Asq' * ρ)
         mul!(result_vec, ws.p.P, x)
         result_vec .*= -1.0 # result_vec = -P * x
 
-        broadcast!(*, temp_n_vec, ws.method.dA, x) # temp_n_vec = D(A' * A) * x
-        temp_n_vec .*= ws.method.ρ[1] # temp_n_vec = ρ * D(A' * A) * x
-        result_vec .+= temp_n_vec # result_vec = -P * x + ρ * D(A' * A) * x
+        temp_n_vec .= (ws.method.Asq' * ws.method.ρ) .* x  # D(A'*Diagonal(ρ)*A) * x
+        result_vec .+= temp_n_vec # result_vec = -P * x + D(A'*Diagonal(ρ)*A) * x
 
         temp_n_vec .= x
         temp_n_vec ./= ws.method.τ # temp_n_vec = 1/τ * I * x
@@ -307,32 +305,31 @@ function W_operator(
     A::AbstractMatrix,
     A_gram::LinearMap,
     τ::Union{Float64, Nothing},
-    ρ::Float64
+    ρ::AbstractVector{Float64}
     )
-    
     n = size(A_gram, 1)
-    
+
     ################## NON-DIAGONAL  pre-gradient operators ####################
-    
+
     if variant == :PDHG
         pre_operator = sparse(I(n)) / τ + P # note no Symmetric wrapper
     elseif variant == :ADMM
-        # note: I think in this case I am forced to form the 
-        # matrix P + ρ * A' * A explicitly, in order to then compute
+        # note: I think in this case I am forced to form the
+        # matrix P + A' * Diagonal(ρ) * A explicitly, in order to then compute
         # its Cholesky factors for inverse-vec products
-        pre_operator = P + ρ * A' * A # note NO Symmetric wrapper
-    
+        pre_operator = P + A' * Diagonal(ρ) * A # note NO Symmetric wrapper
+
     ################ DIAGONAL pre-gradient operators ################
 
     elseif variant == Symbol(1)
         dP = Vector(diag(P))
-        dA = vec(sum(abs2, A; dims=1))
-        pre_operator = Diagonal(ones(n) / τ + dP + ρ * dA)
+        Asq = abs2.(A)
+        pre_operator = Diagonal(ones(n) / τ + dP + Asq' * ρ)
     elseif variant == Symbol(2)
         pre_operator = Diagonal(ones(n) / τ)
     elseif variant == Symbol(3)
-        dA = vec(sum(abs2, A; dims=1))
-        pre_operator = Diagonal(ones(n) / τ + ρ * dA)
+        Asq = abs2.(A)
+        pre_operator = Diagonal(ones(n) / τ + Asq' * ρ)
     elseif variant == Symbol(4)
         dP = Vector(diag(P))
         pre_operator = Diagonal(ones(n) / τ + dP)
