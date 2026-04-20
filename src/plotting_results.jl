@@ -53,7 +53,8 @@ function plot_results(
 
     # Lazily load pre-projection history when needed
     preproj_history = Vector{Vector{Float64}}()
-    if any(s -> should_plot(active, s), [:preproj_late_flippers, :scaled_preproj_late_flippers])
+    if any(s -> should_plot(active, s), [:preproj_late_flippers, :scaled_preproj_late_flippers,
+                                         :flip_prediction_quality, :flip_prediction_quality_rate])
         preproj_history = get(results.metrics_history, :record_preproj_vecs, Vector{Vector{Float64}}())
     end
 
@@ -223,6 +224,17 @@ function plot_results(
         )
         if !isnothing(flip_pred_plot)
             display(flip_pred_plot)
+        end
+    end
+
+    # plot flip-prediction quality for the rate-of-change Δ|u_i| predictor
+    if should_plot(active, :flip_prediction_quality_rate) && !isempty(preproj_history)
+        flip_pred_rate_plot = plot_flip_prediction_quality_rate(
+            preproj_history, nn_history, ws.p.K;
+            title_prefix = title_common,
+        )
+        if !isnothing(flip_pred_rate_plot)
+            display(flip_pred_rate_plot)
         end
     end
 

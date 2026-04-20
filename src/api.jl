@@ -148,7 +148,7 @@ function run_prototype(problem::ProblemData,
         @timeit to "init workspace" begin
             # initialise the workspace
             if config.acceleration == :krylov
-                ws = KrylovWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.krylov_tries_per_mem, config.safeguard_norm, config.krylov_operator, A_gram = A_gram, residual_period = config.residual_period, to = to)
+                ws = KrylovWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.krylov_tries_per_mem, config.safeguard_norm, config.krylov_operator, zero_init = config.krylov_zero_init, A_gram = A_gram, residual_period = config.residual_period, to = to)
             elseif config.acceleration == :anderson
                 anderson_log = !config.run_fast
                 ws = AndersonWorkspace(problem, PrePPM, config.variant, τ, config.rho, config.theta, config.accel_memory, config.anderson_interval, config.safeguard_norm, A_gram = A_gram, residual_period = config.residual_period, broyden_type = config.anderson_broyden_type, memory_type = config.anderson_mem_type, regulariser_type = config.anderson_reg, anderson_log = anderson_log, to = to)

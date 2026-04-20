@@ -835,23 +835,26 @@ function _nn_flip_sequence(nn_flags::Vector{Vector{Bool}})
 end
 
 """
-    assess_min_signal_predictor(preproj_history, nn_flags, K; row_norms, ρ, n_history)
+    assess_min_signal_predictor(preproj_history, nn_flags, K; row_norms, ρ, n_history, probe_interval)
 
 For each pair of consecutive NN flip events (prev → next), evaluate the
-"minimum |u_i| predictor": at the moment of flip event `e`, which constraint
-has the smallest |u_i| among those *not* in the exclusion set?
+"minimum |u_i| predictor" periodically throughout the inter-flip interval.
+
+At every `probe_interval` iterations within `[prev_flip_iter, next_flip_iter)`,
+ask: which constraint has the smallest |u_i| among those *not* in the exclusion
+set?  The target being predicted is always the *same* next flip event.
 
 **Exclusion set**: the union of flipped indices from the last `n_history` flip
 events (i.e. event `e` itself plus the `n_history - 1` events before it).
-Defaults to `n_history = 5`, so the 5 most-recently-flipped constraints are
-excluded before taking the minimum.
+Computed once per interval and reused for all probes within it.
 
 Optional scaling: if `row_norms` (length-m vector of A row norms) and `ρ` are
 provided, signals are scaled as `|u_i| / (1 + ρ‖a_i‖₂)`.
 
 Returns a `Vector` of `NamedTuple` with fields:
-- `prev_flip_iter`  – iteration when the prediction was made (flip event `e`)
+- `prev_flip_iter`  – iteration of flip event `e` (start of the interval)
 - `next_flip_iter`  – iteration of the next flip (what we're predicting)
+- `probe_iter`      – iteration at which this particular probe was evaluated
 - `predicted_idx`   – nn_mask index predicted to flip next (lowest signal)
 - `actual_nn_idxs`  – nn_mask indices that actually flipped next
 - `n_excluded`      – size of the exclusion set at this prediction step
@@ -873,6 +876,7 @@ function assess_min_signal_predictor(
     row_norms::Union{Nothing, Vector{Float64}} = nothing,
     ρ::Union{Nothing, Float64} = nothing,
     n_history::Int = 8,
+    probe_interval::Int = 10,
 )
     events = _nn_flip_sequence(nn_flags)
     length(events) < 2 && return NamedTuple[]
@@ -895,48 +899,52 @@ function assess_min_signal_predictor(
         next_event = events[e + 1]
         k_prev     = prev_event.iter
 
-        signals = signal_at(k_prev)
-
-        # Exclusion set: union of flipped indices from the last n_history events
+        # Exclusion set: computed once per interval (depends only on flip history)
         window_start = max(1, e - n_history + 1)
         excluded = Set(vcat([events[i].flipped for i in window_start:e]...))
 
-        # Candidates: all NN constraints not in the exclusion set, sorted by signal
-        candidates = sort(
-            [(nn_idx = j, sig = signals[j]) for j in 1:num_nn if j ∉ excluded],
-            by = c -> c.sig,
-        )
-        isempty(candidates) && continue
+        # Probe every probe_interval iterations within [k_prev, next_event.iter)
+        for k_probe in k_prev:probe_interval:(next_event.iter - 1)
+            signals = signal_at(k_probe)
 
-        predicted_idx = candidates[1].nn_idx
+            # Candidates: all NN constraints not in the exclusion set, sorted by signal
+            candidates = sort(
+                [(nn_idx = j, sig = signals[j]) for j in 1:num_nn if j ∉ excluded],
+                by = c -> c.sig,
+            )
+            isempty(candidates) && continue
 
-        # Find the best (lowest) rank among the actual next flippers,
-        # ignoring any that were in the exclusion set.
-        best_rank       = length(candidates) + 1
-        best_actual_sig = NaN
-        for j in next_event.flipped
-            j ∈ excluded && continue
-            r = findfirst(c -> c.nn_idx == j, candidates)
-            isnothing(r) && continue
-            if r < best_rank
-                best_rank       = r
-                best_actual_sig = signals[j]
+            predicted_idx = candidates[1].nn_idx
+
+            # Find the best (lowest) rank among the actual next flippers,
+            # ignoring any that were in the exclusion set.
+            best_rank       = length(candidates) + 1
+            best_actual_sig = NaN
+            for j in next_event.flipped
+                j ∈ excluded && continue
+                r = findfirst(c -> c.nn_idx == j, candidates)
+                isnothing(r) && continue
+                if r < best_rank
+                    best_rank       = r
+                    best_actual_sig = signals[j]
+                end
             end
-        end
 
-        push!(results, (
-            prev_flip_iter   = k_prev,
-            next_flip_iter   = next_event.iter,
-            predicted_idx    = predicted_idx,
-            actual_nn_idxs   = next_event.flipped,
-            n_excluded       = length(excluded),
-            n_candidates     = length(candidates),
-            rank_of_actual   = best_rank,
-            correct          = (best_rank == 1),
-            predicted_signal = candidates[1].sig,
-            actual_signal    = best_actual_sig,
-            signal_ratio     = best_actual_sig / candidates[1].sig,
-        ))
+            push!(results, (
+                prev_flip_iter   = k_prev,
+                next_flip_iter   = next_event.iter,
+                probe_iter       = k_probe,
+                predicted_idx    = predicted_idx,
+                actual_nn_idxs   = next_event.flipped,
+                n_excluded       = length(excluded),
+                n_candidates     = length(candidates),
+                rank_of_actual   = best_rank,
+                correct          = (best_rank == 1),
+                predicted_signal = candidates[1].sig,
+                actual_signal    = best_actual_sig,
+                signal_ratio     = best_actual_sig / candidates[1].sig,
+            ))
+        end
     end
     return results
 end
@@ -969,7 +977,8 @@ function plot_flip_prediction_quality(
     title_prefix::String = "",
     row_norms::Union{Nothing, Vector{Float64}} = nothing,
     ρ::Union{Nothing, Float64} = nothing,
-    n_history::Int = 8,
+    n_history::Int = 10,
+    probe_interval::Int = 10,
 )
     if isempty(preproj_history) || isempty(nn_flags)
         println("Warning: No pre-projection or flag history available.")
@@ -977,7 +986,8 @@ function plot_flip_prediction_quality(
     end
 
     preds = assess_min_signal_predictor(preproj_history, nn_flags, K;
-        row_norms = row_norms, ρ = ρ, n_history = n_history)
+        row_norms = row_norms, ρ = ρ, n_history = n_history,
+        probe_interval = probe_interval)
 
     if isempty(preds)
         println("Info: Insufficient NN flip events for prediction quality assessment (need ≥ 2).")
@@ -985,7 +995,7 @@ function plot_flip_prediction_quality(
     end
 
     n_preds   = length(preds)
-    x_iters   = [p.prev_flip_iter  for p in preds]
+    x_iters   = [p.probe_iter      for p in preds]
     ranks     = [p.rank_of_actual  for p in preds]
     ratios    = [p.signal_ratio    for p in preds]
     correct   = [p.correct         for p in preds]
@@ -1000,27 +1010,27 @@ function plot_flip_prediction_quality(
     c_x = x_iters[c_mask];  c_r = ranks[c_mask]
     w_x = x_iters[w_mask];  w_r = ranks[w_mask]
 
-    # Bar width: aim for bars that are visible but don't merge
-    x_span   = n_preds > 1 ? (maximum(x_iters) - minimum(x_iters)) : 1
-    bw       = max(1, x_span / (3 * n_preds))
+    x_pad = probe_interval
+    flip_iters = unique([p.prev_flip_iter for p in preds])
 
     # ── Top panel: rank ──────────────────────────────────────────────────────
     p1 = plot(;
         ylabel  = "Rank of actual next flipper",
-        title   = "$(title_prefix)Min-|u_i|$(scale_str) flip predictor (excl. last $(n_history)) — " *
-                  "$(n_correct)/$(n_preds) correct ($(accuracy)%)",
+        title   = "$(title_prefix)Min-|u_i|$(scale_str) flip predictor (excl. last $(n_history), " *
+                  "probed every $(probe_interval) iters) — $(n_correct)/$(n_preds) correct ($(accuracy)%)",
         legend  = :topright,
-        xlims   = (minimum(x_iters) - bw, maximum(x_iters) + bw),
+        xlims   = (minimum(x_iters) - x_pad, maximum(x_iters) + x_pad),
         ylims   = (0, max(maximum(ranks) + 1, 3)),
         minorgrid = true,
     )
+    vline!(p1, flip_iters; linestyle = :dot, color = :gray60, alpha = 0.4, label = "")
     if any(c_mask)
-        bar!(p1, c_x, c_r; color = :forestgreen, linecolor = :forestgreen,
-             bar_width = bw, label = "Correct (rank 1)", alpha = 0.85)
+        scatter!(p1, c_x, c_r; color = :forestgreen, markerstrokewidth = 0,
+                 markersize = 5, label = "Correct (rank 1)", alpha = 0.85)
     end
     if any(w_mask)
-        bar!(p1, w_x, w_r; color = :crimson, linecolor = :crimson,
-             bar_width = bw, label = "Wrong (rank > 1)", alpha = 0.85)
+        scatter!(p1, w_x, w_r; color = :crimson, markerstrokewidth = 0,
+                 markersize = 5, label = "Wrong (rank > 1)", alpha = 0.85)
     end
     hline!(p1, [1.0]; linestyle = :dash, color = :black, linewidth = 1.5,
            label = "Rank 1 (perfect)")
@@ -1031,13 +1041,14 @@ function plot_flip_prediction_quality(
     w_valid = w_mask .& valid
 
     p2 = plot(;
-        xlabel  = "Solver iteration (when prediction was made)",
+        xlabel  = "Solver iteration (probe point)",
         ylabel  = "actual / predicted signal",
         legend  = :topright,
         yaxis   = :log10,
         minorgrid = true,
-        xlims   = (minimum(x_iters) - bw, maximum(x_iters) + bw),
+        xlims   = (minimum(x_iters) - x_pad, maximum(x_iters) + x_pad),
     )
+    vline!(p2, flip_iters; linestyle = :dot, color = :gray60, alpha = 0.4, label = "")
     # Connect all valid points with a faint dotted line for continuity
     if any(valid)
         sort_order = sortperm(x_iters[valid])
@@ -1047,16 +1058,237 @@ function plot_flip_prediction_quality(
     end
     if any(c_valid)
         scatter!(p2, x_iters[c_valid], ratios[c_valid];
-                 markersize = 7, color = :forestgreen, markerstrokewidth = 0,
+                 markersize = 5, color = :forestgreen, markerstrokewidth = 0,
                  label = "Correct")
     end
     if any(w_valid)
         scatter!(p2, x_iters[w_valid], ratios[w_valid];
-                 markersize = 7, color = :crimson, markerstrokewidth = 0,
+                 markersize = 5, color = :crimson, markerstrokewidth = 0,
                  label = "Wrong")
     end
     hline!(p2, [1.0]; linestyle = :dash, color = :black, linewidth = 1.5,
            label = "ratio = 1")
+
+    return plot(p1, p2; layout = (2, 1), size = (900, 620), left_margin = 5Plots.mm)
+end
+
+"""
+    assess_rate_of_change_predictor(preproj_history, nn_flags, K; n_history, probe_interval) -> Vector{NamedTuple}
+
+For each pair of consecutive NN flip events (prev → next), evaluate the
+"most-negative Δ|u_i|" predictor periodically throughout the inter-flip interval.
+
+At every `probe_interval` iterations within `[prev_flip_iter, next_flip_iter)`,
+compute the one-step finite difference
+
+    rate_i = |u_i(k)| − |u_i(k−1)|
+
+for every NN constraint, then predict the constraint with the most negative
+rate (i.e. |u_i| falling fastest toward zero) as the next to flip.
+
+The same rolling exclusion window as `assess_min_signal_predictor` is used:
+the union of flipped indices from the last `n_history` events is excluded
+before ranking. The exclusion set is computed once per interval.
+
+Returns a `Vector` of `NamedTuple` with fields:
+- `prev_flip_iter`  – iteration of flip event `e` (start of the interval)
+- `next_flip_iter`  – iteration of the next flip
+- `probe_iter`      – iteration at which this particular probe was evaluated
+- `predicted_idx`   – nn_mask index predicted to flip next (most negative rate)
+- `actual_nn_idxs`  – nn_mask indices that actually flipped next
+- `n_excluded`      – size of the exclusion set
+- `n_candidates`    – number of eligible constraints
+- `rank_of_actual`  – rank of the best actual flipper in ascending-rate order
+                      (1 = perfect prediction)
+- `correct`         – true iff `rank_of_actual == 1`
+- `predicted_rate`  – rate value of the predicted constraint (most negative)
+- `actual_rate`     – rate value of the best-ranked actual flipper (NaN if
+                      every actual flipper was in the exclusion set)
+- `rate_margin`     – `actual_rate − predicted_rate` (≥ 0; 0 when correct,
+                      positive when wrong — larger means more confidently wrong)
+"""
+function assess_rate_of_change_predictor(
+    preproj_history::Vector{Vector{Float64}},
+    nn_flags::Vector{Vector{Bool}},
+    K;
+    n_history::Int = 8,
+    probe_interval::Int = 10,
+)
+    events = _nn_flip_sequence(nn_flags)
+    length(events) < 2 && return NamedTuple[]
+
+    idx_map = nn_to_full_indices(K)
+    num_nn  = length(idx_map)
+
+    function signal_at(k)
+        u_k = preproj_history[k]
+        Float64[max(abs(u_k[idx_map[j]]), 1e-16) for j in 1:num_nn]
+    end
+
+    results = NamedTuple[]
+    for e in 1:(length(events) - 1)
+        prev_event = events[e]
+        next_event = events[e + 1]
+        k_prev = prev_event.iter
+
+        # Exclusion set: computed once per interval (depends only on flip history)
+        window_start = max(1, e - n_history + 1)
+        excluded = Set(vcat([events[i].flipped for i in window_start:e]...))
+
+        # Probe every probe_interval iterations within [k_prev, next_event.iter)
+        for k_probe in k_prev:probe_interval:(next_event.iter - 1)
+            # Need a previous iteration to compute a finite difference
+            k_probe < 2 && continue
+
+            sigs_curr = signal_at(k_probe)
+            sigs_prev = signal_at(k_probe - 1)
+            rates = sigs_curr .- sigs_prev   # negative ⟹ |u_i| falling
+
+            # Candidates sorted by rate ascending (most negative first)
+            candidates = sort(
+                [(nn_idx = j, rate = rates[j]) for j in 1:num_nn if j ∉ excluded],
+                by = c -> c.rate,
+            )
+            isempty(candidates) && continue
+
+            predicted_idx = candidates[1].nn_idx
+
+            # Find rank of actual next flipper among candidates
+            best_rank        = length(candidates) + 1
+            best_actual_rate = NaN
+            for j in next_event.flipped
+                j ∈ excluded && continue
+                r = findfirst(c -> c.nn_idx == j, candidates)
+                isnothing(r) && continue
+                if r < best_rank
+                    best_rank        = r
+                    best_actual_rate = rates[j]
+                end
+            end
+
+            push!(results, (
+                prev_flip_iter  = k_prev,
+                next_flip_iter  = next_event.iter,
+                probe_iter      = k_probe,
+                predicted_idx   = predicted_idx,
+                actual_nn_idxs  = next_event.flipped,
+                n_excluded      = length(excluded),
+                n_candidates    = length(candidates),
+                rank_of_actual  = best_rank,
+                correct         = (best_rank == 1),
+                predicted_rate  = candidates[1].rate,
+                actual_rate     = best_actual_rate,
+                rate_margin     = best_actual_rate - candidates[1].rate,
+            ))
+        end
+    end
+    return results
+end
+
+"""
+    plot_flip_prediction_quality_rate(preproj_history, nn_flags, K; ...) -> Plot
+
+Visualise how well the "most-negative Δ|u_i|" predictor would have forecast
+each successive NN constraint flip.
+
+**Two-panel layout**:
+- *Top* – rank of the actual next flipper in the ascending-rate ordering
+  (rank 1 = correct, higher = wrong).  Bars coloured green/red.
+- *Bottom* – rate margin = actual_rate − predicted_rate.  When correct this is
+  0; when wrong it is positive (the predictor chose a constraint whose |u_i|
+  was falling faster than the true next flipper's).
+"""
+function plot_flip_prediction_quality_rate(
+    preproj_history::Vector{Vector{Float64}},
+    nn_flags::Vector{Vector{Bool}},
+    K;
+    title_prefix::String = "",
+    n_history::Int = 8,
+    probe_interval::Int = 10,
+)
+    if isempty(preproj_history) || isempty(nn_flags)
+        println("Warning: No pre-projection or flag history available.")
+        return nothing
+    end
+
+    preds = assess_rate_of_change_predictor(preproj_history, nn_flags, K;
+        n_history = n_history, probe_interval = probe_interval)
+
+    if isempty(preds)
+        println("Info: Insufficient NN flip events for rate-predictor assessment (need ≥ 2).")
+        return nothing
+    end
+
+    n_preds   = length(preds)
+    x_iters   = [p.probe_iter      for p in preds]
+    ranks     = [p.rank_of_actual  for p in preds]
+    margins   = [p.rate_margin     for p in preds]
+    correct   = [p.correct         for p in preds]
+
+    n_correct = count(identity, correct)
+    accuracy  = round(100 * n_correct / n_preds; digits = 1)
+
+    c_mask = correct
+    w_mask = .!correct
+    c_x = x_iters[c_mask];  c_r = ranks[c_mask]
+    w_x = x_iters[w_mask];  w_r = ranks[w_mask]
+
+    x_pad = probe_interval
+    flip_iters = unique([p.prev_flip_iter for p in preds])
+
+    # ── Top panel: rank ──────────────────────────────────────────────────────
+    p1 = plot(;
+        ylabel  = "Rank of actual next flipper",
+        title   = "$(title_prefix)Rate-of-change Δ|u_i| flip predictor (excl. last $(n_history), " *
+                  "probed every $(probe_interval) iters) — $(n_correct)/$(n_preds) correct ($(accuracy)%)",
+        legend  = :topright,
+        xlims   = (minimum(x_iters) - x_pad, maximum(x_iters) + x_pad),
+        ylims   = (0, max(maximum(ranks) + 1, 3)),
+        minorgrid = true,
+    )
+    vline!(p1, flip_iters; linestyle = :dot, color = :gray60, alpha = 0.4, label = "")
+    if any(c_mask)
+        scatter!(p1, c_x, c_r; color = :forestgreen, markerstrokewidth = 0,
+                 markersize = 5, label = "Correct (rank 1)", alpha = 0.85)
+    end
+    if any(w_mask)
+        scatter!(p1, w_x, w_r; color = :crimson, markerstrokewidth = 0,
+                 markersize = 5, label = "Wrong (rank > 1)", alpha = 0.85)
+    end
+    hline!(p1, [1.0]; linestyle = :dash, color = :black, linewidth = 1.5,
+           label = "Rank 1 (perfect)")
+
+    # ── Bottom panel: rate margin ────────────────────────────────────────────
+    valid   = .!isnan.(margins)
+    c_valid = c_mask .& valid
+    w_valid = w_mask .& valid
+
+    p2 = plot(;
+        xlabel    = "Solver iteration (probe point)",
+        ylabel    = "Rate margin (actual − predicted rate)",
+        legend    = :topright,
+        minorgrid = true,
+        xlims     = (minimum(x_iters) - x_pad, maximum(x_iters) + x_pad),
+    )
+    vline!(p2, flip_iters; linestyle = :dot, color = :gray60, alpha = 0.4, label = "")
+    if any(valid)
+        sort_order = sortperm(x_iters[valid])
+        plot!(p2, x_iters[valid][sort_order], margins[valid][sort_order];
+              seriestype = :line, linewidth = 0.8, linestyle = :dot,
+              color = :gray50, alpha = 0.5, label = "")
+    end
+    if any(c_valid)
+        scatter!(p2, x_iters[c_valid], margins[c_valid];
+                 markersize = 5, color = :forestgreen, markerstrokewidth = 0,
+                 label = "Correct")
+    end
+    if any(w_valid)
+        scatter!(p2, x_iters[w_valid], margins[w_valid];
+                 markersize = 5, color = :crimson, markerstrokewidth = 0,
+                 label = "Wrong")
+    end
+    hline!(p2, [0.0]; linestyle = :dash, color = :black, linewidth = 1.5,
+           label = "margin = 0")
 
     return plot(p1, p2; layout = (2, 1), size = (900, 620), left_margin = 5Plots.mm)
 end
