@@ -113,10 +113,20 @@ function init_krylov_basis!(
     krylov_status::Symbol=:success)
 
     if krylov_status == :success
-        # form fixed‐point residual in slot 2
-        @views ws.vars.state_q[:, 2] .= ws.vars.state_q[:, 1] .- ws.vars.state_prev
-        # normalise
-        @views ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
+        if ws.zero_init
+            # Zero-init mode: initialise Krylov basis with a random unit vector,
+            # discarding the warm-started FP residual direction. Expected to be
+            # worse than the default. Toggle via "krylov-zero-init" in args.
+            # Warm-started initialisation (from recorded FP residual) below:
+            # @views ws.vars.state_q[:, 2] .= ws.vars.state_q[:, 1] .- ws.vars.state_prev
+            # @views ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
+            @views ws.vars.state_q[:, 2] .= randn(ws.p.m + ws.p.n)
+            ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
+        else
+            # Default: warm-start from the recorded fixed-point residual
+            @views ws.vars.state_q[:, 2] .= ws.vars.state_q[:, 1] .- ws.vars.state_prev
+            @views ws.vars.state_q[:, 2] ./= norm(ws.vars.state_q[:, 2])
+        end
 
         if ws.vars.state_q[1, 2] === NaN
             @info "🟢 Have NaNs in initial Krylov basis vector, indicates a fixed-point has been found already!"

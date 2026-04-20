@@ -210,6 +210,7 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
     givens_count::Base.RefValue{Int}
     arnoldi_breakdown::Base.RefValue{Bool}
     fp_found::Base.RefValue{Bool} # used to trigger a termination condition when stuff goes wrong initialising Krylov basis (with NaNs due to a zero fixed-point residual having been found!) TODO move to AndersonControlFlags?
+    zero_init::Bool # if true, initialise Krylov basis with a random unit vector instead of the warm-started FP residual
     
     # NOTE that mem is (k+1) in the usual Arnoldi relation written
     # at the point of maximum memory usage as
@@ -227,7 +228,8 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
         mem::Int,
         tries_per_mem::Int,
         safeguard_norm::Symbol,
-        krylov_operator::Symbol) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
+        krylov_operator::Symbol,
+        zero_init::Bool = false) where {T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, I}}
 
         _validate_krylov_mem(mem, tries_per_mem, p.m + p.n)
         _validate_krylov_operator(krylov_operator)
@@ -265,7 +267,8 @@ struct KrylovWorkspace{T <: AbstractFloat, I <: Integer, M <: AbstractMethod{T, 
             Vector{GivensRotation{T}}(undef, mem-1),
             Ref(0),
             Ref(false),
-            Ref(false)
+            Ref(false),
+            zero_init
         )
     end
 end

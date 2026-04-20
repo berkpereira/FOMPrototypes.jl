@@ -152,6 +152,7 @@ function KrylovWorkspace{T, I}(
     tries_per_mem::Int,
     safeguard_norm::Symbol,
     krylov_operator::Symbol;
+    zero_init::Bool = false,
     residual_period::I = DEFAULT_RESIDUAL_PERIOD,
     vars::Union{KrylovVariables{T}, Nothing} = nothing,
     A_gram::Union{LinearMap{T}, Nothing} = nothing,
@@ -188,7 +189,8 @@ function KrylovWorkspace{T, I}(
         mem,
         tries_per_mem,
         safeguard_norm,
-        krylov_operator
+        krylov_operator,
+        zero_init
     )
 end
 KrylovWorkspace(args...; kwargs...) = KrylovWorkspace{DefaultFloat, DefaultInt}(args...; kwargs...)

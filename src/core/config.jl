@@ -16,6 +16,7 @@
 
     krylov_tries_per_mem::Int = 3
     krylov_operator::Symbol = :tilde_A
+    krylov_zero_init::Bool = false # if true, initialise Krylov basis with a random unit vector instead of the warm-started FP residual
 
     anderson_interval::Int = 10
     anderson_broyden_type::Symbol = :normal2
