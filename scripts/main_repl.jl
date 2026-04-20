@@ -4,7 +4,7 @@ using JLD2
 
 include("script_utils.jl")  # For save_diagnostic_matrix
 
-const ITER_COUNT = 10_000
+const ITER_COUNT = 1_000
 const SAVE_MATRIX = false  # Set to true when you want to save
 const MATRIX_TAG = "optimal"  # Set to "optimal" or "non-optimal"
 
@@ -13,16 +13,13 @@ args = Dict(
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
     # "problem-set" => "sslsq",
-    # "problem-name" => "NYPA_Maragal_2_lasso",
+    # "problem-name" => "NYPA_Maragal_3_huber",
 
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash292_huber",
 
-    # "problem-set"  => "mpc",
-    # "problem-name" => "pendulum_2",
-
     "problem-set"  => "mpc",
-    "problem-name" => "aircraft_2",
+    "problem-name" => "nonlinearChain_3",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
@@ -38,16 +35,17 @@ args = Dict(
     #####################
 
     "res-norm"     => Inf,
-    "rel-kkt-tol"  => 1e-4,
+    "rel-kkt-tol"  => 1e-9,
 
     "accel-memory" => 15,
-    "acceleration" => :none, # in {:none, :krylov, :anderson, :randomized}
+    "acceleration" => :krylov, # in {:none, :krylov, :anderson, :randomized}
     "safeguard-norm" => :char, # in {:euclid, :char, :none}
     "safeguard-factor" => 0.9, # factor for fixed-point residual safeguard check
 
     # Krylov-specific
-    "krylov-tries-per-mem"  => 2,
+    "krylov-tries-per-mem"  => 1,
     "krylov-operator"       => :B, # in {:tilde_A, :B}
+    "krylov-zero-init"      => false, # if true, initialise Krylov basis with random unit vector instead of warm-started FP residual
 
     # Anderson-specific (defaults: reg = :none, with :restarted and :QR2)
     "anderson-interval"     => 10,
@@ -60,7 +58,7 @@ args = Dict(
     "randomized-operator" => :tilde_A, # in {:tilde_A, :B} - use L-I or L operator
 
     "rho"   => 0.1,
-    "rho-update-period" => 50,
+    "rho-update-period" => 100,
     "theta" => 1.0,
 
     # "restart-period"    => Inf,
@@ -112,6 +110,10 @@ if !config.run_fast
         config.problem_set,
         config.problem_name,
         config,
-        :gr)
+        :plotlyjs)
+end
+
+if config.acceleration == :krylov && config.krylov_zero_init
+    println("⚠️⚠️⚠️⚠️⚠️  WARNING: Krylov GMRES is currently initialised with zeros (random unit vector) instead of the warm-started fixed-point residual — results are expected to be degraded!  ⚠️⚠️⚠️⚠️⚠️")
 end
 ;
