@@ -43,9 +43,10 @@ end
 
 function IterationRecord(ws::AbstractWorkspace)
 
-    char_norm_mat = [(ws.method.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.method.ρ[1]]
+    # Close over ws so the matrix always reflects current ρ and W even after rho updates.
     function char_norm(vector::AbstractArray{Float64})
-        return sqrt(dot(vector, char_norm_mat * vector))
+        mat = [(ws.method.W - ws.p.P) ws.p.A'; ws.p.A Diagonal(1 ./ ws.method.ρ)]
+        return sqrt(dot(vector, mat * vector))
     end
 
     # Count number of SOCs for angle tracking matrix

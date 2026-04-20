@@ -127,8 +127,8 @@ function apply_linearized_operator_batch!(
     mul!(temp_m_mat1, ws.p.A, X_n_in)
 
     # temp_m_mat1 now holds A * X_n
-    # Scale by ρ: ρ * A * X_n
-    temp_m_mat1 .*= ws.method.ρ[1]
+    # Scale by ρ: Diagonal(ρ) * A * X_n (broadcasts ρ per row across all s columns)
+    temp_m_mat1 .*= ws.method.ρ
 
     # Add current dual part: ρ * A * X_n + X_m
     temp_m_mat1 .+= X_m_in

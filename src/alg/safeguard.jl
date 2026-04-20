@@ -59,8 +59,8 @@ function compute_fp_metric!(
         # <M1 * fp_x, fp_x>
         @views metric_sq = dot(ws.scratch.base.temp_n_vec1, fp_res[1:n])
 
-        # + <M2 * fp_y, fp_y> where M2 = (1/ρ) I  (so becomes ||fp_y||^2 / ρ)
-        @views metric_sq += norm(fp_res[n+1:end])^2 / ws.method.ρ[1]
+        # + <M2 * fp_y, fp_y> where M2 = Diagonal(1/ρ)  (weighted dual norm)
+        @views metric_sq += dot(abs2.(fp_res[n+1:end]), 1 ./ ws.method.ρ)
 
         # + 2 <A * fp_x, fp_y>
         @views mul!(ws.scratch.base.temp_m_vec1, ws.p.A, fp_res[1:n])    # ws.scratch.base.temp_m_vec1 := A * fp_x
@@ -136,7 +136,7 @@ function accel_fp_safeguard!(
                 println("❌ bad Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
             end
 
-            char_mat = Matrix([(ws.method.W - ws.p.P) ws.p.A'; ws.p.A I(ws.p.m) / ws.method.ρ[1]])
+            char_mat = Matrix([(ws.method.W - ws.p.P) ws.p.A'; ws.p.A Diagonal(1 ./ ws.method.ρ)])
             true_lookahead = zeros(ws.p.m + ws.p.n)
             onecol_method_operator!(ws, Val{ws.method.variant}(), pinv_sol, true_lookahead)
             # take a step from the linear system ≈solution, as in our Krylov method

@@ -362,7 +362,7 @@ function twocol_method_operator!(
 
     @views ws.scratch.extra.temp_m_mat1[:, 1] .-= ws.p.b # subtract b from A * x (but NOT from A * q_n)
     
-    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ[1]
+    ws.scratch.extra.temp_m_mat1 .*= ws.method.ρ
     @views ws.scratch.extra.temp_m_mat1 .+= ws.vars.state_q[ws.p.n+1:end, :] # add current y
     @views ws.vars.preproj_vec .= ws.scratch.extra.temp_m_mat1[:, 1] # this is what's fed into dual cone projection operator
     @views project_to_dual_K!(ws.scratch.extra.temp_m_mat1[:, 1], ws.p.K) # ws.scratch.extra.temp_m_mat1[:, 1] now stores y_{k+1}
@@ -372,7 +372,7 @@ function twocol_method_operator!(
     if confirm_residual_update
         @views ws.res.r_primal .= ws.scratch.extra.temp_m_mat1[:, 1]
         @views ws.res.r_primal .-= ws.vars.state_q[ws.p.n+1:end, 1]
-        ws.res.r_primal .*= (1 / ws.method.ρ[1])
+        ws.res.r_primal ./= ws.method.ρ
 
         # NOTE that from above in this function,
         # right now ws.scratch.base.s_reconst holds -Ax
