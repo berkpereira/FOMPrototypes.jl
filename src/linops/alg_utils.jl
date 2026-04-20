@@ -314,10 +314,10 @@ function W_operator(
     if variant == :PDHG
         pre_operator = sparse(I(n)) / τ + P # note no Symmetric wrapper
     elseif variant == :ADMM
-        # note: I think in this case I am forced to form the
-        # matrix P + A' * Diagonal(ρ) * A explicitly, in order to then compute
-        # its Cholesky factors for inverse-vec products
-        pre_operator = P + A' * Diagonal(ρ) * A # note NO Symmetric wrapper
+        # A_scaled = Diagonal(sqrt(ρ)) * A ensures the gram matrix A_scaled'*A_scaled
+        # is exactly symmetric (avoids FP asymmetry from A'*Diagonal(ρ)*A left-to-right).
+        A_scaled = Diagonal(sqrt.(ρ)) * A
+        pre_operator = P + A_scaled' * A_scaled # note NO Symmetric wrapper
 
     ################ DIAGONAL pre-gradient operators ################
 

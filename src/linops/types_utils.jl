@@ -81,6 +81,11 @@ function prepare_inv(W::SparseMatrixCSC{T, I},
 end
 
 # we also define in-place operators of these preconditioners
+function apply_inv!(op::DiagInvOp, x::AbstractArray)
+    x .*= op.inv_diag
+    return nothing
+end
+
 function apply_inv!(
     op::DiagInvOp,
     x::AbstractArray,
