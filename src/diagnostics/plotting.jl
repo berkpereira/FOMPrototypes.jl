@@ -651,7 +651,7 @@ function _compute_nn_aggregate_signals(
     preproj_history::Vector{Vector{Float64}},
     K;
     row_norms::Union{Nothing, Vector{Float64}} = nothing,
-    ρ::Union{Nothing, Float64} = nothing,
+    ρ::Union{Nothing, AbstractVector{Float64}} = nothing,
 )
     idx_map = nn_to_full_indices(K)
     num_nn = length(idx_map)
@@ -672,7 +672,7 @@ function _compute_nn_aggregate_signals(
         for (j, full_idx) in enumerate(idx_map)
             val = abs(u_k[full_idx])
             if scaled
-                val /= (1.0 + ρ * row_norms[full_idx])
+                val /= (1.0 + ρ[full_idx] * row_norms[full_idx])
             end
             signals_k[j] = max(val, 1e-16)
         end
@@ -874,7 +874,7 @@ function assess_min_signal_predictor(
     nn_flags::Vector{Vector{Bool}},
     K;
     row_norms::Union{Nothing, Vector{Float64}} = nothing,
-    ρ::Union{Nothing, Float64} = nothing,
+    ρ::Union{Nothing, AbstractVector{Float64}} = nothing,
     n_history::Int = 8,
     probe_interval::Int = 10,
 )
@@ -888,7 +888,7 @@ function assess_min_signal_predictor(
     function signal_at(k)
         u_k = preproj_history[k]
         Float64[let val = abs(u_k[idx_map[j]])
-                    scaled ? max(val / (1.0 + ρ * row_norms[idx_map[j]]), 1e-16) :
+                    scaled ? max(val / (1.0 + ρ[idx_map[j]] * row_norms[idx_map[j]]), 1e-16) :
                              max(val, 1e-16)
                 end for j in 1:num_nn]
     end
@@ -976,7 +976,7 @@ function plot_flip_prediction_quality(
     K;
     title_prefix::String = "",
     row_norms::Union{Nothing, Vector{Float64}} = nothing,
-    ρ::Union{Nothing, Float64} = nothing,
+    ρ::Union{Nothing, AbstractVector{Float64}} = nothing,
     n_history::Int = 10,
     probe_interval::Int = 10,
 )
@@ -1309,7 +1309,7 @@ function plot_scaled_preproj_late_flippers(
     nn_flags::Vector{Vector{Bool}},
     K,
     A::AbstractMatrix,
-    ρ::Float64;
+    ρ::AbstractVector{Float64};
     n_constraints::Int = 10,
     title_prefix::String = "",
     show_aggregates::Bool = true,
@@ -1350,7 +1350,7 @@ function plot_scaled_preproj_late_flippers(
 
     for (plot_idx, nn_idx) in enumerate(late_flippers)
         full_idx = idx_map[nn_idx]
-        scale_factor = 1.0 + ρ * row_norms[full_idx]
+        scale_factor = 1.0 + ρ[full_idx] * row_norms[full_idx]
 
         abs_u_scaled = [max(abs(preproj_history[k][full_idx]) / scale_factor, 1e-16)
                         for k in 1:total_iters]
