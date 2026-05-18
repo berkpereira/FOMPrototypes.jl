@@ -68,11 +68,16 @@ function save_diagnostic_matrix(ws_diag, problem_set, problem_name, tag, variant
     end
 
     # Save matrices, FP history, and metadata
-    @save filepath tilde_A=ws_diag.tilde_A tilde_b=ws_diag.tilde_b W_inv_mat=ws_diag.W_inv_mat fp_residuals_history problem_set problem_name tag variant rho
+    K_F    = ws_diag.K_F
+    F_mask = ws_diag.F_mask
+    @save filepath tilde_A=ws_diag.tilde_A tilde_b=ws_diag.tilde_b W_inv_mat=ws_diag.W_inv_mat fp_residuals_history K_F F_mask problem_set problem_name tag variant rho
 
     @info "Matrix saved to: $filepath"
     @info "  tilde_A size: $(size(ws_diag.tilde_A))"
     @info "  tilde_b size: $(size(ws_diag.tilde_b))"
     @info "  W_inv_mat size: $(size(ws_diag.W_inv_mat))"
     @info "  fp_residuals_history size: $(size(fp_residuals_history))"
+    if K_F !== nothing
+        @info "  K_F size: $(size(K_F)), active constraints (m_F): $(count(F_mask))"
+    end
 end
