@@ -62,6 +62,39 @@ function plot_spectrum(A::AbstractMatrix{Float64}, k::Union{Int, Nothing} = noth
 end
 
 """
+Plot the spectrum of the reduced-QP KKT saddle matrix K_F = [P A_F'; A_F 0].
+The saddle matrix is symmetric indefinite: n positive and m_F negative eigenvalues
+in the generic full-rank case. Reports inertia and estimated condition number.
+"""
+function plot_kkt_spectrum(K_F::AbstractMatrix, m_F::Int, k::Union{Int, Nothing} = nothing)
+    newline_char = Plots.backend_name() in [:gr, :pythonplot] ? "\n" : "<br>"
+
+    vals = eigvals(Symmetric(Matrix(K_F)))
+
+    n_pos  = count(v ->  v >  1e-10, vals)
+    n_neg  = count(v ->  v < -1e-10, vals)
+    n_zero = count(v -> abs(v) < 1e-10, vals)
+
+    nonzero_abs = abs.(filter(v -> abs(v) > 1e-10, vals))
+    cond_est = isempty(nonzero_abs) ? Inf : maximum(nonzero_abs) / minimum(nonzero_abs)
+
+    title_str = "KKT spectrum, k = $k, m_F = $m_F$newline_char"
+    title_str *= "inertia (+/0/-): $n_pos/$n_zero/$n_neg, "
+    title_str *= "cond ≈ " * @sprintf("%0.2e", cond_est)
+
+    p = scatter(
+        vals, zeros(length(vals)),
+        xlabel="Eigenvalue", ylabel="",
+        title=title_str,
+        legend=false, marker=:x, yticks=false)
+
+    vline!(p, [0.0], linecolor=:red, linestyle=:dash, label="")
+
+    display(p)
+    return vals
+end
+
+"""
 Given the input vector, this function computes the inner product of the 
 normalised vector with the columns of the eigenvectors input. It plots these
 on the y axis versus the magnitude of the phase of the corresponding

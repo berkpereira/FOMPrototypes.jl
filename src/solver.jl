@@ -331,6 +331,44 @@ function construct_explicit_operator!(
 end
 
 """
+Build the reduced-QP KKT saddle matrix K_F = [P A_F'; A_F 0], where F indexes
+the equality constraints (ZeroCone rows) plus the currently active inequality
+constraints (NonnegativeCone rows where nn_mask == true).
+
+Stores K_F and the active-row boolean mask F_mask into ws_diag.
+Only supports QPs (errors if any SecondOrderCone is present).
+"""
+function construct_reduced_kkt!(
+    ws::AbstractWorkspace{T, I, V, M},
+    ws_diag::DiagnosticsWorkspace,
+) where {T, I, V, M <: PrePPM}
+
+    F_mask = Vector{Bool}(undef, ws.p.m)
+    D_A_idx = 1
+    nn_mask_idx = 1
+    for cone in ws.p.K
+        if cone isa Clarabel.NonnegativeConeT
+            F_mask[D_A_idx:D_A_idx + cone.dim - 1] .= ws.proj_state.nn_mask[nn_mask_idx:nn_mask_idx + cone.dim - 1]
+            nn_mask_idx += cone.dim
+        elseif cone isa Clarabel.ZeroConeT
+            F_mask[D_A_idx:D_A_idx + cone.dim - 1] .= true
+        else
+            error("construct_reduced_kkt! currently only supports QPs.")
+        end
+        D_A_idx += cone.dim
+    end
+
+    A_F = ws.p.A[F_mask, :]
+    m_F = count(F_mask)
+    ws_diag.K_F = [ws.p.P  A_F'; A_F  spzeros(T, m_F, m_F)]
+    ws_diag.F_mask = F_mask
+end
+
+_should_break(k::Int, ::Nothing) = false
+_should_break(k::Int, x::Int) = k == x
+_should_break(k::Int, v::AbstractVector{Int}) = k in v
+
+"""
 We use multiple dispatch to avoid branching at run time in the main loop
 in optimise!.
 """
@@ -389,7 +427,8 @@ function optimise!(
     state_ref::Union{Nothing, Vector{Float64}} = nothing,
     timer::TimerOutput,
     full_diagnostics::Bool = false,
-    spectrum_plot_period::Real = Inf)
+    spectrum_plot_period::Real = Inf,
+    break_at::Union{Nothing, Int, AbstractVector{Int}} = nothing)
 
     # create views into x and y variables, along with "Arnoldi vector" q
     if ws.vars isa KrylovVariables
@@ -445,8 +484,14 @@ function optimise!(
                 construct_explicit_operator!(ws, ws_diag)
                 # plot spectrum of the linearised operator
                 plot_spectrum(ws_diag.tilde_A, ws.k[])
+                # construct and plot the reduced-QP KKT saddle matrix
+                construct_reduced_kkt!(ws, ws_diag)
+                plot_kkt_spectrum(ws_diag.K_F, count(ws_diag.F_mask), ws.k[])
             end
         end
+
+        # drop into Infiltrator at user-specified iterations
+        @infiltrate _should_break(ws.k[], break_at)
 
         # increment iter counter
         ws.k[] += 1

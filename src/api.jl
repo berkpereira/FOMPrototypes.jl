@@ -108,7 +108,8 @@ function run_prototype(problem::ProblemData,
     config::SolverConfig;
     state_ref::Union{Nothing, Vector{Float64}} = nothing,
     full_diagnostics::Bool = false,
-    spec_plot_period::Real = Inf)
+    spec_plot_period::Real = Inf,
+    break_at::Union{Nothing, Int, AbstractVector{Int}} = nothing)
 
     # simple args consistency check
     if config.anderson_interval < 1
@@ -169,7 +170,8 @@ function run_prototype(problem::ProblemData,
             state_ref = state_ref,
             timer = to,
             full_diagnostics = full_diagnostics,
-            spectrum_plot_period = spec_plot_period)
+            spectrum_plot_period = spec_plot_period,
+            break_at = break_at)
     end
 
     return ws, ws_diag, results, to

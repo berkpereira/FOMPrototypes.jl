@@ -27,6 +27,10 @@ mutable struct DiagnosticsWorkspace{T <: AbstractFloat}
     # Fixed-point residual history: circular buffer of last FP_HISTORY_SIZE residuals
     fp_residuals_history::Matrix{T}
     fp_history_col::Ref{Int}  # current column index (1-indexed, wraps at FP_HISTORY_SIZE)
+
+    # Reduced-QP KKT saddle matrix [P A_F'; A_F 0] and active-row mask (QP-only)
+    K_F::Union{SparseMatrixCSC{T, Int}, Nothing}
+    F_mask::Union{Vector{Bool}, Nothing}
 end
 
 function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
@@ -75,6 +79,6 @@ function DiagnosticsWorkspace(ws::AbstractWorkspace{T}) where T <: AbstractFloat
     fp_residuals_history = zeros(T, m + n, FP_HISTORY_SIZE)
     fp_history_col = Ref(1)
 
-    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod, soc_normals_prev, soc_normals_curr, fp_residuals_history, fp_history_col)
+    DiagnosticsWorkspace{T}(tilde_A, tilde_b, W_inv_mat, H_unmod, soc_normals_prev, soc_normals_curr, fp_residuals_history, fp_history_col, nothing, nothing)
 end
 DiagnosticsWorkspace(args...; kwargs...) = DiagnosticsWorkspace{DefaultFloat}(args...; kwargs...)
