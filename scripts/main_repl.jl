@@ -4,7 +4,7 @@ using JLD2
 
 include("script_utils.jl")  # For save_diagnostic_matrix
 
-const ITER_COUNT = 1_000
+const ITER_COUNT = 300
 const SAVE_MATRIX = false  # Set to true when you want to save
 const MATRIX_TAG = "optimal"  # Set to "optimal" or "non-optimal"
 
@@ -93,8 +93,9 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_set,
     config.problem_name,
     config,
-    full_diagnostics = false,
-    spec_plot_period = 50
+    full_diagnostics = true,
+    spec_plot_period = 50,
+    # break_at = [60, 120],   # drop into Infiltrator at these iterations to inspect ws, ws_diag live
     );
 
 # save diagnostic matrices if requested:
