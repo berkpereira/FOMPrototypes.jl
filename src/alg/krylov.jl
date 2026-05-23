@@ -517,12 +517,15 @@ function krylov_step!(
                 norm_arnoldi_err = norm(arnoldi_relation_err)
 
                 println()
-                println("---- ACCEL INFO ITER $(ws.k[]), GIVENS COUNT $(ws.givens_count[]) ----")
-                if norm_arnoldi_err > 1e-10
-                    println("❌ Arnoldi relation error (size $(size(arnoldi_relation_err))) at iter $(ws.k[]): ", norm_arnoldi_err, ". norm of B*Q = $(norm(BQ))")
-                else
-                    println("✅ Arnoldi relation error (size $(size(arnoldi_relation_err))) at iter $(ws.k[]): ", norm_arnoldi_err, ". norm of B*Q = $(norm(BQ))")
-                end
+                println(@sprintf("---- accel attempt: iter %d, givens %d ----", ws.k[], ws.givens_count[]))
+                arnoldi_marker = norm_arnoldi_err > 1e-10 ? "✗ drift in basis" : "✓ clean basis"
+                println(@sprintf("  arnoldi err %.2e  ‖B·Q‖ %.2e  %s",
+                    norm_arnoldi_err, norm(BQ), arnoldi_marker))
+
+                # build the current local equality-constrained QP KKT system and
+                # classify it (unique / non-unique primal-or-dual / inconsistent)
+                construct_reduced_kkt!(ws, ws_diag)
+                classify_reduced_kkt(ws, ws_diag)
             end
 
             @timeit timer "fixed-point safeguard" @views ws.control_flags.accepted_accel = accel_fp_safeguard!(ws, ws_diag, ws.vars.state_q[:, 1], ws.scratch.extra.accelerated_point, config.safeguard_factor, record, full_diagnostics)
@@ -533,7 +536,6 @@ function krylov_step!(
         end
 
         if ws.control_flags.accepted_accel
-            println("Krylov acceleration accepted at iteration $(ws.k[]), givens count $(ws.givens_count[]).")
             # increment effective iter counter (ie excluding unsuccessful acc attempts)
             ws.k_eff[] += 1
             ws.res.residual_check_count[] += 1

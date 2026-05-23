@@ -120,21 +120,14 @@ function accel_fp_safeguard!(
             # pinv_sol = (tilde_A - I) \ (-tilde_b)
             pinv_sol = pinv(ws_diag.tilde_A - I) * (-ws_diag.tilde_b)
             pinv_residual = norm(ws_diag.tilde_A * pinv_sol + ws_diag.tilde_b - pinv_sol)
-            if pinv_residual > 1e-9
-                println("❌ no true fixed-point at this affine operator! pinv sol residual: ", pinv_residual)
-            else
-                println("✅ true fixed-point at this affine operator! pinv sol residual: ",  pinv_residual)
-            end
-            println("Norm of pinv solution: ", norm(pinv_sol))
-            println("Norm of accelerated_state: ", norm(accelerated_state))
+            pinv_ok = pinv_residual ≤ 1e-9
+            rel_err = norm(pinv_sol - accelerated_state) / norm(pinv_sol)
+            approx_ok = rel_err < 1e-2
 
-            error_to_est = pinv_sol - accelerated_state
-            rel_err = norm(error_to_est) / norm(pinv_sol)
-            if rel_err < 1e-2
-                println("✅ good Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
-            else
-                println("❌ bad Krylov-approximation of pinv-fixed point: rel error at iter $(ws.k[]): ", rel_err)
-            end
+            println(@sprintf("  pinv FP: res %.2e %s  ‖pinv‖ %.2e  ‖accel‖ %.2e  rel err %.2e %s",
+                pinv_residual, pinv_ok ? "✓" : "✗",
+                norm(pinv_sol), norm(accelerated_state),
+                rel_err, approx_ok ? "✓" : "✗"))
 
             char_mat = Matrix([(ws.method.W - ws.p.P) ws.p.A'; ws.p.A Diagonal(1 ./ ws.method.ρ)])
             true_lookahead = zeros(ws.p.m + ws.p.n)
@@ -144,21 +137,18 @@ function accel_fp_safeguard!(
 
             # swap: after this, true_lookahead stores T(pinv_sol)
             custom_swap!(true_lookahead, pinv_sol, ws.scratch.base.temp_mn_vec1)
-            
+
             true_lookahead_step = true_lookahead - pinv_sol
             if ws.safeguard_norm == :euclid
                 fp_metric_true = norm(true_lookahead_step)
             elseif ws.safeguard_norm == :char
-                fp_metric_true = dot(true_lookahead_step, char_mat * true_lookahead_step)
-                fp_metric_true = sqrt(fp_metric_true)
+                fp_metric_true = sqrt(dot(true_lookahead_step, char_mat * true_lookahead_step))
             end
 
             true_metric_ratio = fp_metric_true / fp_metric_vanilla
-            if fp_metric_true < 1e-6
-                println("✅ T(pinv sol) achieves small fp metric: fp_metric_true / fp_metric_vanilla = ", true_metric_ratio)
-            else
-                println("❌ T(pinv sol) does NOT achieve small fp metric: fp_metric_true / fp_metric_vanilla = ", true_metric_ratio)
-            end
+            true_ok = fp_metric_true < 1e-6
+            println(@sprintf("  T(pinv sol): fp_true/fp_van = %.2e %s",
+                true_metric_ratio, true_ok ? "✓" : "✗"))
         catch e
             @info "Failed something when considering pinv-≈true fixed point at iter $(ws.k[]). $e"
         end
@@ -196,13 +186,15 @@ function accel_fp_safeguard!(
     end
 
     acceleration_success = fp_metric_acc <= safeguard_factor * fp_metric_vanilla
-    
+
+    # always report the safeguard ratio (success or rejection)
+    println(@sprintf("  safeguard: fp_acc/fp_van = %.2e %s (factor %.2f)  new fp_metric %.2e",
+        metric_ratio,
+        acceleration_success ? "✓ ACCEPTED" : "✗ REJECTED",
+        safeguard_factor, fp_metric_acc))
+
     # finalize ws.scratch.extra.state_recycled
     if acceleration_success
-        if ws isa KrylovWorkspace
-            println("Givens count is $(ws.givens_count[]),")
-        end
-        println("✅ accel success at iter $(ws.k[]), safeguard ratio: $(fp_metric_acc / fp_metric_vanilla). new fp metric: $(fp_metric_acc)")
         ws.scratch.extra.state_recycled .= ws.scratch.extra.state_lookahead    # ws.scratch.extra.state_lookahead == FOM(accelerated_state)
     end
 
