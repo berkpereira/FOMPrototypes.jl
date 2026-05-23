@@ -364,6 +364,81 @@ function construct_reduced_kkt!(
     ws_diag.F_mask = F_mask
 end
 
+"""
+Classify the local equality-constrained QP whose KKT system is
+    K_F [x; λ] = [-c; b_F],
+where K_F = [P A_F'; A_F 0] and F_mask selects the currently active rows.
+
+Performs a dense SVD of K_F and reports:
+  - rank deficiency (singular values below `rel_tol * σ_max`)
+  - if singular, splits the right-nullspace into primal (rows 1:n) and dual
+    (rows n+1:n+m_F) block components
+  - consistency of the rhs via projection onto the left-nullspace of K_F
+
+Returns one of {:unique, :inconsistent, :nonunique_primal, :nonunique_dual,
+:nonunique_mixed}. Assumes `construct_reduced_kkt!` has already populated
+`ws_diag.K_F` and `ws_diag.F_mask`.
+"""
+function classify_reduced_kkt(
+    ws::AbstractWorkspace{T},
+    ws_diag::DiagnosticsWorkspace;
+    rel_tol::Real = 1e-10,
+) where T
+    K_F = ws_diag.K_F
+    F_mask = ws_diag.F_mask
+    n = ws.p.n
+    m_F = count(F_mask)
+    N = n + m_F
+
+    # rhs of reduced KKT system: [-c; b_F]
+    rhs = Vector{T}(undef, N)
+    @views rhs[1:n]   .= -ws.p.c
+    @views rhs[n+1:N] .=  ws.p.b[F_mask]
+    rhs_norm = norm(rhs)
+
+    F = svd(Matrix(K_F))
+    σ = F.S
+    σ_max = isempty(σ) ? zero(T) : σ[1]
+    σ_min = isempty(σ) ? zero(T) : σ[end]
+    abs_tol = rel_tol * max(σ_max, one(T))
+    null_idx = findall(s -> s ≤ abs_tol, σ)
+    rank_K = N - length(null_idx)
+
+    header = @sprintf("  local QP KKT (n=%d, m_F=%d, N=%d): σ_max %.2e, σ_min %.2e, rank %d/%d",
+        n, m_F, N, σ_max, σ_min, rank_K, N)
+
+    if isempty(null_idx)
+        println(header * "  ✓ unique")
+        return :unique
+    end
+
+    V_null = F.V[:, null_idx]
+    U_null = F.U[:, null_idx]
+    primal_mass = norm(@view V_null[1:n, :])
+    dual_mass   = norm(@view V_null[n+1:N, :])
+
+    proj_left = U_null' * rhs
+    incons_norm = norm(proj_left)
+    rel_incons = rhs_norm > 0 ? incons_norm / rhs_norm : incons_norm
+
+    if rel_incons > rel_tol
+        println(header * @sprintf("  ✗ INCONSISTENT (null-dim %d, ‖U_null'·rhs‖/‖rhs‖ = %.2e)",
+            length(null_idx), rel_incons))
+        return :inconsistent
+    end
+
+    category = if primal_mass > rel_tol && dual_mass > rel_tol
+        :nonunique_mixed
+    elseif primal_mass > rel_tol
+        :nonunique_primal
+    else
+        :nonunique_dual
+    end
+    println(header * @sprintf("  ⚠ %s (null-dim %d, primal-mass %.2e, dual-mass %.2e)",
+        category, length(null_idx), primal_mass, dual_mass))
+    return category
+end
+
 _should_break(k::Int, ::Nothing) = false
 _should_break(k::Int, x::Int) = k == x
 _should_break(k::Int, v::AbstractVector{Int}) = k in v
