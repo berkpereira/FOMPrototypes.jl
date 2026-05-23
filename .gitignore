@@ -28,3 +28,6 @@ test_custom_linalg/
 
 # worker script
 worker.sh
+
+# local workflow notes
+EXPERIMENTAL_WORKFLOW.md

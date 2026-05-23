@@ -12,14 +12,14 @@ args = Dict(
     "ref-solver"   => :Clarabel,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
-    # "problem-set" => "sslsq",
-    # "problem-name" => "NYPA_Maragal_3_huber",
+    "problem-set" => "sslsq",
+    "problem-name" => "NYPA_Maragal_1_lasso",
 
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash292_huber",
 
-    "problem-set"  => "mpc",
-    "problem-name" => "nonlinearChain_3",
+    # "problem-set"  => "mpc",
+    # "problem-name" => "quadcopter_2",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
