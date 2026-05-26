@@ -1,0 +1,587 @@
+# KKT sweep findings — generated 2026-05-24T11:46:41.019
+# settings: variant=:ADMM, acceleration=:krylov, accel-memory=15,
+#           max-k-operator=300, full_diagnostics=true,
+#           per-problem timeout = 120.0s,
+#           safeguard factor = 0.9,
+#           size filter MAX_MN (m+n) = 12000
+#
+# Tags: UNIFORM-UNIQUE   — every accel attempt classified as unique
+#       INTERESTING      — at least one inconsistent / non-unique event
+#       NO-ATTEMPTS      — no Krylov accel attempt within iteration budget
+#       SKIPPED-BY-SIZE  — m+n exceeds MAX_MN (dense tilde_A too large)
+#       SKIP / FAIL      — setup or run error
+#
+# For INTERESTING problems, each non-unique attempt is detailed with:
+#   - the local QP KKT classification line
+#   - signals: pinv fp_true/fp_van  (red ⇔ <1; acc-0.9 ⇔ <factor)
+#              sg   fp_acc /fp_van  (red ⇔ <1; ACCEPTED/REJECTED is the safeguard's actual decision)
+
+
+## Set 'mpc' — 72 candidate problems
+INTERESTING mpc/aircraft_1 (m=144, n=84) attempts=17 unique=0 inconsistent=5 nu-primal=12 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=84, m_F=64, N=148): σ_max 3.07e+00, σ_min 2.14e-16, rank 146/148  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.05e-13)
+        pinv 5.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.12e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=84, m_F=70, N=154): σ_max 3.07e+00, σ_min 2.14e-16, rank 152/154  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.06e-13)
+        pinv 6.94e+02 (red ✗, acc-0.90 ✗)  |  sg 1.81e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=84, m_F=72, N=156): σ_max 3.07e+00, σ_min 2.14e-16, rank 154/156  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.45e-13)
+        pinv 6.85e+02 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=84, m_F=72, N=156): σ_max 3.07e+00, σ_min 2.14e-16, rank 154/156  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 5.08e-14)
+        pinv 7.54e+02 (red ✗, acc-0.90 ✗)  |  sg 1.21e+00 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.07e+00, σ_min 2.14e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 8.39e+02 (red ✗, acc-0.90 ✗)  |  sg 1.54e+00 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.07e+00, σ_min 2.14e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 9.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.66e+00 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=84, m_F=75, N=159): σ_max 3.07e+00, σ_min 2.14e-16, rank 157/159  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.51e-13)
+        pinv 6.48e+02 (red ✗, acc-0.90 ✗)  |  sg 1.68e+00 (red ✗) REJECTED
+    [iter 127 | nonunique_primal] local QP KKT (n=84, m_F=78, N=162): σ_max 3.07e+00, σ_min 2.15e-16, rank 160/162  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.58e-13)
+        pinv 3.58e+02 (red ✗, acc-0.90 ✗)  |  sg 2.52e+00 (red ✗) REJECTED
+    [iter 143 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.63e-13)
+        pinv 2.30e+02 (red ✗, acc-0.90 ✗)  |  sg 3.02e+00 (red ✗) REJECTED
+    [iter 159 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 2.20e+02 (red ✗, acc-0.90 ✗)  |  sg 2.83e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=84, m_F=82, N=166): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/166  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.55e-03)
+        pinv 2.46e+02 (red ✗, acc-0.90 ✗)  |  sg 7.02e-01 (red ✓) ACCEPTED
+    [iter 191 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 3.64e+02 (red ✗, acc-0.90 ✗)  |  sg 1.56e+00 (red ✗) REJECTED
+    [iter 207 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 3.72e+02 (red ✗, acc-0.90 ✗)  |  sg 2.42e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 1.45e+01 (red ✗, acc-0.90 ✗)  |  sg 2.71e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=84, m_F=84, N=168): σ_max 3.07e+00, σ_min 1.32e-16, rank 164/168  ✗ INCONSISTENT (null-dim 4, ‖U_null'·rhs‖/‖rhs‖ = 4.02e-03)
+        pinv 1.36e+01 (red ✗, acc-0.90 ✗)  |  sg 2.60e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 2.88e+00 (red ✗, acc-0.90 ✗)  |  sg 5.44e-01 (red ✓) ACCEPTED
+    [iter 271 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 6.77e+00 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+INTERESTING mpc/aircraft_10 (m=164, n=104) attempts=17 unique=0 inconsistent=4 nu-primal=13 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=104, m_F=84, N=188): σ_max 2.93e+00, σ_min 2.01e-16, rank 186/188  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 3.20e-13)
+        pinv 5.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=104, m_F=90, N=194): σ_max 2.93e+00, σ_min 2.01e-16, rank 192/194  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.94e-13)
+        pinv 6.94e+02 (red ✗, acc-0.90 ✗)  |  sg 1.83e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=104, m_F=92, N=196): σ_max 2.93e+00, σ_min 2.01e-16, rank 194/196  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 2.17e-13)
+        pinv 6.85e+02 (red ✗, acc-0.90 ✗)  |  sg 1.02e+00 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=104, m_F=92, N=196): σ_max 2.93e+00, σ_min 2.01e-16, rank 194/196  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 2.49e-13)
+        pinv 7.55e+02 (red ✗, acc-0.90 ✗)  |  sg 1.16e+00 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=104, m_F=93, N=197): σ_max 2.93e+00, σ_min 1.01e-16, rank 195/197  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.38e-13)
+        pinv 8.39e+02 (red ✗, acc-0.90 ✗)  |  sg 1.47e+00 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=104, m_F=93, N=197): σ_max 2.93e+00, σ_min 1.01e-16, rank 195/197  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.38e-13)
+        pinv 9.26e+02 (red ✗, acc-0.90 ✗)  |  sg 1.61e+00 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=104, m_F=95, N=199): σ_max 2.93e+00, σ_min 2.01e-16, rank 197/199  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 6.48e+02 (red ✗, acc-0.90 ✗)  |  sg 1.83e+00 (red ✗) REJECTED
+    [iter 127 | nonunique_primal] local QP KKT (n=104, m_F=98, N=202): σ_max 2.93e+00, σ_min 9.55e-17, rank 200/202  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.66e-14)
+        pinv 3.58e+02 (red ✗, acc-0.90 ✗)  |  sg 3.19e+00 (red ✗) REJECTED
+    [iter 143 | nonunique_primal] local QP KKT (n=104, m_F=101, N=205): σ_max 2.93e+00, σ_min 2.03e-16, rank 203/205  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.94e-13)
+        pinv 2.30e+02 (red ✗, acc-0.90 ✗)  |  sg 4.14e+00 (red ✗) REJECTED
+    [iter 159 | nonunique_primal] local QP KKT (n=104, m_F=101, N=205): σ_max 2.93e+00, σ_min 2.03e-16, rank 203/205  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.36e-13)
+        pinv 2.20e+02 (red ✗, acc-0.90 ✗)  |  sg 3.33e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=104, m_F=102, N=206): σ_max 2.93e+00, σ_min 2.03e-16, rank 203/206  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.55e-03)
+        pinv 2.46e+02 (red ✗, acc-0.90 ✗)  |  sg 7.67e-01 (red ✓) ACCEPTED
+    [iter 191 | nonunique_primal] local QP KKT (n=104, m_F=101, N=205): σ_max 2.93e+00, σ_min 2.03e-16, rank 203/205  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.36e-13)
+        pinv 3.36e+02 (red ✗, acc-0.90 ✗)  |  sg 1.33e+00 (red ✗) REJECTED
+    [iter 207 | nonunique_primal] local QP KKT (n=104, m_F=101, N=205): σ_max 2.93e+00, σ_min 2.03e-16, rank 203/205  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.36e-13)
+        pinv 3.43e+02 (red ✗, acc-0.90 ✗)  |  sg 1.97e+00 (red ✗) REJECTED
+    [iter 223 | nonunique_primal] local QP KKT (n=104, m_F=102, N=206): σ_max 2.93e+00, σ_min 2.03e-16, rank 204/206  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 4.60e-14)
+        pinv 4.35e+00 (red ✗, acc-0.90 ✗)  |  sg 3.02e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=104, m_F=103, N=207): σ_max 2.93e+00, σ_min 2.03e-16, rank 204/207  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 2.34e+00 (red ✗, acc-0.90 ✗)  |  sg 6.24e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=104, m_F=103, N=207): σ_max 2.93e+00, σ_min 2.03e-16, rank 204/207  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 2.66e+00 (red ✗, acc-0.90 ✗)  |  sg 1.10e+01 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=104, m_F=105, N=209): σ_max 2.93e+00, σ_min 7.75e-17, rank 204/209  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 9.27e-03)
+        pinv 2.64e+01 (red ✗, acc-0.90 ✗)  |  sg 2.21e+00 (red ✗) REJECTED
+INTERESTING mpc/aircraft_11 (m=164, n=104) attempts=17 unique=9 inconsistent=8 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 159 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 1.30e-15, rank 204/205  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 9.06e+01 (red ✗, acc-0.90 ✗)  |  sg 2.08e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 7.08e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.40e-03)
+        pinv 1.22e+02 (red ✗, acc-0.90 ✗)  |  sg 9.48e-01 (red ✓) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 7.08e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.40e-03)
+        pinv 1.27e+02 (red ✗, acc-0.90 ✗)  |  sg 1.09e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 4.86e-16, rank 204/205  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 8.52e+01 (red ✗, acc-0.90 ✗)  |  sg 1.25e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 4.85e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 8.76e+01 (red ✗, acc-0.90 ✗)  |  sg 1.88e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 2.02e-16, rank 203/205  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.74e-02)
+        pinv 4.26e+01 (red ✗, acc-0.90 ✗)  |  sg 1.73e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=104, m_F=102, N=206): σ_max 2.92e+00, σ_min 2.02e-16, rank 204/206  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.66e-02)
+        pinv 3.17e+01 (red ✗, acc-0.90 ✗)  |  sg 6.82e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=104, m_F=103, N=207): σ_max 2.92e+00, σ_min 2.02e-16, rank 204/207  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.55e-02)
+        pinv 3.33e+01 (red ✗, acc-0.90 ✗)  |  sg 1.57e+01 (red ✗) REJECTED
+INTERESTING mpc/aircraft_12 (m=164, n=104) attempts=17 unique=9 inconsistent=8 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 159 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 1.30e-15, rank 204/205  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 9.06e+01 (red ✗, acc-0.90 ✗)  |  sg 2.08e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 7.08e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.40e-03)
+        pinv 1.22e+02 (red ✗, acc-0.90 ✗)  |  sg 9.48e-01 (red ✓) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 7.08e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.40e-03)
+        pinv 1.27e+02 (red ✗, acc-0.90 ✗)  |  sg 1.09e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 4.86e-16, rank 204/205  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 8.52e+01 (red ✗, acc-0.90 ✗)  |  sg 1.25e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=104, m_F=100, N=204): σ_max 2.92e+00, σ_min 4.85e-16, rank 203/204  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.10e-03)
+        pinv 8.76e+01 (red ✗, acc-0.90 ✗)  |  sg 1.88e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=104, m_F=101, N=205): σ_max 2.92e+00, σ_min 2.02e-16, rank 203/205  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.74e-02)
+        pinv 4.26e+01 (red ✗, acc-0.90 ✗)  |  sg 1.73e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=104, m_F=102, N=206): σ_max 2.92e+00, σ_min 2.02e-16, rank 204/206  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.66e-02)
+        pinv 3.17e+01 (red ✗, acc-0.90 ✗)  |  sg 6.82e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=104, m_F=103, N=207): σ_max 2.92e+00, σ_min 2.02e-16, rank 204/207  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.55e-02)
+        pinv 3.33e+01 (red ✗, acc-0.90 ✗)  |  sg 1.57e+01 (red ✗) REJECTED
+INTERESTING mpc/aircraft_13 (m=804, n=504) attempts=17 unique=8 inconsistent=9 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 143 | inconsistent] local QP KKT (n=504, m_F=429, N=933): σ_max 2.94e+00, σ_min 6.99e-16, rank 932/933  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.40e-03)
+        pinv 9.76e+01 (red ✗, acc-0.90 ✗)  |  sg 8.66e+00 (red ✗) REJECTED
+    [iter 159 | inconsistent] local QP KKT (n=504, m_F=431, N=935): σ_max 2.94e+00, σ_min 6.99e-16, rank 934/935  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.08e-03)
+        pinv 1.08e+02 (red ✗, acc-0.90 ✗)  |  sg 5.08e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=504, m_F=433, N=937): σ_max 2.94e+00, σ_min 1.31e-15, rank 936/937  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.82e-03)
+        pinv 1.13e+02 (red ✗, acc-0.90 ✗)  |  sg 7.97e+00 (red ✗) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=504, m_F=435, N=939): σ_max 2.94e+00, σ_min 1.31e-15, rank 938/939  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.60e-03)
+        pinv 1.14e+02 (red ✗, acc-0.90 ✗)  |  sg 1.80e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=504, m_F=435, N=939): σ_max 2.94e+00, σ_min 1.31e-15, rank 938/939  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.51e-03)
+        pinv 1.20e+02 (red ✗, acc-0.90 ✗)  |  sg 3.45e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=504, m_F=437, N=941): σ_max 2.94e+00, σ_min 1.31e-15, rank 940/941  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.34e-03)
+        pinv 1.17e+02 (red ✗, acc-0.90 ✗)  |  sg 2.38e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=504, m_F=437, N=941): σ_max 2.94e+00, σ_min 1.31e-15, rank 940/941  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.34e-03)
+        pinv 1.19e+02 (red ✗, acc-0.90 ✗)  |  sg 1.26e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=504, m_F=438, N=942): σ_max 2.94e+00, σ_min 1.31e-15, rank 941/942  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 1.22e+02 (red ✗, acc-0.90 ✗)  |  sg 1.52e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=504, m_F=438, N=942): σ_max 2.94e+00, σ_min 1.31e-15, rank 941/942  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.19e-03)
+        pinv 1.06e+02 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+INTERESTING mpc/aircraft_2 (m=144, n=84) attempts=17 unique=12 inconsistent=5 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 207 | inconsistent] local QP KKT (n=84, m_F=82, N=166): σ_max 3.07e+00, σ_min 6.84e-16, rank 165/166  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.40e-03)
+        pinv 1.51e+02 (red ✗, acc-0.90 ✗)  |  sg 1.51e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 6.84e-16, rank 166/167  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 1.65e+01 (red ✗, acc-0.90 ✗)  |  sg 8.34e-01 (red ✓) ACCEPTED
+    [iter 239 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 6.84e-16, rank 166/167  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 3.20e+01 (red ✗, acc-0.90 ✗)  |  sg 2.68e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 6.84e-16, rank 166/167  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 3.38e+01 (red ✗, acc-0.90 ✗)  |  sg 1.61e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 6.84e-16, rank 166/167  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 3.53e+01 (red ✗, acc-0.90 ✗)  |  sg 2.10e+00 (red ✗) REJECTED
+INTERESTING mpc/aircraft_3 (m=104, n=84) attempts=17 unique=0 inconsistent=0 nu-primal=17 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=84, m_F=64, N=148): σ_max 3.06e+00, σ_min 2.13e-16, rank 146/148  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.12e-13)
+        pinv 8.11e+02 (red ✗, acc-0.90 ✗)  |  sg 1.78e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=84, m_F=64, N=148): σ_max 3.06e+00, σ_min 2.13e-16, rank 146/148  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.12e-13)
+        pinv 1.21e+03 (red ✗, acc-0.90 ✗)  |  sg 1.17e+02 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=84, m_F=64, N=148): σ_max 3.06e+00, σ_min 2.13e-16, rank 146/148  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.12e-13)
+        pinv 1.75e+03 (red ✗, acc-0.90 ✗)  |  sg 1.78e+02 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=84, m_F=65, N=149): σ_max 3.06e+00, σ_min 2.13e-16, rank 147/149  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.06e-14)
+        pinv 2.31e+03 (red ✗, acc-0.90 ✗)  |  sg 1.97e+02 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=84, m_F=65, N=149): σ_max 3.06e+00, σ_min 2.13e-16, rank 147/149  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.06e-14)
+        pinv 2.49e+03 (red ✗, acc-0.90 ✗)  |  sg 2.41e+02 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=84, m_F=65, N=149): σ_max 3.06e+00, σ_min 2.13e-16, rank 147/149  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.06e-14)
+        pinv 2.66e+03 (red ✗, acc-0.90 ✗)  |  sg 3.08e+02 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=84, m_F=65, N=149): σ_max 3.06e+00, σ_min 2.13e-16, rank 147/149  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.06e-14)
+        pinv 3.04e+03 (red ✗, acc-0.90 ✗)  |  sg 4.17e+02 (red ✗) REJECTED
+    [iter 127 | nonunique_primal] local QP KKT (n=84, m_F=67, N=151): σ_max 3.06e+00, σ_min 2.13e-16, rank 149/151  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 5.33e-14)
+        pinv 4.24e+02 (red ✗, acc-0.90 ✗)  |  sg 6.03e+01 (red ✗) REJECTED
+    [iter 143 | nonunique_primal] local QP KKT (n=84, m_F=68, N=152): σ_max 3.06e+00, σ_min 2.13e-16, rank 150/152  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 5.90e-14)
+        pinv 8.40e+02 (red ✗, acc-0.90 ✗)  |  sg 1.25e+02 (red ✗) REJECTED
+    [iter 159 | nonunique_primal] local QP KKT (n=84, m_F=70, N=154): σ_max 3.06e+00, σ_min 2.13e-16, rank 152/154  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 6.88e-14)
+        pinv 1.00e+03 (red ✗, acc-0.90 ✗)  |  sg 1.03e+02 (red ✗) REJECTED
+    [iter 175 | nonunique_primal] local QP KKT (n=84, m_F=72, N=156): σ_max 3.06e+00, σ_min 2.13e-16, rank 154/156  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 6.52e-14)
+        pinv 1.08e+03 (red ✗, acc-0.90 ✗)  |  sg 2.06e+02 (red ✗) REJECTED
+    [iter 191 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.06e+00, σ_min 1.30e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.64e-13)
+        pinv 1.56e+03 (red ✗, acc-0.90 ✗)  |  sg 1.45e+02 (red ✗) REJECTED
+    [iter 207 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.06e+00, σ_min 1.30e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.64e-13)
+        pinv 1.68e+03 (red ✗, acc-0.90 ✗)  |  sg 1.76e+02 (red ✗) REJECTED
+    [iter 223 | nonunique_primal] local QP KKT (n=84, m_F=74, N=158): σ_max 3.06e+00, σ_min 2.13e-16, rank 156/158  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 1.48e+03 (red ✗, acc-0.90 ✗)  |  sg 1.86e+02 (red ✗) REJECTED
+    [iter 239 | nonunique_primal] local QP KKT (n=84, m_F=74, N=158): σ_max 3.06e+00, σ_min 2.13e-16, rank 156/158  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 1.57e+03 (red ✗, acc-0.90 ✗)  |  sg 1.96e+02 (red ✗) REJECTED
+    [iter 255 | nonunique_primal] local QP KKT (n=84, m_F=74, N=158): σ_max 3.06e+00, σ_min 2.13e-16, rank 156/158  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 1.65e+03 (red ✗, acc-0.90 ✗)  |  sg 2.08e+02 (red ✗) REJECTED
+    [iter 271 | nonunique_primal] local QP KKT (n=84, m_F=75, N=159): σ_max 3.06e+00, σ_min 2.14e-16, rank 157/159  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 9.96e-14)
+        pinv 2.63e+03 (red ✗, acc-0.90 ✗)  |  sg 4.95e+02 (red ✗) REJECTED
+INTERESTING mpc/aircraft_4 (m=144, n=84) attempts=17 unique=0 inconsistent=5 nu-primal=12 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=84, m_F=64, N=148): σ_max 3.07e+00, σ_min 2.14e-16, rank 146/148  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.05e-13)
+        pinv 5.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.12e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=84, m_F=70, N=154): σ_max 3.07e+00, σ_min 2.14e-16, rank 152/154  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.06e-13)
+        pinv 6.94e+02 (red ✗, acc-0.90 ✗)  |  sg 1.81e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=84, m_F=72, N=156): σ_max 3.07e+00, σ_min 2.14e-16, rank 154/156  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.45e-13)
+        pinv 6.85e+02 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=84, m_F=72, N=156): σ_max 3.07e+00, σ_min 2.14e-16, rank 154/156  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 5.08e-14)
+        pinv 7.54e+02 (red ✗, acc-0.90 ✗)  |  sg 1.21e+00 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.07e+00, σ_min 2.14e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 8.39e+02 (red ✗, acc-0.90 ✗)  |  sg 1.54e+00 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=84, m_F=73, N=157): σ_max 3.07e+00, σ_min 2.14e-16, rank 155/157  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.13e-13)
+        pinv 9.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.66e+00 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=84, m_F=75, N=159): σ_max 3.07e+00, σ_min 2.14e-16, rank 157/159  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.51e-13)
+        pinv 6.48e+02 (red ✗, acc-0.90 ✗)  |  sg 1.68e+00 (red ✗) REJECTED
+    [iter 127 | nonunique_primal] local QP KKT (n=84, m_F=78, N=162): σ_max 3.07e+00, σ_min 2.15e-16, rank 160/162  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.58e-13)
+        pinv 3.58e+02 (red ✗, acc-0.90 ✗)  |  sg 2.52e+00 (red ✗) REJECTED
+    [iter 143 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.63e-13)
+        pinv 2.30e+02 (red ✗, acc-0.90 ✗)  |  sg 3.02e+00 (red ✗) REJECTED
+    [iter 159 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 2.20e+02 (red ✗, acc-0.90 ✗)  |  sg 2.83e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=84, m_F=82, N=166): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/166  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.55e-03)
+        pinv 2.46e+02 (red ✗, acc-0.90 ✗)  |  sg 7.02e-01 (red ✓) ACCEPTED
+    [iter 191 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 3.64e+02 (red ✗, acc-0.90 ✗)  |  sg 1.56e+00 (red ✗) REJECTED
+    [iter 207 | nonunique_primal] local QP KKT (n=84, m_F=81, N=165): σ_max 3.07e+00, σ_min 2.15e-16, rank 163/165  ⚠ nonunique_primal (null-dim 2, primal-mass 1.41e+00, dual-mass 1.44e-13)
+        pinv 3.72e+02 (red ✗, acc-0.90 ✗)  |  sg 2.42e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 4.20e-03)
+        pinv 1.45e+01 (red ✗, acc-0.90 ✗)  |  sg 2.71e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=84, m_F=84, N=168): σ_max 3.07e+00, σ_min 1.32e-16, rank 164/168  ✗ INCONSISTENT (null-dim 4, ‖U_null'·rhs‖/‖rhs‖ = 4.02e-03)
+        pinv 1.36e+01 (red ✗, acc-0.90 ✗)  |  sg 2.60e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 2.88e+00 (red ✗, acc-0.90 ✗)  |  sg 5.44e-01 (red ✓) ACCEPTED
+    [iter 271 | inconsistent] local QP KKT (n=84, m_F=83, N=167): σ_max 3.07e+00, σ_min 2.15e-16, rank 164/167  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 3.26e-03)
+        pinv 6.77e+00 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+UNIFORM-UNIQUE mpc/ballOnPlate_1 (m=152, n=77) attempts=17
+UNIFORM-UNIQUE mpc/ballOnPlate_2 (m=152, n=77) attempts=17
+UNIFORM-UNIQUE mpc/ballOnPlate_3 (m=152, n=77) attempts=17
+UNIFORM-UNIQUE mpc/ballOnPlate_4 (m=252, n=127) attempts=17
+UNIFORM-UNIQUE mpc/binaryDistillationColumn_1 (m=311, n=266) attempts=17
+UNIFORM-UNIQUE mpc/binaryDistillationColumn_2 (m=311, n=266) attempts=17
+INTERESTING mpc/dcMotor_1 (m=144, n=94) attempts=17 unique=11 inconsistent=6 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 191 | inconsistent] local QP KKT (n=94, m_F=89, N=183): σ_max 2.36e+00, σ_min 2.06e-16, rank 182/183  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 2.30e-04)
+        pinv 3.87e+02 (red ✗, acc-0.90 ✗)  |  sg 2.04e+02 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=94, m_F=90, N=184): σ_max 2.36e+00, σ_min 6.42e-16, rank 183/184  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 2.30e-04)
+        pinv 3.76e+02 (red ✗, acc-0.90 ✗)  |  sg 9.47e+01 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=94, m_F=92, N=186): σ_max 2.36e+00, σ_min 2.06e-16, rank 183/186  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 4.19e-04)
+        pinv 3.48e+02 (red ✗, acc-0.90 ✗)  |  sg 9.63e+01 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=94, m_F=97, N=191): σ_max 2.36e+00, σ_min 2.06e-16, rank 186/191  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 3.77e-04)
+        pinv 3.38e+02 (red ✗, acc-0.90 ✗)  |  sg 2.80e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=94, m_F=96, N=190): σ_max 2.36e+00, σ_min 2.06e-16, rank 185/190  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 3.04e-04)
+        pinv 1.58e+02 (red ✗, acc-0.90 ✗)  |  sg 2.33e+02 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=94, m_F=97, N=191): σ_max 2.36e+00, σ_min 2.06e-16, rank 186/191  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 3.04e-04)
+        pinv 5.93e+02 (red ✗, acc-0.90 ✗)  |  sg 1.35e+02 (red ✗) REJECTED
+INTERESTING mpc/dcMotor_2 (m=284, n=184) attempts=17 unique=11 inconsistent=6 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 191 | inconsistent] local QP KKT (n=184, m_F=174, N=358): σ_max 2.36e+00, σ_min 1.05e-15, rank 357/358  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 2.30e-04)
+        pinv 2.77e+02 (red ✗, acc-0.90 ✗)  |  sg 2.68e+02 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=184, m_F=173, N=357): σ_max 2.36e+00, σ_min 2.06e-16, rank 355/357  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.83e-04)
+        pinv 3.70e+02 (red ✗, acc-0.90 ✗)  |  sg 1.55e+02 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=184, m_F=174, N=358): σ_max 2.36e+00, σ_min 2.06e-16, rank 355/358  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 4.99e-04)
+        pinv 2.15e+02 (red ✗, acc-0.90 ✗)  |  sg 9.46e+01 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 2.06e-16, rank 357/362  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 4.59e-04)
+        pinv 5.27e+01 (red ✗, acc-0.90 ✗)  |  sg 1.71e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=184, m_F=180, N=364): σ_max 2.36e+00, σ_min 2.06e-16, rank 358/364  ✗ INCONSISTENT (null-dim 6, ‖U_null'·rhs‖/‖rhs‖ = 4.26e-04)
+        pinv 1.34e+02 (red ✗, acc-0.90 ✗)  |  sg 1.99e+02 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=184, m_F=183, N=367): σ_max 2.36e+00, σ_min 1.50e-16, rank 359/367  ✗ INCONSISTENT (null-dim 8, ‖U_null'·rhs‖/‖rhs‖ = 4.50e-04)
+        pinv 1.20e+02 (red ✗, acc-0.90 ✗)  |  sg 1.37e+02 (red ✗) REJECTED
+INTERESTING mpc/dcMotor_3 (m=1404, n=904) attempts=17 unique=11 inconsistent=6 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 191 | inconsistent] local QP KKT (n=904, m_F=828, N=1732): σ_max 2.36e+00, σ_min 2.06e-16, rank 1730/1732  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.53e-04)
+        pinv 3.54e+02 (red ✗, acc-0.90 ✗)  |  sg 1.89e+02 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=904, m_F=827, N=1731): σ_max 2.36e+00, σ_min 1.27e-16, rank 1726/1731  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 2.31e-04)
+        pinv 2.97e+02 (red ✗, acc-0.90 ✗)  |  sg 1.02e+02 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=904, m_F=829, N=1733): σ_max 2.36e+00, σ_min 6.23e-17, rank 1725/1733  ✗ INCONSISTENT (null-dim 8, ‖U_null'·rhs‖/‖rhs‖ = 3.14e-04)
+        pinv 1.42e+02 (red ✗, acc-0.90 ✗)  |  sg 9.64e+01 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=904, m_F=840, N=1744): σ_max 2.36e+00, σ_min 1.66e-16, rank 1733/1744  ✗ INCONSISTENT (null-dim 11, ‖U_null'·rhs‖/‖rhs‖ = 3.13e-04)
+        pinv 1.18e+03 (red ✗, acc-0.90 ✗)  |  sg 2.33e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=904, m_F=859, N=1763): σ_max 2.36e+00, σ_min 1.20e-16, rank 1748/1763  ✗ INCONSISTENT (null-dim 15, ‖U_null'·rhs‖/‖rhs‖ = 3.21e-04)
+        pinv 2.29e+05 (red ✗, acc-0.90 ✗)  |  sg 6.81e+01 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=904, m_F=865, N=1769): σ_max 2.36e+00, σ_min 1.09e-16, rank 1751/1769  ✗ INCONSISTENT (null-dim 18, ‖U_null'·rhs‖/‖rhs‖ = 3.41e-04)
+        pinv 3.58e+02 (red ✗, acc-0.90 ✗)  |  sg 8.80e+01 (red ✗) REJECTED
+INTERESTING mpc/dcMotor_4 (m=1404, n=904) attempts=17 unique=7 inconsistent=10 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 127 | inconsistent] local QP KKT (n=904, m_F=825, N=1729): σ_max 2.36e+00, σ_min 5.07e-17, rank 1727/1729  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 1.14e-03)
+        pinv 7.20e+05 (red ✗, acc-0.90 ✗)  |  sg 1.84e+00 (red ✗) REJECTED
+    [iter 143 | inconsistent] local QP KKT (n=904, m_F=833, N=1737): σ_max 2.36e+00, σ_min 4.81e-17, rank 1734/1737  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 1.23e-03)
+        pinv 1.25e+04 (red ✗, acc-0.90 ✗)  |  sg 1.19e+00 (red ✗) REJECTED
+    [iter 159 | inconsistent] local QP KKT (n=904, m_F=841, N=1745): σ_max 2.36e+00, σ_min 1.16e-16, rank 1738/1745  ✗ INCONSISTENT (null-dim 7, ‖U_null'·rhs‖/‖rhs‖ = 1.42e-03)
+        pinv 7.77e+05 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=904, m_F=842, N=1746): σ_max 2.36e+00, σ_min 2.06e-16, rank 1741/1746  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 1.04e-03)
+        pinv 9.33e+02 (red ✗, acc-0.90 ✗)  |  sg 1.17e+00 (red ✗) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=904, m_F=842, N=1746): σ_max 2.36e+00, σ_min 7.01e-17, rank 1743/1746  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 7.87e-04)
+        pinv 8.99e+02 (red ✗, acc-0.90 ✗)  |  sg 1.49e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=904, m_F=844, N=1748): σ_max 2.36e+00, σ_min 2.06e-16, rank 1746/1748  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 7.36e-04)
+        pinv 8.12e+02 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=904, m_F=850, N=1754): σ_max 2.36e+00, σ_min 2.06e-16, rank 1749/1754  ✗ INCONSISTENT (null-dim 5, ‖U_null'·rhs‖/‖rhs‖ = 9.10e-04)
+        pinv 7.95e+02 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=904, m_F=854, N=1758): σ_max 2.36e+00, σ_min 2.06e-16, rank 1751/1758  ✗ INCONSISTENT (null-dim 7, ‖U_null'·rhs‖/‖rhs‖ = 1.01e-03)
+        pinv 8.51e+02 (red ✗, acc-0.90 ✗)  |  sg 9.61e-01 (red ✓) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=904, m_F=854, N=1758): σ_max 2.36e+00, σ_min 2.06e-16, rank 1752/1758  ✗ INCONSISTENT (null-dim 6, ‖U_null'·rhs‖/‖rhs‖ = 8.82e-04)
+        pinv 9.71e+02 (red ✗, acc-0.90 ✗)  |  sg 1.33e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=904, m_F=855, N=1759): σ_max 2.36e+00, σ_min 2.06e-16, rank 1755/1759  ✗ INCONSISTENT (null-dim 4, ‖U_null'·rhs‖/‖rhs‖ = 7.85e-04)
+        pinv 1.07e+03 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+INTERESTING mpc/dcMotor_5 (m=284, n=184) attempts=17 unique=0 inconsistent=17 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 15 | inconsistent] local QP KKT (n=184, m_F=168, N=352): σ_max 2.36e+00, σ_min 1.05e-15, rank 351/352  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.86e-03)
+        pinv 2.26e+02 (red ✗, acc-0.90 ✗)  |  sg 9.15e-01 (red ✓) REJECTED
+    [iter 31 | inconsistent] local QP KKT (n=184, m_F=170, N=354): σ_max 2.36e+00, σ_min 2.06e-16, rank 353/354  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 2.74e+02 (red ✗, acc-0.90 ✗)  |  sg 9.43e-01 (red ✓) REJECTED
+    [iter 47 | inconsistent] local QP KKT (n=184, m_F=171, N=355): σ_max 2.36e+00, σ_min 2.05e-16, rank 354/355  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 4.96e+02 (red ✗, acc-0.90 ✗)  |  sg 1.10e+00 (red ✗) REJECTED
+    [iter 63 | inconsistent] local QP KKT (n=184, m_F=173, N=357): σ_max 2.36e+00, σ_min 2.06e-16, rank 356/357  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 3.66e+02 (red ✗, acc-0.90 ✗)  |  sg 1.19e+00 (red ✗) REJECTED
+    [iter 79 | inconsistent] local QP KKT (n=184, m_F=174, N=358): σ_max 2.36e+00, σ_min 1.05e-15, rank 357/358  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 3.94e+02 (red ✗, acc-0.90 ✗)  |  sg 1.27e+00 (red ✗) REJECTED
+    [iter 95 | inconsistent] local QP KKT (n=184, m_F=176, N=360): σ_max 2.36e+00, σ_min 6.42e-16, rank 359/360  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 4.62e+02 (red ✗, acc-0.90 ✗)  |  sg 1.41e+00 (red ✗) REJECTED
+    [iter 111 | inconsistent] local QP KKT (n=184, m_F=177, N=361): σ_max 2.36e+00, σ_min 2.05e-16, rank 360/361  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 3.24e+02 (red ✗, acc-0.90 ✗)  |  sg 1.40e+00 (red ✗) REJECTED
+    [iter 127 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 1.05e-15, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 8.21e+02 (red ✗, acc-0.90 ✗)  |  sg 9.69e-01 (red ✓) REJECTED
+    [iter 143 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 1.05e-15, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 7.00e+02 (red ✗, acc-0.90 ✗)  |  sg 9.46e+01 (red ✗) REJECTED
+    [iter 159 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 1.05e-15, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 7.02e+02 (red ✗, acc-0.90 ✗)  |  sg 2.83e+01 (red ✗) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 1.05e-15, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 7.17e+02 (red ✗, acc-0.90 ✗)  |  sg 1.68e+00 (red ✗) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=184, m_F=180, N=364): σ_max 2.36e+00, σ_min 2.06e-16, rank 363/364  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 7.20e+02 (red ✗, acc-0.90 ✗)  |  sg 1.21e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=184, m_F=181, N=365): σ_max 2.36e+00, σ_min 2.06e-16, rank 364/365  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 7.97e+02 (red ✗, acc-0.90 ✗)  |  sg 3.55e+01 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=184, m_F=180, N=364): σ_max 2.36e+00, σ_min 2.05e-16, rank 363/364  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 5.19e+02 (red ✗, acc-0.90 ✗)  |  sg 1.18e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 1.05e-15, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 2.27e+02 (red ✗, acc-0.90 ✗)  |  sg 2.88e+01 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=184, m_F=182, N=366): σ_max 2.36e+00, σ_min 2.06e-16, rank 363/366  ✗ INCONSISTENT (null-dim 3, ‖U_null'·rhs‖/‖rhs‖ = 4.61e-04)
+        pinv 8.63e+01 (red ✗, acc-0.90 ✗)  |  sg 1.27e+03 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=184, m_F=184, N=368): σ_max 2.36e+00, σ_min 2.06e-16, rank 364/368  ✗ INCONSISTENT (null-dim 4, ‖U_null'·rhs‖/‖rhs‖ = 4.35e-04)
+        pinv 2.52e+02 (red ✗, acc-0.90 ✗)  |  sg 2.40e+02 (red ✗) REJECTED
+INTERESTING mpc/dcMotor_6 (m=284, n=184) attempts=17 unique=0 inconsistent=17 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 15 | inconsistent] local QP KKT (n=184, m_F=168, N=352): σ_max 2.36e+00, σ_min 6.61e-16, rank 351/352  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.86e-03)
+        pinv 9.92e+01 (red ✗, acc-0.90 ✗)  |  sg 9.55e-01 (red ✓) REJECTED
+    [iter 31 | inconsistent] local QP KKT (n=184, m_F=170, N=354): σ_max 2.36e+00, σ_min 1.65e-17, rank 353/354  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 3.02e+02 (red ✗, acc-0.90 ✗)  |  sg 8.70e-01 (red ✓) ACCEPTED
+    [iter 47 | inconsistent] local QP KKT (n=184, m_F=174, N=358): σ_max 2.36e+00, σ_min 1.05e-15, rank 357/358  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 1.81e+03 (red ✗, acc-0.90 ✗)  |  sg 1.02e+00 (red ✗) REJECTED
+    [iter 63 | inconsistent] local QP KKT (n=184, m_F=176, N=360): σ_max 2.36e+00, σ_min 2.06e-16, rank 359/360  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 1.92e+03 (red ✗, acc-0.90 ✗)  |  sg 9.45e-01 (red ✓) REJECTED
+    [iter 79 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 2.06e-16, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 1.74e+03 (red ✗, acc-0.90 ✗)  |  sg 9.14e-01 (red ✓) REJECTED
+    [iter 95 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 6.64e-16, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 1.85e+03 (red ✗, acc-0.90 ✗)  |  sg 9.09e-01 (red ✓) REJECTED
+    [iter 111 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 3.73e+03 (red ✗, acc-0.90 ✗)  |  sg 9.89e-01 (red ✓) REJECTED
+    [iter 127 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 2.06e-16, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 7.81e+03 (red ✗, acc-0.90 ✗)  |  sg 9.68e-01 (red ✓) REJECTED
+    [iter 143 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 2.06e-16, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 8.24e+03 (red ✗, acc-0.90 ✗)  |  sg 9.26e-01 (red ✓) REJECTED
+    [iter 159 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 8.61e+03 (red ✗, acc-0.90 ✗)  |  sg 9.43e-01 (red ✓) REJECTED
+    [iter 175 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 8.83e+03 (red ✗, acc-0.90 ✗)  |  sg 9.25e-01 (red ✓) REJECTED
+    [iter 191 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 9.03e+03 (red ✗, acc-0.90 ✗)  |  sg 8.92e-01 (red ✓) ACCEPTED
+    [iter 207 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 1.21e+04 (red ✗, acc-0.90 ✗)  |  sg 1.25e+00 (red ✗) REJECTED
+    [iter 223 | inconsistent] local QP KKT (n=184, m_F=180, N=364): σ_max 2.36e+00, σ_min 1.05e-15, rank 363/364  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 1.21e+04 (red ✗, acc-0.90 ✗)  |  sg 1.13e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=184, m_F=178, N=362): σ_max 2.36e+00, σ_min 2.24e-16, rank 361/362  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.85e-03)
+        pinv 1.23e+04 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=184, m_F=179, N=363): σ_max 2.36e+00, σ_min 2.06e-16, rank 362/363  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 1.35e+04 (red ✗, acc-0.90 ✗)  |  sg 1.01e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=184, m_F=180, N=364): σ_max 2.36e+00, σ_min 2.06e-16, rank 363/364  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 1.84e-03)
+        pinv 1.52e+04 (red ✗, acc-0.90 ✗)  |  sg 9.89e-01 (red ✓) REJECTED
+UNIFORM-UNIQUE mpc/doubleInvertedPendulum_1 (m=104, n=84) attempts=17
+UNIFORM-UNIQUE mpc/doubleInvertedPendulum_2 (m=104, n=84) attempts=17
+UNIFORM-UNIQUE mpc/doubleInvertedPendulum_3 (m=144, n=84) attempts=17
+UNIFORM-UNIQUE mpc/fiordosExample_1 (m=32, n=27) attempts=14
+INTERESTING mpc/fiordosExample_2 (m=52, n=27) attempts=17 unique=3 inconsistent=11 nu-primal=0 nu-dual=3 nu-mixed=0
+    [iter 31 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.46e+01 (red ✗, acc-0.90 ✗)  |  sg 2.72e+00 (red ✗) REJECTED
+    [iter 47 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.73e+01 (red ✗, acc-0.90 ✗)  |  sg 5.76e+00 (red ✗) REJECTED
+    [iter 63 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.78e+01 (red ✗, acc-0.90 ✗)  |  sg 6.28e+00 (red ✗) REJECTED
+    [iter 79 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.81e+01 (red ✗, acc-0.90 ✗)  |  sg 6.91e+00 (red ✗) REJECTED
+    [iter 95 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.83e+01 (red ✗, acc-0.90 ✗)  |  sg 7.47e+00 (red ✗) REJECTED
+    [iter 111 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.45e+00, σ_min 1.70e-16, rank 51/53  ✗ INCONSISTENT (null-dim 2, ‖U_null'·rhs‖/‖rhs‖ = 6.39e-02)
+        pinv 1.85e+01 (red ✗, acc-0.90 ✗)  |  sg 7.89e+00 (red ✗) REJECTED
+    [iter 127 | nonunique_dual] local QP KKT (n=27, m_F=25, N=52): σ_max 2.44e+00, σ_min 1.09e-15, rank 51/52  ⚠ nonunique_dual (null-dim 1, primal-mass 7.40e-16, dual-mass 1.00e+00)
+        pinv 9.85e+00 (red ✗, acc-0.90 ✗)  |  sg 1.49e+02 (red ✗) REJECTED
+    [iter 143 | nonunique_dual] local QP KKT (n=27, m_F=25, N=52): σ_max 2.44e+00, σ_min 1.09e-15, rank 51/52  ⚠ nonunique_dual (null-dim 1, primal-mass 7.40e-16, dual-mass 1.00e+00)
+        pinv 1.14e+01 (red ✗, acc-0.90 ✗)  |  sg 1.95e+00 (red ✗) REJECTED
+    [iter 159 | nonunique_dual] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 1.09e-15, rank 52/53  ⚠ nonunique_dual (null-dim 1, primal-mass 9.65e-16, dual-mass 1.00e+00)
+        pinv 1.36e+01 (red ✗, acc-0.90 ✗)  |  sg 2.56e+00 (red ✗) REJECTED
+    [iter 207 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 8.54e-16, rank 52/53  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.93e-03)
+        pinv 1.01e+02 (red ✗, acc-0.90 ✗)  |  sg 8.06e-01 (red ✓) ACCEPTED
+    [iter 223 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 8.54e-16, rank 52/53  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.93e-03)
+        pinv 1.25e+02 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+    [iter 239 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 8.54e-16, rank 52/53  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.93e-03)
+        pinv 5.18e+01 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+    [iter 255 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 8.54e-16, rank 52/53  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.93e-03)
+        pinv 5.18e+01 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+    [iter 271 | inconsistent] local QP KKT (n=27, m_F=26, N=53): σ_max 2.44e+00, σ_min 8.54e-16, rank 52/53  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 5.93e-03)
+        pinv 5.18e+01 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+UNIFORM-UNIQUE mpc/fiordosExample_3 (m=32, n=27) attempts=17
+UNIFORM-UNIQUE mpc/forcesExample_1 (m=38, n=29) attempts=10
+UNIFORM-UNIQUE mpc/forcesExample_2 (m=38, n=29) attempts=10
+UNIFORM-UNIQUE mpc/forcesExample_3 (m=42, n=32) attempts=17
+UNIFORM-UNIQUE mpc/forcesExample_4 (m=82, n=62) attempts=10
+UNIFORM-UNIQUE mpc/helicopter_1 (m=48, n=30) attempts=17
+UNIFORM-UNIQUE mpc/helicopter_2 (m=218, n=166) attempts=17
+UNIFORM-UNIQUE mpc/helicopter_3 (m=118, n=86) attempts=17
+SKIPPED-BY-SIZE mpc/nonlinearChain_1 (m=9657, n=9417) (m+n=19074 > MAX_MN=12000)
+SKIPPED-BY-SIZE mpc/nonlinearChain_11 (m=9657, n=9417) (m+n=19074 > MAX_MN=12000)
+SKIPPED-BY-SIZE mpc/nonlinearChain_12 (m=10377, n=9417) (m+n=19794 > MAX_MN=12000)
+UNIFORM-UNIQUE mpc/nonlinearChain_13 (m=2457, n=2397) attempts=3
+INTERESTING mpc/nonlinearChain_14 (m=2637, n=2397) attempts=3 unique=0 inconsistent=3 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 15 | inconsistent] local QP KKT (n=2397, m_F=2381, N=4778): σ_max 2.70e+00, σ_min 6.81e-17, rank 4761/4778  ✗ INCONSISTENT (null-dim 17, ‖U_null'·rhs‖/‖rhs‖ = 1.21e-02)
+        pinv 4.33e+04 (red ✗, acc-0.90 ✗)  |  sg 1.23e+00 (red ✗) REJECTED
+    [iter 31 | inconsistent] local QP KKT (n=2397, m_F=2383, N=4780): σ_max 2.70e+00, σ_min 1.88e-17, rank 4765/4780  ✗ INCONSISTENT (null-dim 15, ‖U_null'·rhs‖/‖rhs‖ = 9.57e-03)
+        pinv 2.18e+05 (red ✗, acc-0.90 ✗)  |  sg 1.02e+00 (red ✗) REJECTED
+    [iter 47 | inconsistent] local QP KKT (n=2397, m_F=2390, N=4787): σ_max 2.70e+00, σ_min 1.29e-17, rank 4769/4787  ✗ INCONSISTENT (null-dim 18, ‖U_null'·rhs‖/‖rhs‖ = 9.85e-03)
+        pinv 6.05e+04 (red ✗, acc-0.90 ✗)  |  sg 1.44e+00 (red ✗) REJECTED
+SKIPPED-BY-SIZE mpc/nonlinearChain_2 (m=10377, n=9417) (m+n=19794 > MAX_MN=12000)
+UNIFORM-UNIQUE mpc/nonlinearChain_3 (m=2457, n=2397) attempts=3
+INTERESTING mpc/nonlinearChain_4 (m=2637, n=2397) attempts=3 unique=0 inconsistent=3 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 15 | inconsistent] local QP KKT (n=2397, m_F=2381, N=4778): σ_max 2.70e+00, σ_min 6.81e-17, rank 4761/4778  ✗ INCONSISTENT (null-dim 17, ‖U_null'·rhs‖/‖rhs‖ = 1.21e-02)
+        pinv 4.33e+04 (red ✗, acc-0.90 ✗)  |  sg 1.23e+00 (red ✗) REJECTED
+    [iter 31 | inconsistent] local QP KKT (n=2397, m_F=2383, N=4780): σ_max 2.70e+00, σ_min 1.88e-17, rank 4765/4780  ✗ INCONSISTENT (null-dim 15, ‖U_null'·rhs‖/‖rhs‖ = 9.57e-03)
+        pinv 2.18e+05 (red ✗, acc-0.90 ✗)  |  sg 1.02e+00 (red ✗) REJECTED
+    [iter 47 | inconsistent] local QP KKT (n=2397, m_F=2390, N=4787): σ_max 2.70e+00, σ_min 1.29e-17, rank 4769/4787  ✗ INCONSISTENT (null-dim 18, ‖U_null'·rhs‖/‖rhs‖ = 9.85e-03)
+        pinv 6.05e+04 (red ✗, acc-0.90 ✗)  |  sg 1.44e+00 (red ✗) REJECTED
+UNIFORM-UNIQUE mpc/nonlinearCstr_1 (m=244, n=204) attempts=17
+UNIFORM-UNIQUE mpc/nonlinearCstr_2 (m=244, n=204) attempts=17
+UNIFORM-UNIQUE mpc/nonlinearCstr_3 (m=64, n=54) attempts=17
+UNIFORM-UNIQUE mpc/pendulum_1 (m=78, n=63) attempts=17
+UNIFORM-UNIQUE mpc/pendulum_2 (m=78, n=63) attempts=17
+UNIFORM-UNIQUE mpc/pendulum_3 (m=28, n=23) attempts=17
+UNIFORM-UNIQUE mpc/quadcopter_1 (m=382, n=292) attempts=17
+UNIFORM-UNIQUE mpc/quadcopter_2 (m=752, n=572) attempts=17
+UNIFORM-UNIQUE mpc/quadcopter_3 (m=1862, n=1412) attempts=17
+UNIFORM-UNIQUE mpc/quadcopter_4 (m=752, n=572) attempts=17
+INTERESTING mpc/quadcopter_5 (m=572, n=572) attempts=17 unique=11 inconsistent=6 nu-primal=0 nu-dual=0 nu-mixed=0
+    [iter 15 | inconsistent] local QP KKT (n=572, m_F=495, N=1067): σ_max 2.76e+00, σ_min 4.23e-14, rank 1066/1067  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 2.72e-03)
+        pinv 1.34e+07 (red ✗, acc-0.90 ✗)  |  sg 1.73e+00 (red ✗) REJECTED
+    [iter 31 | inconsistent] local QP KKT (n=572, m_F=498, N=1070): σ_max 2.76e+00, σ_min 7.42e-11, rank 1069/1070  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.97e-03)
+        pinv 7.58e+07 (red ✗, acc-0.90 ✗)  |  sg 2.17e+00 (red ✗) REJECTED
+    [iter 47 | inconsistent] local QP KKT (n=572, m_F=499, N=1071): σ_max 2.76e+00, σ_min 4.78e-11, rank 1070/1071  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 3.33e-03)
+        pinv 1.38e+08 (red ✗, acc-0.90 ✗)  |  sg 1.08e+00 (red ✗) REJECTED
+    [iter 63 | inconsistent] local QP KKT (n=572, m_F=501, N=1073): σ_max 2.76e+00, σ_min 1.66e-10, rank 1072/1073  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 6.15e-04)
+        pinv 4.97e+07 (red ✗, acc-0.90 ✗)  |  sg 1.00e+00 (red ✗) REJECTED
+    [iter 79 | inconsistent] local QP KKT (n=572, m_F=500, N=1072): σ_max 2.76e+00, σ_min 2.54e-10, rank 1071/1072  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 8.70e-04)
+        pinv 3.56e+07 (red ✗, acc-0.90 ✗)  |  sg 1.08e+00 (red ✗) REJECTED
+    [iter 95 | inconsistent] local QP KKT (n=572, m_F=500, N=1072): σ_max 2.76e+00, σ_min 2.54e-10, rank 1071/1072  ✗ INCONSISTENT (null-dim 1, ‖U_null'·rhs‖/‖rhs‖ = 8.70e-04)
+        pinv 3.61e+07 (red ✗, acc-0.90 ✗)  |  sg 1.05e+00 (red ✗) REJECTED
+UNIFORM-UNIQUE mpc/quadcopter_6 (m=382, n=292) attempts=17
+UNIFORM-UNIQUE mpc/robotArm_1 (m=84, n=54) attempts=17
+UNIFORM-UNIQUE mpc/robotArm_2 (m=324, n=204) attempts=17
+UNIFORM-UNIQUE mpc/shell_1 (m=249, n=159) attempts=17
+UNIFORM-UNIQUE mpc/shell_2 (m=489, n=309) attempts=17
+UNIFORM-UNIQUE mpc/shell_3 (m=249, n=159) attempts=17
+UNIFORM-UNIQUE mpc/spacecraft_1 (m=367, n=187) attempts=17
+UNIFORM-UNIQUE mpc/spacecraft_2 (m=367, n=187) attempts=17
+UNIFORM-UNIQUE mpc/springMass_1 (m=5606, n=2806) attempts=2
+UNIFORM-UNIQUE mpc/springMass_2 (m=566, n=286) attempts=17
+UNIFORM-UNIQUE mpc/springMass_3 (m=566, n=286) attempts=17
+UNIFORM-UNIQUE mpc/springMass_4 (m=1126, n=566) attempts=17
+UNIFORM-UNIQUE mpc/toyExample_1 (m=42, n=32) attempts=9
+UNIFORM-UNIQUE mpc/toyExample_2 (m=82, n=62) attempts=11
+UNIFORM-UNIQUE mpc/toyExample_3 (m=42, n=32) attempts=11
+UNIFORM-UNIQUE mpc/toyExample_4 (m=202, n=152) attempts=17
+UNIFORM-UNIQUE mpc/toyExample_5 (m=402, n=302) attempts=17
+UNIFORM-UNIQUE mpc/tripleInvertedPendulum_1 (m=456, n=366) attempts=17
+UNIFORM-UNIQUE mpc/tripleInvertedPendulum_2 (m=636, n=366) attempts=17
+UNIFORM-UNIQUE mpc/tripleInvertedPendulum_3 (m=636, n=366) attempts=17
+
+## Set 'sslsq' — 46 candidate problems
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor295K_huber (m=887202, n=2711130) (m+n=3598332 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor295K_lasso (m=3943590, n=3943590) (m+n=7887180 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor338K_huber (m=1029708, n=1916766) (m+n=2946474 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor338K_lasso (m=2117352, n=2117352) (m+n=4234704 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor64K_huber (m=194157, n=1979502) (m+n=2173659 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/ANSYS_Delor64K_lasso (m=3635409, n=3635409) (m+n=7270818 > MAX_MN=12000)
+INTERESTING sslsq/HB_abb313_huber (m=939, n=1115) attempts=13 unique=0 inconsistent=0 nu-primal=13 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=1115, m_F=938, N=2053): σ_max 8.81e+00, σ_min 5.11e-17, rank 2005/2053  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.73e-14)
+        pinv 6.50e+00 (red ✗, acc-0.90 ✗)  |  sg 7.28e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=1115, m_F=928, N=2043): σ_max 8.81e+00, σ_min 1.79e-16, rank 1995/2043  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.22e-14)
+        pinv 4.53e+00 (red ✗, acc-0.90 ✗)  |  sg 6.54e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=1115, m_F=920, N=2035): σ_max 8.81e+00, σ_min 3.62e-17, rank 1987/2035  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 5.99e-14)
+        pinv 3.37e+00 (red ✗, acc-0.90 ✗)  |  sg 4.08e+00 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=1115, m_F=917, N=2032): σ_max 8.81e+00, σ_min 3.60e-17, rank 1984/2032  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.08e-14)
+        pinv 4.23e+00 (red ✗, acc-0.90 ✗)  |  sg 4.75e+00 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=1115, m_F=911, N=2026): σ_max 8.81e+00, σ_min 2.82e-17, rank 1978/2026  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 5.82e-14)
+        pinv 2.97e+00 (red ✗, acc-0.90 ✗)  |  sg 3.27e+00 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=1115, m_F=906, N=2021): σ_max 8.81e+00, σ_min 6.07e-17, rank 1973/2021  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.12e-14)
+        pinv 1.56e+00 (red ✗, acc-0.90 ✗)  |  sg 3.50e+00 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=1115, m_F=906, N=2021): σ_max 8.81e+00, σ_min 6.07e-17, rank 1973/2021  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.12e-14)
+        pinv 2.62e+00 (red ✗, acc-0.90 ✗)  |  sg 2.57e+00 (red ✗) REJECTED
+    [iter 127 | nonunique_primal] local QP KKT (n=1115, m_F=904, N=2019): σ_max 8.81e+00, σ_min 1.05e-16, rank 1971/2019  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.19e-14)
+        pinv 4.36e-01 (red ✓, acc-0.90 ✓)  |  sg 2.09e+00 (red ✗) REJECTED
+    [iter 143 | nonunique_primal] local QP KKT (n=1115, m_F=904, N=2019): σ_max 8.81e+00, σ_min 1.05e-16, rank 1971/2019  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.19e-14)
+        pinv 7.17e-01 (red ✓, acc-0.90 ✓)  |  sg 7.17e-01 (red ✓) ACCEPTED
+    [iter 159 | nonunique_primal] local QP KKT (n=1115, m_F=904, N=2019): σ_max 8.81e+00, σ_min 1.05e-16, rank 1971/2019  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 6.19e-14)
+        pinv 6.19e+00 (red ✗, acc-0.90 ✗)  |  sg 7.18e-02 (red ✓) ACCEPTED
+    [iter 175 | nonunique_primal] local QP KKT (n=1115, m_F=903, N=2018): σ_max 8.81e+00, σ_min 3.34e-16, rank 1970/2018  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 5.71e-14)
+        pinv 2.06e-05 (red ✓, acc-0.90 ✓)  |  sg 1.05e-02 (red ✓) ACCEPTED
+    [iter 191 | nonunique_primal] local QP KKT (n=1115, m_F=903, N=2018): σ_max 8.81e+00, σ_min 3.34e-16, rank 1970/2018  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 5.71e-14)
+        pinv 4.82e-03 (red ✓, acc-0.90 ✓)  |  sg 1.02e-01 (red ✓) ACCEPTED
+    [iter 207 | nonunique_primal] local QP KKT (n=1115, m_F=903, N=2018): σ_max 8.81e+00, σ_min 3.34e-16, rank 1970/2018  ⚠ nonunique_primal (null-dim 48, primal-mass 6.93e+00, dual-mass 5.71e-14)
+        pinv 1.11e-01 (red ✓, acc-0.90 ✓)  |  sg 1.31e-01 (red ✓) ACCEPTED
+INTERESTING sslsq/HB_abb313_lasso (m=665, n=665) attempts=4 unique=0 inconsistent=0 nu-primal=3 nu-dual=0 nu-mixed=0 :: WARN LinearAlgebra.LAPACKException(1)
+    [iter 15 | nonunique_primal] local QP KKT (n=665, m_F=646, N=1311): σ_max 8.79e+00, σ_min 6.12e-17, rank 1304/1311  ⚠ nonunique_primal (null-dim 7, primal-mass 2.65e+00, dual-mass 5.29e-15)
+        pinv 1.29e+00 (red ✗, acc-0.90 ✗)  |  sg 3.60e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=665, m_F=639, N=1304): σ_max 8.79e+00, σ_min 8.30e-17, rank 1293/1304  ⚠ nonunique_primal (null-dim 11, primal-mass 3.32e+00, dual-mass 5.56e-15)
+        pinv 7.72e-02 (red ✓, acc-0.90 ✓)  |  sg 1.56e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=665, m_F=639, N=1304): σ_max 8.79e+00, σ_min 8.30e-17, rank 1293/1304  ⚠ nonunique_primal (null-dim 11, primal-mass 3.32e+00, dual-mass 5.56e-15)
+        pinv 3.36e-01 (red ✓, acc-0.90 ✓)  |  sg 3.36e-01 (red ✓) ACCEPTED
+    [iter 63 | unknown] 
+        pinv N/A  |  sg N/A
+UNIFORM-UNIQUE sslsq/HB_ash219_huber (m=657, n=742) attempts=13
+UNIFORM-UNIQUE sslsq/HB_ash219_lasso (m=389, n=389) attempts=4
+INTERESTING sslsq/HB_ash292_huber (m=876, n=1168) attempts=1 unique=0 inconsistent=0 nu-primal=1 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=1168, m_F=876, N=2044): σ_max 9.32e+00, σ_min 1.75e-16, rank 2041/2044  ⚠ nonunique_primal (null-dim 3, primal-mass 1.73e+00, dual-mass 9.50e-14)
+        pinv 2.03e-12 (red ✓, acc-0.90 ✓)  |  sg 2.16e-11 (red ✓) ACCEPTED
+UNIFORM-UNIQUE sslsq/HB_ash292_lasso (m=876, n=876) attempts=6
+UNIFORM-UNIQUE sslsq/HB_ash331_huber (m=993, n=1097) attempts=13
+UNIFORM-UNIQUE sslsq/HB_ash331_lasso (m=539, n=539) attempts=3
+UNIFORM-UNIQUE sslsq/HB_ash608_huber (m=1824, n=2012) attempts=12
+UNIFORM-UNIQUE sslsq/HB_ash608_lasso (m=984, n=984) attempts=3 :: WARN LinearAlgebra.LAPACKException(1)
+UNIFORM-UNIQUE sslsq/HB_ash85_huber (m=255, n=340) attempts=1
+UNIFORM-UNIQUE sslsq/HB_ash85_lasso (m=255, n=255) attempts=6
+UNIFORM-UNIQUE sslsq/HB_ash958_huber (m=2874, n=3166) attempts=1 :: WARN LinearAlgebra.LAPACKException(1)
+UNIFORM-UNIQUE sslsq/HB_ash958_lasso (m=1542, n=1542) attempts=3
+UNIFORM-UNIQUE sslsq/HB_illc1033_huber (m=3099, n=3419) attempts=1
+UNIFORM-UNIQUE sslsq/HB_illc1033_lasso (m=1673, n=1673) attempts=13
+NO-ATTEMPTS sslsq/HB_illc1850_huber (m=5550, n=6262)
+UNIFORM-UNIQUE sslsq/HB_illc1850_lasso (m=3274, n=3274) attempts=2
+UNIFORM-UNIQUE sslsq/HB_well1033_huber (m=3099, n=3419) attempts=1
+UNIFORM-UNIQUE sslsq/HB_well1033_lasso (m=1673, n=1673) attempts=3
+NO-ATTEMPTS sslsq/HB_well1850_huber (m=5550, n=6262)
+UNIFORM-UNIQUE sslsq/HB_well1850_lasso (m=3274, n=3274) attempts=2
+INTERESTING sslsq/NYPA_Maragal_1_huber (m=96, n=110) attempts=3 unique=0 inconsistent=0 nu-primal=3 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=110, m_F=96, N=206): σ_max 4.99e+00, σ_min 1.71e-16, rank 205/206  ⚠ nonunique_primal (null-dim 1, primal-mass 1.00e+00, dual-mass 3.27e-15)
+        pinv 2.97e-10 (red ✓, acc-0.90 ✓)  |  sg 2.08e-07 (red ✓) ACCEPTED
+    [iter 31 | nonunique_primal] local QP KKT (n=110, m_F=96, N=206): σ_max 4.99e+00, σ_min 1.71e-16, rank 205/206  ⚠ nonunique_primal (null-dim 1, primal-mass 1.00e+00, dual-mass 3.27e-15)
+        pinv 2.25e-03 (red ✓, acc-0.90 ✓)  |  sg 3.41e-04 (red ✓) ACCEPTED
+    [iter 47 | nonunique_primal] local QP KKT (n=110, m_F=96, N=206): σ_max 4.99e+00, σ_min 1.71e-16, rank 205/206  ⚠ nonunique_primal (null-dim 1, primal-mass 1.00e+00, dual-mass 3.27e-15)
+        pinv 2.00e+01 (red ✗, acc-0.90 ✗)  |  sg 2.61e+00 (red ✗) REJECTED
+UNIFORM-UNIQUE sslsq/NYPA_Maragal_1_lasso (m=60, n=60) attempts=6
+INTERESTING sslsq/NYPA_Maragal_2_huber (m=1665, n=2015) attempts=8 unique=0 inconsistent=0 nu-primal=8 nu-dual=0 nu-mixed=0
+    [iter 15 | nonunique_primal] local QP KKT (n=2015, m_F=1665, N=3680): σ_max 8.00e+00, σ_min 3.85e-17, rank 3525/3680  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.47e-14)
+        pinv 3.81e+00 (red ✗, acc-0.90 ✗)  |  sg 3.81e+00 (red ✗) REJECTED
+    [iter 31 | nonunique_primal] local QP KKT (n=2015, m_F=1665, N=3680): σ_max 8.00e+00, σ_min 3.85e-17, rank 3525/3680  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.47e-14)
+        pinv 6.17e+00 (red ✗, acc-0.90 ✗)  |  sg 6.17e+00 (red ✗) REJECTED
+    [iter 47 | nonunique_primal] local QP KKT (n=2015, m_F=1663, N=3678): σ_max 8.00e+00, σ_min 1.50e-17, rank 3523/3678  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.42e-14)
+        pinv 6.59e+00 (red ✗, acc-0.90 ✗)  |  sg 3.87e+01 (red ✗) REJECTED
+    [iter 63 | nonunique_primal] local QP KKT (n=2015, m_F=1660, N=3675): σ_max 8.00e+00, σ_min 2.25e-17, rank 3520/3675  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.34e-14)
+        pinv 2.80e+00 (red ✗, acc-0.90 ✗)  |  sg 9.47e+00 (red ✗) REJECTED
+    [iter 79 | nonunique_primal] local QP KKT (n=2015, m_F=1660, N=3675): σ_max 8.00e+00, σ_min 2.25e-17, rank 3520/3675  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.34e-14)
+        pinv 4.68e+00 (red ✗, acc-0.90 ✗)  |  sg 4.68e+00 (red ✗) REJECTED
+    [iter 95 | nonunique_primal] local QP KKT (n=2015, m_F=1659, N=3674): σ_max 8.00e+00, σ_min 8.65e-17, rank 3519/3674  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.63e-14)
+        pinv 2.00e-11 (red ✓, acc-0.90 ✓)  |  sg 5.35e+00 (red ✗) REJECTED
+    [iter 111 | nonunique_primal] local QP KKT (n=2015, m_F=1659, N=3674): σ_max 8.00e+00, σ_min 8.65e-17, rank 3519/3674  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.63e-14)
+        pinv 3.21e-11 (red ✓, acc-0.90 ✓)  |  sg 1.64e-03 (red ✓) ACCEPTED
+    [iter 127 | nonunique_primal] local QP KKT (n=2015, m_F=1659, N=3674): σ_max 8.00e+00, σ_min 8.65e-17, rank 3519/3674  ⚠ nonunique_primal (null-dim 155, primal-mass 1.24e+01, dual-mass 9.63e-14)
+        pinv N/A  |  sg 7.14e-03 (red ✓) ACCEPTED
+UNIFORM-UNIQUE sslsq/NYPA_Maragal_2_lasso (m=1255, n=1255) attempts=7
+NO-ATTEMPTS sslsq/NYPA_Maragal_3_huber (m=5070, n=5930)
+NO-ATTEMPTS sslsq/NYPA_Maragal_3_lasso (m=3410, n=3410)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_4_huber (m=5892, n=6926) (m+n=12818 > MAX_MN=12000)
+NO-ATTEMPTS sslsq/NYPA_Maragal_4_lasso (m=4032, n=4032)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_5_huber (m=13962, n=17282) (m+n=31244 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_5_lasso (m=11294, n=11294) (m+n=22588 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_6_huber (m=63765, n=73917) (m+n=137682 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_6_lasso (m=41559, n=41559) (m+n=83118 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_7_huber (m=140535, n=167099) (m+n=307634 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_7_lasso (m=99973, n=99973) (m+n=199946 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_8_huber (m=99636, n=174713) (m+n=274349 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/NYPA_Maragal_8_lasso (m=183366, n=183366) (m+n=366732 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/Pereyra_landmark_huber (m=215856, n=218560) (m+n=434416 > MAX_MN=12000)
+SKIPPED-BY-SIZE sslsq/Pereyra_landmark_lasso (m=77360, n=77360) (m+n=154720 > MAX_MN=12000)
+
+# ===================================================================
+# INCONSISTENT-KKT FP-REDUCTION CROSS-TAB
+# ===================================================================
+#
+# Total inconsistent-KKT attempts across all problems:  129
+#
+# pinv 'true fixed-point' candidate, on these attempts:
+#   reduced fp metric (fp_true/fp_van < 1):           0   (  0.0%)
+#   would pass safeguard (< 0.90):                    0   (  0.0%)
+#   pinv diagnostics missing/failed:                  0   (  0.0%)
+#
+# GMRES acceleration candidate, on these attempts:
+#   reduced fp metric (fp_acc/fp_van < 1):           25   ( 19.4%)
+#   accepted by safeguard (< 0.90):                   9   (  7.0%)
+
+# Sweep complete at 2026-05-24T13:00:47.734
