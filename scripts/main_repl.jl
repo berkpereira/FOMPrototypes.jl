@@ -4,7 +4,7 @@ using JLD2
 
 include("script_utils.jl")  # For save_diagnostic_matrix
 
-const ITER_COUNT = 300
+const ITER_COUNT = 5000
 const SAVE_MATRIX = false  # Set to true when you want to save
 const MATRIX_TAG = "optimal"  # Set to "optimal" or "non-optimal"
 
@@ -12,14 +12,14 @@ args = Dict(
     "ref-solver"   => :Clarabel,
     "variant"      => :ADMM, # in {:PDHG, :ADMM, Symbol(1), Symbol(2), Symbol(3), Symbol(4)}
 
-    "problem-set" => "sslsq",
-    "problem-name" => "NYPA_Maragal_1_lasso",
+    # "problem-set" => "sslsq",
+    # "problem-name" => "NYPA_Maragal_1_lasso",
 
     # "problem-set"  => "sslsq",
     # "problem-name" => "HB_ash292_huber",
 
-    # "problem-set"  => "mpc",
-    # "problem-name" => "quadcopter_2",
+    "problem-set"  => "mpc",
+    "problem-name" => "aircraft_1",
 
     # "problem-set"  => "opf_socp",
     # "problem-name" => "case3_lmbd",
@@ -44,7 +44,7 @@ args = Dict(
 
     # Krylov-specific
     "krylov-tries-per-mem"  => 1,
-    "krylov-operator"       => :B, # in {:tilde_A, :B}
+    "krylov-operator"       => :tilde_A, # in {:tilde_A, :B}
     "krylov-zero-init"      => false, # if true, initialise Krylov basis with random unit vector instead of warm-started FP residual
 
     # Anderson-specific (defaults: reg = :none, with :restarted and :QR2)
@@ -58,7 +58,7 @@ args = Dict(
     "randomized-operator" => :tilde_A, # in {:tilde_A, :B} - use L-I or L operator
 
     "rho"   => 0.1,
-    "rho-update-period" => 100,
+    "rho-update-period" => Inf,
     "theta" => 1.0,
 
     # "restart-period"    => Inf,
@@ -94,7 +94,7 @@ ws, ws_diag, results, to = FOMPrototypes.run_prototype(
     config.problem_name,
     config,
     full_diagnostics = true,
-    spec_plot_period = 50,
+    spec_plot_period = 200,
     # break_at = [60, 120],   # drop into Infiltrator at these iterations to inspect ws, ws_diag live
     );
 
