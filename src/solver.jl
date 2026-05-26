@@ -292,7 +292,17 @@ function construct_explicit_operator!(
     ws::AbstractWorkspace{T, I, V, M},
     ws_diag::DiagnosticsWorkspace
     ) where {T, I, V, M <: PrePPM} # note dispatch on PrePPM
-    
+
+    # Refresh dense W_inv from the live W_inv operator. Required because ρ
+    # updates rebuild ws.method.W_inv but leave ws_diag.W_inv_mat untouched,
+    # making the snapshot Ã a hybrid of stale W_inv and current ρ.
+    if ws.method.W_inv isa CholeskyInvOp
+        dense_I = Matrix{T}(LinearAlgebra.I, ws.p.n, ws.p.n)
+        ws_diag.W_inv_mat = Symmetric(ws.method.W_inv.F \ dense_I)
+    elseif ws.method.W_inv isa DiagInvOp
+        ws_diag.W_inv_mat = Diagonal(ws.method.W_inv.inv_diag)
+    end
+
     D_A_vec = zeros(T, ws.p.m)
 
     # fill in D_A matrix. note that nn_mask is only for inequality constraints,
