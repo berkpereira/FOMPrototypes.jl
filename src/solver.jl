@@ -432,8 +432,29 @@ function classify_reduced_kkt(
     rel_incons = rhs_norm > 0 ? incons_norm / rhs_norm : incons_norm
 
     if rel_incons > rel_tol
-        println(header * @sprintf("  ✗ INCONSISTENT (null-dim %d, ‖U_null'·rhs‖/‖rhs‖ = %.2e)",
-            length(null_idx), rel_incons))
+        # Split inconsistency by source. K_F symmetric, so left-null = right-null.
+        # Dual-block null vectors [0; y] with A_F'y = 0 hit b_F → primal infeasibility.
+        # Primal-block null vectors [d; 0] with Pd = 0, A_F d = 0 hit -c → dual infeasibility.
+        U_p = @view U_null[1:n, :]
+        U_d = @view U_null[n+1:N, :]
+        dual_infeas_norm   = norm(U_p' * ws.p.c)        # ‖U_p'·c‖ (sign irrelevant for norm)
+        primal_infeas_norm = norm(U_d' * @view ws.p.b[F_mask])
+        b_F_norm = norm(@view ws.p.b[F_mask])
+        c_norm   = norm(ws.p.c)
+        rel_primal = b_F_norm > 0 ? primal_infeas_norm / b_F_norm : primal_infeas_norm
+        rel_dual   = c_norm   > 0 ? dual_infeas_norm   / c_norm   : dual_infeas_norm
+
+        tag = if rel_primal > rel_tol && rel_dual > rel_tol
+            "PRIMAL+DUAL infeas"
+        elseif rel_primal > rel_tol
+            "PRIMAL infeas"
+        elseif rel_dual > rel_tol
+            "DUAL infeas (unbounded)"
+        else
+            "mixed/unclassified"
+        end
+        println(header * @sprintf("  ✗ INCONSISTENT [%s] (null-dim %d, ‖U'·rhs‖/‖rhs‖ = %.2e, ‖U_d'·b_F‖/‖b_F‖ = %.2e, ‖U_p'·c‖/‖c‖ = %.2e)",
+            tag, length(null_idx), rel_incons, rel_primal, rel_dual))
         return :inconsistent
     end
 
